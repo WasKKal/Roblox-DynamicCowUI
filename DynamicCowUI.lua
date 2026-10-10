@@ -212,7 +212,8 @@ function Library.Create()
     local function loadLucide()
         if lucideModule then return lucideModule end
         local urls = {
-            "https://cdn.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@master/lucide/init.lua",
+            "https://gcore.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v4/lucide/init.lua",
+            "https://cdn.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v4/lucide/init.lua",
             "https://raw.githubusercontent.com/WasKKal/DeltaExecutor-UI-Rebuild/master/lucide/init.lua",
         }
         local content
