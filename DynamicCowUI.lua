@@ -56,6 +56,51 @@ local Config = {
 local Library = {}
 
 function Library.Create()
+    local lucideModule = nil
+    local function loadLucide()
+        if lucideModule then return lucideModule end
+        local content
+        local localCachePath = "DynamicCowUI/Cache/lucide_module.lua"
+        if isfile and isfile(localCachePath) then
+            local ok, lc = pcall(readfile, localCachePath)
+            if ok and lc and #lc > 5000 then content = lc end
+        end
+        if not content then
+            local urls = {
+                "https://gcore.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v5/lucide/init.lua",
+                "https://cdn.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v5/lucide/init.lua",
+                "https://raw.githubusercontent.com/WasKKal/DeltaExecutor-UI-Rebuild/master/lucide/init.lua",
+            }
+            for _, url in ipairs(urls) do
+                for _ = 1, 2 do
+                    local ok, res = pcall(game.HttpGet, game, url)
+                    if ok and res and #res > 5000 then content = res break end
+                    task.wait(0.3)
+                end
+                if content then break end
+            end
+            if content then
+                pcall(function()
+                    if isfolder and not isfolder("DynamicCowUI") then makefolder("DynamicCowUI") end
+                    if isfolder and not isfolder("DynamicCowUI/Cache") then makefolder("DynamicCowUI/Cache") end
+                    writefile(localCachePath, content)
+                end)
+            end
+        end
+        if not content then warn("[DynamicCowUI] Lucide 资源下载失败，已取消加载 UI") return nil end
+        local func, err = loadstring(content)
+        if not func then warn("[DynamicCowUI] Lucide 解析失败: " .. tostring(err)) return nil end
+        local ok, module = pcall(func)
+        if not ok or type(module) ~= "table" or type(module.GetAsset) ~= "function" then return nil end
+        lucideModule = module
+        return lucideModule
+    end
+
+    if not loadLucide() then
+        warn("[DynamicCowUI] Lucide 资源未就绪，已取消加载 UI")
+        return
+    end
+
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "DynamicCowUI"
     screenGui.ResetOnSpawn = false
@@ -207,34 +252,6 @@ function Library.Create()
     RunService.Heartbeat:Connect(function(deltaTime)
         gradient.Rotation = (gradient.Rotation + deltaTime * flowSpeed) % 360
     end)
-
-    local lucideModule = nil
-    local function loadLucide()
-        if lucideModule then return lucideModule end
-        local urls = {
-            "https://gcore.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v5/lucide/init.lua",
-            "https://cdn.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v5/lucide/init.lua",
-            "https://raw.githubusercontent.com/WasKKal/DeltaExecutor-UI-Rebuild/master/lucide/init.lua",
-        }
-        local content
-        for _, url in ipairs(urls) do
-            for _ = 1, 2 do
-                local ok, res = pcall(game.HttpGet, game, url)
-                if ok and res and #res > 5000 then content = res break end
-                task.wait(0.3)
-            end
-            if content then break end
-        end
-        if not content then warn("[DynamicCowUI] Lucide 加载失败") return end
-        local func, err = loadstring(content)
-        if not func then warn("[DynamicCowUI] Lucide 解析失败: " .. tostring(err)) return end
-        local ok, module = pcall(func)
-        if not ok or type(module) ~= "table" or type(module.GetAsset) ~= "function" then return end
-        lucideModule = module
-        return lucideModule
-    end
-
-    task.spawn(loadLucide)
 
     local function createCheckIcon(parent)
         local lucide = loadLucide()
