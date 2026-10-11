@@ -150,6 +150,8 @@ local Config = {
     ActionHoldTime = 3,
     ActionExtendW = 40,
     ActionExtendH = 12,
+    IslandActionStrokeTransparency = 0.35,
+    IslandActionReveal = 0.3,
 }
 
 local Library = {}
@@ -1347,6 +1349,8 @@ function Library.CreateWindow(opts)
                             local titleTargetY = blockTop + titleH / 2
                             local infoTop = blockTop + titleH + vGap
                             local listLayout = islandTextContainer:FindFirstChildOfClass("UIListLayout")
+                            win._titleLeftX = contentLeftX
+                            win._titleY = titleTargetY
                             local function fadeTitleLabels(t)
                                 for _, cf in ipairs(islandTextContainer:GetChildren()) do
                                     local lb = cf:FindFirstChildOfClass("TextLabel")
@@ -1829,14 +1833,35 @@ function Library.CreateWindow(opts)
                     if lb then TweenService:Create(lb, TweenInfo.new(0.2), { TextTransparency = 1 }):Play() end
                 end
             end
-            local cy = Config.IslandPosition.Y.Scale * screenGui.AbsoluteSize.Y + Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+            local brandLbl = Instance.new("TextLabel")
+            brandLbl.Name = "IslandActionBrand"
+            brandLbl.BackgroundTransparency = 1
+            brandLbl.AnchorPoint = Vector2.new(0, 0.5)
+            brandLbl.Position = UDim2.new(0, win._titleLeftX or (Config.PanelMargin + Config.HeaderPad), 0, win._titleY or (Config.IslandPosition.Y.Offset + Config.HeaderPad + Config.IslandSize.Y.Offset / 2))
+            brandLbl.Size = UDim2.new(0, 400, 0, Config.IslandSize.Y.Offset)
+            brandLbl.Text = Config.IslandText
+            brandLbl.TextColor3 = Config.TitleColor
+            brandLbl.TextSize = Config.IslandTextSize
+            brandLbl.Font = Enum.Font.FredokaOne
+            brandLbl.TextXAlignment = Enum.TextXAlignment.Left
+            brandLbl.TextTransparency = 1
+            brandLbl.ZIndex = 60
+            brandLbl.Parent = screenGui
+            task.delay(0.2, function()
+                if brandLbl and brandLbl.Parent then TweenService:Create(brandLbl, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+            end)
+            local H = Config.IslandSize.Y.Offset
+            local cy = Config.IslandPosition.Y.Scale * screenGui.AbsoluteSize.Y + Config.IslandPosition.Y.Offset + H / 2
+            local pad = 20
+            local textW = game:GetService("TextService"):GetTextSize(text, Config.IslandTextSize, Enum.Font.FredokaOne, Vector2.new(4000, H)).X
+            local fullW = textW + pad * 2
             local cap = Instance.new("Frame")
             cap.Name = "IslandActionCapsule"
             cap.BackgroundTransparency = 1
             cap.AnchorPoint = Vector2.new(0.5, 0.5)
             cap.Position = UDim2.new(0.5, 0, 0, cy)
-            cap.Size = UDim2.new(0, 0, 0, Config.IslandSize.Y.Offset)
-            cap.AutomaticSize = Enum.AutomaticSize.X
+            cap.Size = UDim2.new(0, H, 0, H)
+            cap.ClipsDescendants = true
             cap.ZIndex = 60
             cap.Parent = screenGui
             local cc = Instance.new("UICorner")
@@ -1848,14 +1873,11 @@ function Library.CreateWindow(opts)
             cs.Transparency = 1
             cs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             cs.Parent = cap
-            local cpad = Instance.new("UIPadding")
-            cpad.PaddingLeft = UDim.new(0, 18)
-            cpad.PaddingRight = UDim.new(0, 18)
-            cpad.Parent = cap
             local clbl = Instance.new("TextLabel")
             clbl.BackgroundTransparency = 1
-            clbl.Size = UDim2.new(0, 0, 1, 0)
-            clbl.AutomaticSize = Enum.AutomaticSize.X
+            clbl.AnchorPoint = Vector2.new(0.5, 0.5)
+            clbl.Position = UDim2.new(0.5, 0, 0.5, 0)
+            clbl.Size = UDim2.new(0, fullW, 1, 0)
             clbl.Text = text
             clbl.TextColor3 = Color3.new(1, 1, 1)
             clbl.TextSize = Config.IslandTextSize
@@ -1863,14 +1885,21 @@ function Library.CreateWindow(opts)
             clbl.TextTransparency = 1
             clbl.ZIndex = 60
             clbl.Parent = cap
-            TweenService:Create(cs, TweenInfo.new(0.25), { Transparency = 0 }):Play()
-            TweenService:Create(clbl, TweenInfo.new(0.25), { TextTransparency = 0 }):Play()
+            local rv = Config.IslandActionReveal
+            TweenService:Create(cs, TweenInfo.new(rv, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Transparency = Config.IslandActionStrokeTransparency }):Play()
+            TweenService:Create(clbl, TweenInfo.new(rv, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+            TweenService:Create(cap, TweenInfo.new(rv, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, fullW, 0, H) }):Play()
             flash({ clbl })
             task.delay(hold, function()
                 if not alive then actionBusy = false return end
-                if cs and cs.Parent then TweenService:Create(cs, TweenInfo.new(0.3), { Transparency = 1 }):Play() end
-                if clbl and clbl.Parent then TweenService:Create(clbl, TweenInfo.new(0.3), { TextTransparency = 1 }):Play() end
-                task.delay(0.32, function() if cap and cap.Parent then cap:Destroy() end end)
+                TweenService:Create(cs, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Transparency = 1 }):Play()
+                TweenService:Create(clbl, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
+                TweenService:Create(cap, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Size = UDim2.new(0, H, 0, H) }):Play()
+                task.delay(0.38, function() if cap and cap.Parent then cap:Destroy() end end)
+                if brandLbl and brandLbl.Parent then
+                    TweenService:Create(brandLbl, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
+                    task.delay(0.32, function() if brandLbl and brandLbl.Parent then brandLbl:Destroy() end end)
+                end
                 if islandTextContainer and islandTextContainer.Parent then
                     for _, cf in ipairs(islandTextContainer:GetChildren()) do
                         local lb = cf:FindFirstChildOfClass("TextLabel")
