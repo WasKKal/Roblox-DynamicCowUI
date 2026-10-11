@@ -53,11 +53,20 @@ local Config = {
     PanelMargin = 20,
     BackdropDim = 0.4,
     IslandFinalTransparency = 0.4,
+    CreateWindowTimeout = 4,
+    ErrorText = "格式错误",
+    ErrorTextColor = Color3.fromRGB(255, 80, 80),
+    RedXColor = Color3.fromRGB(255, 60, 60),
+    ParticleCount = 26,
+    ParticleSize = 5,
+    ParticleGravity = 700,
 }
 
 local Library = {}
 
-function Library.Create()
+function Library.CreateWindow(opts)
+    opts = opts or {}
+    local title = opts.Title or Config.TitleText
     if isfolder and isfolder("lucide-icon-latest") then
         pcall(delfolder, "lucide-icon-latest")
     end
@@ -216,7 +225,7 @@ function Library.Create()
     glowLabel.Name = "GlowLabel"
     glowLabel.Size = UDim2.new(1, 0, 1, 0)
     glowLabel.BackgroundTransparency = 1
-    glowLabel.Text = Config.TitleText
+    glowLabel.Text = title
     glowLabel.TextColor3 = Color3.new(1, 1, 1)
     glowLabel.TextStrokeColor3 = Color3.new(1, 1, 1)
     glowLabel.TextStrokeTransparency = 1
@@ -231,7 +240,7 @@ function Library.Create()
     titleLabel.Name = "TitleLabel"
     titleLabel.Size = UDim2.new(1, 0, 1, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = Config.TitleText
+    titleLabel.Text = title
     titleLabel.TextColor3 = Color3.new(1, 1, 1)
     titleLabel.TextStrokeTransparency = 1
     titleLabel.TextTransparency = 1
@@ -256,6 +265,7 @@ function Library.Create()
 
     local flowSpeed = Config.FlowSpeedFast
     RunService.Heartbeat:Connect(function(deltaTime)
+        if not alive then return end
         gradient.Rotation = (gradient.Rotation + deltaTime * flowSpeed) % 360
     end)
 
@@ -350,7 +360,9 @@ function Library.Create()
         return ring
     end
 
-    local function createIslandText()
+    local function createIslandText(text, color)
+        text = text or Config.IslandText
+        color = color or Config.IslandTextColor
         local ballD = Config.IslandSize.Y.Offset
         local container = Instance.new("Frame")
         container.Name = "IslandTextContainer"
@@ -378,7 +390,7 @@ function Library.Create()
         list.Parent = container
 
         local idx = 0
-        for _, codepoint in utf8.codes(Config.IslandText) do
+        for _, codepoint in utf8.codes(text) do
             local ch = utf8.char(codepoint)
             if ch ~= " " then
                 local charFrame = Instance.new("Frame")
@@ -392,7 +404,7 @@ function Library.Create()
                 charLabel.Size = UDim2.new(1, 0, 1, 0)
                 charLabel.BackgroundTransparency = 1
                 charLabel.Text = ch
-                charLabel.TextColor3 = Config.IslandTextColor
+                charLabel.TextColor3 = color
                 charLabel.TextTransparency = 1
                 charLabel.TextSize = Config.IslandTextSize
                 charLabel.Font = Enum.Font.FredokaOne
@@ -416,6 +428,8 @@ function Library.Create()
     end
 
     local expanded = false
+    local islandTextContainer = nil
+    local alive = true
 
     local function splitBall(islandTextContainer)
         local ballD = Config.IslandSize.Y.Offset
@@ -480,6 +494,153 @@ function Library.Create()
         end)
     end
 
+    local function spawnRedXBall()
+        local ballD = Config.IslandSize.Y.Offset
+        local ballInitX = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset - ballD / 2
+        local ballCenterY = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+
+        local ball = Instance.new("Frame")
+        ball.Name = "ErrorBall"
+        ball.Size = UDim2.new(0, ballD, 0, ballD)
+        ball.Position = UDim2.new(0.5, ballInitX, 0, ballCenterY)
+        ball.AnchorPoint = Vector2.new(0.5, 0.5)
+        ball.BackgroundColor3 = Color3.new(0, 0, 0)
+        ball.BackgroundTransparency = 0
+        ball.BorderSizePixel = 0
+        ball.ClipsDescendants = true
+        ball.Parent = screenGui
+
+        local ballCorner = Instance.new("UICorner")
+        ballCorner.CornerRadius = UDim.new(0.5, 0)
+        ballCorner.Parent = ball
+
+        local lineLen = ballD * 0.5
+        local lineThick = 3
+        local red = Config.RedXColor
+        local function makeLine(rot)
+            local f = Instance.new("Frame")
+            f.Size = UDim2.new(0, 0, 0, lineThick)
+            f.Position = UDim2.new(0.5, 0, 0.5, 0)
+            f.AnchorPoint = Vector2.new(0.5, 0.5)
+            f.BackgroundColor3 = red
+            f.BorderSizePixel = 0
+            f.Rotation = rot
+            f.Parent = ball
+            return f
+        end
+        local line1 = makeLine(45)
+        local line2 = makeLine(-45)
+        TweenService:Create(line1, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, lineLen, 0, lineThick) }):Play()
+        task.delay(0.16, function()
+            if line2 and line2.Parent then
+                TweenService:Create(line2, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, lineLen, 0, lineThick) }):Play()
+            end
+        end)
+
+        local splitTween = TweenService:Create(ball, TweenInfo.new(Config.BallSplitTime, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, ballInitX + Config.BallSplitOffset, 0, ballCenterY),
+        })
+        splitTween:Play()
+        task.delay(Config.BallHoldTime, function()
+            if not ball or not ball.Parent then return end
+            local mergeTween = TweenService:Create(ball, TweenInfo.new(Config.BallSplitTime, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+                Position = UDim2.new(0.5, ballInitX, 0, ballCenterY),
+            })
+            mergeTween:Play()
+            mergeTween.Completed:Connect(function()
+                if ball and ball.Parent then ball:Destroy() end
+            end)
+        end)
+        return ball
+    end
+
+    local function explode()
+        local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+        local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+        local iw = Config.IslandSize.X.Offset
+        local ih = Config.IslandSize.Y.Offset
+        local parts = {}
+        for _ = 1, Config.ParticleCount do
+            local p = Instance.new("Frame")
+            p.Size = UDim2.fromOffset(Config.ParticleSize, Config.ParticleSize)
+            p.BackgroundColor3 = Color3.new(1, 1, 1)
+            p.BorderSizePixel = 0
+            p.AnchorPoint = Vector2.new(0.5, 0.5)
+            local px = cx + (math.random() * 2 - 1) * iw / 2
+            local py = cy + (math.random() * 2 - 1) * ih / 2
+            p.Position = UDim2.new(0, px, 0, py)
+            p.Parent = screenGui
+            local ang = math.random() * math.pi * 2
+            local spd = 140 + math.random() * 220
+            parts[#parts + 1] = { f = p, vx = math.cos(ang) * spd, vy = math.sin(ang) * spd - 160 }
+        end
+        local grav = Config.ParticleGravity
+        local conn
+        conn = RunService.Heartbeat:Connect(function(dt)
+            if not alive then if conn then conn:Disconnect() end return end
+            local sh = screenGui.AbsoluteSize.Y
+            local any = false
+            for _, pt in ipairs(parts) do
+                local p = pt.f
+                if p and p.Parent then
+                    pt.vy = pt.vy + grav * dt
+                    p.Position = UDim2.new(0, p.Position.X.Offset + pt.vx * dt, 0, p.Position.Y.Offset + pt.vy * dt)
+                    if p.AbsolutePosition.Y > sh + 30 then p:Destroy() else any = true end
+                end
+            end
+            if not any then if conn then conn:Disconnect() end end
+        end)
+    end
+
+    local function playErrorSequence()
+        expanded = false
+        local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+        local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+        flowSpeed = 0
+        if backdrop and backdrop.Parent then backdrop:Destroy() end
+        edge.AnchorPoint = Vector2.new(0.5, 0.5)
+        edge.Position = UDim2.new(0.5, cx, 0, cy)
+        TweenService:Create(edge, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Config.IslandSize, Position = Config.IslandPosition }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+        TweenService:Create(silverStroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
+        TweenService:Create(titleLabel, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
+        TweenService:Create(glowLabel, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+        TweenService:Create(titleScale, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+        if fillFrame and fillFrame.Parent then
+            TweenService:Create(fillFrame, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = Config.IslandFinalTransparency }):Play()
+        end
+
+        task.delay(0.5, function()
+            if islandTextContainer and islandTextContainer.Parent then
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then TweenService:Create(lb, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                end
+            end
+        end)
+        task.delay(0.75, function()
+            if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
+            islandTextContainer = createIslandText(Config.ErrorText, Config.ErrorTextColor)
+        end)
+
+        task.delay(0.6, function()
+            spawnRedXBall()
+        end)
+
+        task.delay(0.6 + Config.BallHoldTime + 0.95, function()
+            explode()
+            if fillFrame and fillFrame.Parent then
+                TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+            end
+            TweenService:Create(silverStroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+            TweenService:Create(stroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+            task.delay(1.0, function()
+                alive = false
+                if screenGui and screenGui.Parent then screenGui:Destroy() end
+            end)
+        end)
+    end
+
     task.delay(Config.ShrinkDelay, function()
         flowSpeed = Config.FlowSpeed
         gradient.Color = rainbowColors
@@ -528,7 +689,7 @@ function Library.Create()
             fillTween:Play()
             fillTween.Completed:Connect(function()
                 if backdrop and backdrop.Parent then backdrop:Destroy() end
-                local islandTextContainer = createIslandText()
+                islandTextContainer = createIslandText(title)
                 task.spawn(splitBall, islandTextContainer)
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
                 edge.Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
@@ -679,9 +840,21 @@ function Library.Create()
         end)
     end)
 
-    return { ScreenGui = screenGui, EdgeFrame = edge, Stroke = stroke, Gradient = gradient }
+    local win = {
+        ScreenGui = screenGui,
+        EdgeFrame = edge,
+        Stroke = stroke,
+        Gradient = gradient,
+        _added = false,
+        Add = function(self, content)
+            self._added = true
+        end,
+    }
+    task.delay(Config.CreateWindowTimeout, function()
+        if win._added then return end
+        playErrorSequence()
+    end)
+    return win
 end
-
-Library.Create()
 
 return Library
