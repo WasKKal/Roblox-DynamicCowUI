@@ -23,7 +23,7 @@ local Config = {
     FadeInTime = 0.6,
     TargetTransparency = 0.5,
     ShrinkDelay = 1,
-    ShrinkTime = 1.4,
+    ShrinkTime = 1.8,
     IslandSize = UDim2.new(0, 180, 0, 36),
     IslandPosition = UDim2.new(0.5, -90, 0, 10),
     IslandCornerRadius = UDim.new(0, 18),
@@ -486,7 +486,7 @@ function Library.Create()
         flowSpeed = Config.FlowSpeed
         gradient.Color = rainbowColors
         local shrinkTween = TweenService:Create(edge, TweenInfo.new(
-            Config.ShrinkTime, Enum.EasingStyle.Quint, Enum.EasingDirection.Out
+            Config.ShrinkTime, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out
         ), {
             Size = Config.IslandSize,
             Position = Config.IslandPosition,
@@ -582,8 +582,8 @@ function Library.Create()
                             }):Play()
                             local btn = Instance.new("ImageButton")
                             btn.Name = "PanelClose"
-                            btn.Size = UDim2.new(0, 28, 0, 28)
-                            btn.Position = UDim2.new(1, -m - 28, 0, m)
+                            btn.Size = UDim2.new(0, 20, 0, 20)
+                            btn.Position = UDim2.new(1, -26, 0, 6)
                             btn.BackgroundTransparency = 1
                             btn.ScaleType = Enum.ScaleType.Fit
                             btn.ImageColor3 = Color3.new(1, 1, 1)
