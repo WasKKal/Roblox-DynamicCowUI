@@ -563,6 +563,7 @@ function Library.Create()
                 local longPress = nil
                 local expanded = false
                 local closeBtn = nil
+                local titleIcon = nil
 
                 local function collapsePanel()
                     if not expanded then return end
@@ -581,6 +582,7 @@ function Library.Create()
                         Position = UDim2.new(Config.IslandPosition.X.Scale, cx, Config.IslandPosition.Y.Scale, cy),
                     }):Play()
                     if closeBtn then closeBtn:Destroy() closeBtn = nil end
+                    if titleIcon then titleIcon:Destroy() titleIcon = nil end
                     expanded = false
                     interacting = false
                 end
@@ -607,9 +609,38 @@ function Library.Create()
                                 Position = UDim2.new(0, m, 0, top),
                             }):Play()
                             local titlePad = 12
+                            local iconS = Config.LucideIconSize
+                            local iconGap = 6
                             TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                Position = UDim2.new(0, m + titlePad + islandTextContainer.AbsoluteSize.X / 2, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2),
+                                Position = UDim2.new(0, m + titlePad + iconS + iconGap + islandTextContainer.AbsoluteSize.X / 2, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2),
                             }):Play()
+                            if titleIcon then titleIcon:Destroy() end
+                            local ic = Instance.new("ImageLabel")
+                            ic.Name = "TitleIcon"
+                            ic.Size = UDim2.fromOffset(iconS, iconS)
+                            ic.AnchorPoint = Vector2.new(0.5, 0.5)
+                            ic.BackgroundTransparency = 1
+                            ic.ImageTransparency = 1
+                            ic.ImageColor3 = Config.IslandTextColor
+                            ic.ScaleType = Enum.ScaleType.Fit
+                            ic.Position = UDim2.new(0, m + titlePad + iconS / 2, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2)
+                            ic.Parent = screenGui
+                            titleIcon = ic
+                            task.spawn(function()
+                                local lucide = loadLucide()
+                                if lucide then
+                                    local ok, asset = pcall(lucide.GetAsset, "carton")
+                                    if ok and asset and asset.Url then
+                                        ic.Image = asset.Url
+                                        if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                    end
+                                end
+                                task.delay(Config.PanelExpandTime, function()
+                                    if ic and ic.Parent then
+                                        TweenService:Create(ic, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+                                    end
+                                end)
+                            end)
                             local btn = Instance.new("ImageButton")
                             btn.Name = "PanelClose"
                             btn.Size = UDim2.new(0, 20, 0, 20)
