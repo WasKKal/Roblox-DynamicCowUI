@@ -562,6 +562,12 @@ function Library.CreateWindow(opts)
 
                         task.delay(0.2, function()
                             explode()
+                            if islandTextContainer and islandTextContainer.Parent then
+                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                                    if lb then TweenService:Create(lb, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                                end
+                            end
                             if fillFrame and fillFrame.Parent then
                                 TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
                             end
