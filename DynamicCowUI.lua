@@ -301,11 +301,13 @@ function Library.Create()
         })
         ringGradient.Parent = ringStroke
 
+        local screenGui = parent:FindFirstAncestorOfClass("ScreenGui")
+
         local img = Instance.new("ImageLabel")
         img.Name = "CheckIcon"
         img.Image = icon.Url
         img.Size = UDim2.new(0, Config.LucideIconSize, 0, Config.LucideIconSize)
-        img.Position = UDim2.new(0.5, 0, 0.5, 0)
+        img.Position = UDim2.new(0, parent.AbsolutePosition.X + parent.AbsoluteSize.X / 2, 0, parent.AbsolutePosition.Y + parent.AbsoluteSize.Y / 2)
         img.AnchorPoint = Vector2.new(0.5, 0.5)
         img.BackgroundTransparency = 1
         img.ImageColor3 = Config.LucideColor
@@ -315,11 +317,28 @@ function Library.Create()
             img.ImageRectOffset = icon.ImageRectOffset
             img.ImageRectSize = icon.ImageRectSize
         end
-        img.Parent = parent
-        warn("[DynamicCowUI] 球内图标已创建 Url=" .. tostring(icon.Url))
+        img.Parent = screenGui
+        warn("[DynamicCowUI] 球内图标已创建 Url=" .. tostring(icon.Url) ..
+            " ballPos=" .. tostring(parent.AbsolutePosition) .. " ballSize=" .. tostring(parent.AbsoluteSize) ..
+            " imgPos=" .. tostring(img.AbsolutePosition))
 
         TweenService:Create(ringStroke, TweenInfo.new(Config.FadeInTime), { Transparency = 0 }):Play()
-        TweenService:Create(img, TweenInfo.new(Config.FadeInTime), { ImageTransparency = 0 }):Play()
+
+        local trackConn
+        trackConn = RunService.Heartbeat:Connect(function()
+            if not parent or not parent.Parent then
+                if img and img.Parent then img:Destroy() end
+                if trackConn then trackConn:Disconnect() end
+                return
+            end
+            img.Position = UDim2.new(0, parent.AbsolutePosition.X + parent.AbsoluteSize.X / 2, 0, parent.AbsolutePosition.Y + parent.AbsoluteSize.Y / 2)
+        end)
+
+        task.delay(Config.BallHoldTime, function()
+            if img and img.Parent then
+                TweenService:Create(img, TweenInfo.new(Config.FadeInTime), { ImageTransparency = 1 }):Play()
+            end
+        end)
 
         RunService.Heartbeat:Connect(function(dt)
             ringGradient.Rotation = (ringGradient.Rotation + dt * Config.RingSpeed) % 360
@@ -426,9 +445,6 @@ function Library.Create()
                 if node.Name == "CheckRing" then
                     local rs = node:FindFirstChildOfClass("UIStroke")
                     if rs then TweenService:Create(rs, TweenInfo.new(Config.FadeInTime), { Transparency = 1 }):Play() end
-                end
-                if node.Name == "CheckIcon" then
-                    TweenService:Create(node, TweenInfo.new(Config.FadeInTime), { ImageTransparency = 1 }):Play()
                 end
             end
             task.delay(Config.FadeInTime, function()
