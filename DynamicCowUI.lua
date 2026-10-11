@@ -333,10 +333,10 @@ function Library.Create()
         local ballD = Config.IslandSize.Y.Offset
         local container = Instance.new("Frame")
         container.Name = "IslandTextContainer"
-        container.Size = UDim2.new(0, Config.IslandSize.X.Offset - ballD - 8, 0, Config.IslandSize.Y.Offset - 8)
+        container.Size = UDim2.new(0, Config.IslandSize.X.Offset - 8, 0, Config.IslandSize.Y.Offset - 8)
         container.Position = UDim2.new(
             Config.IslandPosition.X.Scale,
-            Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2 - ballD / 2,
+            Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2,
             Config.IslandPosition.Y.Scale,
             Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
         )
