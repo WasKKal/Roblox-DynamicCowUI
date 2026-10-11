@@ -71,6 +71,7 @@ local Config = {
     IslandText = "DynamicCow",
     IslandTextColor = Color3.fromRGB(0, 255, 120),
     IslandTextSize = 20,
+    CJKFont = Enum.Font.GothamMedium,
     TitleLeftShift = 10,
     IslandTapScale = 1.06,
     TapExpandTime = 0.25,
@@ -585,6 +586,45 @@ function Library.CreateWindow(opts)
         return out
     end
 
+    local function charIsCJK(ch)
+        local ok, cp = pcall(utf8.codepoint, ch)
+        if not ok then return false end
+        return (cp >= 0x3000 and cp <= 0x303F)
+            or (cp >= 0x3400 and cp <= 0x4DBF)
+            or (cp >= 0x4E00 and cp <= 0x9FFF)
+            or (cp >= 0xF900 and cp <= 0xFAFF)
+            or (cp >= 0xFF00 and cp <= 0xFFEF)
+            or (cp >= 0x20000 and cp <= 0x2FA1F)
+    end
+
+    local function charFont(ch)
+        return charIsCJK(ch) and Config.CJKFont or Enum.Font.FredokaOne
+    end
+
+    local function textHasCJK(t)
+        if type(t) ~= "string" then return false end
+        for _, cp in utf8.codes(t) do
+            if charIsCJK(utf8.char(cp)) then return true end
+        end
+        return false
+    end
+
+    local function measureTextWidth(text, size)
+        local w = 0
+        for _, cp in utf8.codes(text) do
+            local ch = utf8.char(cp)
+            if ch == " " then
+                w = w + size * 0.32
+            else
+                local ok, s = pcall(function()
+                    return game:GetService("TextService"):GetTextSize(ch, size, charFont(ch), Vector2.new(4000, 1)).X
+                end)
+                w = w + (ok and s.X or size)
+            end
+        end
+        return w
+    end
+
     local function createIslandText(text, color, instant)
         text = text or Config.IslandText
         color = color or Config.IslandTextColor
@@ -632,7 +672,7 @@ function Library.CreateWindow(opts)
                 charLabel.TextColor3 = item.color
                 charLabel.TextTransparency = 1
                 charLabel.TextSize = Config.IslandTextSize
-                charLabel.Font = Enum.Font.FredokaOne
+                charLabel.Font = charFont(ch)
                 charLabel.TextXAlignment = Enum.TextXAlignment.Center
                 charLabel.TextYAlignment = Enum.TextYAlignment.Center
                 charLabel.Parent = charFrame
@@ -2299,7 +2339,7 @@ function Library.CreateWindow(opts)
             local H = Config.IslandSize.Y.Offset
             local cy = Config.IslandPosition.Y.Scale * screenGui.AbsoluteSize.Y + Config.IslandPosition.Y.Offset + H / 2 + Config.NotifyDrop
             local pad = 20
-            local textW = game:GetService("TextService"):GetTextSize(text, Config.IslandTextSize, Enum.Font.FredokaOne, Vector2.new(4000, H)).X
+            local textW = measureTextWidth(text, Config.IslandTextSize)
             local fullW = textW + pad * 2
             local cap = Instance.new("Frame")
             cap.Name = "IslandActionCapsule"
@@ -2326,8 +2366,8 @@ function Library.CreateWindow(opts)
             clbl.Size = UDim2.new(0, fullW, 1, 0)
             clbl.Text = text
             clbl.TextColor3 = Color3.new(1, 1, 1)
+            clbl.Font = textHasCJK(text) and Config.CJKFont or Enum.Font.FredokaOne
             clbl.TextSize = Config.IslandTextSize
-            clbl.Font = Enum.Font.FredokaOne
             clbl.TextTransparency = 1
             clbl.ZIndex = 60
             clbl.Parent = cap
