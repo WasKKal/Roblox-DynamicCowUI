@@ -577,6 +577,9 @@ function Library.Create()
                         edge.AnchorPoint = Vector2.new(0.5, 0.5)
                         edge.Position = UDim2.new(0.5, cx, 0, cy)
                     end)
+                    TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                        Position = UDim2.new(Config.IslandPosition.X.Scale, cx, Config.IslandPosition.Y.Scale, cy),
+                    }):Play()
                     if closeBtn then closeBtn:Destroy() closeBtn = nil end
                     expanded = false
                     interacting = false
@@ -602,6 +605,10 @@ function Library.Create()
                             TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                                 Size = UDim2.new(0, sw - m * 2, 0, sh - top - m),
                                 Position = UDim2.new(0, m, 0, top),
+                            }):Play()
+                            local titlePad = 12
+                            TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                Position = UDim2.new(0, m + titlePad + islandTextContainer.AbsoluteSize.X / 2, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2),
                             }):Play()
                             local btn = Instance.new("ImageButton")
                             btn.Name = "PanelClose"
