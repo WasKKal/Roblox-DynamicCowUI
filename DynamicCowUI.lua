@@ -201,6 +201,15 @@ local Config = {
     ActionFlashTime = 0.3,
     ActionFlashHold = 0.25,
     ActionInterruptExit = 0.18,
+    ParagraphIconSize = 20,
+    ParagraphIconGap = 8,
+    ParagraphTitleSize = 15,
+    ParagraphTitleColor = Color3.new(1, 1, 1),
+    ParagraphInfoSize = 13,
+    ParagraphInfoColor = Color3.fromRGB(190, 195, 200),
+    ParagraphTextGap = 3,
+    ParagraphRowHeight = 52,
+    ParagraphTitlePad = 4,
 }
 
 local Library = {}
@@ -1549,13 +1558,105 @@ function Library.CreateWindow(opts)
                         end)
                         return row
                     end
+                    local function makeParagraph(p, order)
+                        local frame = Instance.new("Frame")
+                        frame.Name = "SubParagraph"
+                        frame.BackgroundTransparency = 1
+                        frame.Size = UDim2.new(1, 0, 0, Config.ParagraphRowHeight)
+                        frame.LayoutOrder = order
+                        frame.ZIndex = 3
+                        local hl = Instance.new("UIListLayout")
+                        hl.FillDirection = Enum.FillDirection.Horizontal
+                        hl.HorizontalAlignment = Enum.HorizontalAlignment.Left
+                        hl.VerticalAlignment = Enum.VerticalAlignment.Center
+                        hl.SortOrder = Enum.SortOrder.LayoutOrder
+                        hl.Padding = UDim.new(0, Config.ParagraphIconGap)
+                        hl.Parent = frame
+                        local hasIco = (p.Icon ~= nil and p.Icon ~= "")
+                        if hasIco then
+                            local ic = Instance.new("ImageLabel")
+                            ic.Name = "ParaIcon"
+                            ic.Size = UDim2.fromOffset(Config.ParagraphIconSize, Config.ParagraphIconSize)
+                            ic.BackgroundTransparency = 1
+                            ic.ImageColor3 = p.IconColor or Config.ParagraphInfoColor
+                            ic.ScaleType = Enum.ScaleType.Fit
+                            ic.LayoutOrder = 1
+                            ic.ZIndex = 3
+                            ic.Parent = frame
+                            task.spawn(function()
+                                local lucide = loadLucide()
+                                if lucide then
+                                    local okP, asset = pcall(lucide.GetAsset, p.Icon)
+                                    if okP and asset and asset.Url then
+                                        ic.Image = asset.Url
+                                        if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                    end
+                                end
+                            end)
+                            p._iconLbl = ic
+                        end
+                        local txt = Instance.new("Frame")
+                        txt.Name = "ParaText"
+                        txt.BackgroundTransparency = 1
+                        txt.Size = UDim2.new(1, hasIco and -(Config.ParagraphIconSize + Config.ParagraphIconGap) or 0, 1, 0)
+                        txt.LayoutOrder = 2
+                        txt.ZIndex = 3
+                        txt.Parent = frame
+                        local vl = Instance.new("UIListLayout")
+                        vl.FillDirection = Enum.FillDirection.Vertical
+                        vl.HorizontalAlignment = Enum.HorizontalAlignment.Left
+                        vl.VerticalAlignment = Enum.VerticalAlignment.Center
+                        vl.SortOrder = Enum.SortOrder.LayoutOrder
+                        vl.Padding = UDim.new(0, Config.ParagraphTextGap)
+                        vl.Parent = txt
+                        local titleLbl = Instance.new("TextLabel")
+                        titleLbl.Name = "ParaTitle"
+                        titleLbl.BackgroundTransparency = 1
+                        titleLbl.Size = UDim2.new(1, 0, 0, Config.ParagraphTitleSize + Config.ParagraphTitlePad)
+                        titleLbl.Text = p.Title or ""
+                        titleLbl.TextColor3 = Config.ParagraphTitleColor
+                        titleLbl.TextSize = Config.ParagraphTitleSize
+                        titleLbl.Font = Enum.Font.GothamBold
+                        titleLbl.RichText = true
+                        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+                        titleLbl.TextYAlignment = Enum.TextYAlignment.Center
+                        titleLbl.LayoutOrder = 1
+                        titleLbl.ZIndex = 3
+                        titleLbl.Parent = txt
+                        local infoLbl = Instance.new("TextLabel")
+                        infoLbl.Name = "ParaInfo"
+                        infoLbl.BackgroundTransparency = 1
+                        infoLbl.Size = UDim2.new(1, 0, 1, -(Config.ParagraphTitleSize + Config.ParagraphTitlePad + Config.ParagraphTextGap))
+                        infoLbl.Text = p.Info or ""
+                        infoLbl.TextColor3 = Config.ParagraphInfoColor
+                        infoLbl.TextSize = Config.ParagraphInfoSize
+                        infoLbl.Font = Enum.Font.Gotham
+                        infoLbl.RichText = true
+                        infoLbl.TextWrapped = true
+                        infoLbl.TextXAlignment = Enum.TextXAlignment.Left
+                        infoLbl.TextYAlignment = Enum.TextYAlignment.Center
+                        infoLbl.LayoutOrder = 2
+                        infoLbl.ZIndex = 3
+                        infoLbl.Parent = txt
+                        p._titleLbl = titleLbl
+                        p._infoLbl = infoLbl
+                        p._iconLbl = hasIco and ic or nil
+                        return frame
+                    end
                     for _, st in ipairs(tab._subtitles) do
                         local btns = st._buttons or {}
                         local tgts = st._toggles or {}
-                        local ccount = #btns + #tgts
+                        local pgrs = st._paragraphs or {}
+                        local itemH = {}
+                        for _ in ipairs(btns) do itemH[#itemH + 1] = Config.ButtonHeight end
+                        for _ in ipairs(tgts) do itemH[#itemH + 1] = Config.ButtonHeight end
+                        for _ in ipairs(pgrs) do itemH[#itemH + 1] = Config.ParagraphRowHeight end
+                        local ccount = #itemH
+                        local sumH = 0
+                        for _, h in ipairs(itemH) do sumH = sumH + h end
                         local contentH
                         if ccount > 0 then
-                            contentH = Config.SubTitleBodyPadY * 2 + ccount * Config.ButtonHeight + (ccount - 1) * Config.ButtonGap
+                            contentH = Config.SubTitleBodyPadY * 2 + sumH + (ccount - 1) * Config.ButtonGap
                         else
                             contentH = 0
                         end
@@ -1604,6 +1705,9 @@ function Library.CreateWindow(opts)
                             end
                             for ti, tg in ipairs(tgts) do
                                 makeToggle(tg, #btns + ti).Parent = body
+                            end
+                            for pi, pg in ipairs(pgrs) do
+                                makeParagraph(pg, #btns + #tgts + pi).Parent = body
                             end
                         end
                         local hasIco = (st.Icon ~= nil and st.Icon ~= "")
@@ -2378,6 +2482,7 @@ function Library.CreateWindow(opts)
                 collapsed = false,
                 _buttons = {},
                 _toggles = {},
+                _paragraphs = {},
             }
             st.AddButton = function(self3, bopts)
                 bopts = bopts or {}
@@ -2433,6 +2538,48 @@ function Library.CreateWindow(opts)
                 table.insert(self3._toggles, tg)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return tg
+            end
+            st.AddParagraph = function(self3, popts)
+                popts = popts or {}
+                local okP, emP = pcall(function()
+                    if type(popts) ~= "table" then error("AddParagraph 入参不是 table") end
+                    if popts.Title == nil or type(popts.Title) ~= "string" or #popts.Title == 0 then error("AddParagraph Title 非法") end
+                    if popts.Info ~= nil and type(popts.Info) ~= "string" then error("AddParagraph Info 非法") end
+                    if popts.Icon ~= nil and type(popts.Icon) ~= "string" then error("AddParagraph Icon 非法") end
+                    if popts.IconColor ~= nil and typeof(popts.IconColor) ~= "Color3" then error("AddParagraph IconColor 非法") end
+                end)
+                if not okP then
+                    reportError("AddParagraph 异常: " .. tostring(emP))
+                    win:Error()
+                    return nil
+                end
+                local pg = {
+                    Title = popts.Title,
+                    Info = popts.Info or "",
+                    Icon = popts.Icon,
+                    IconColor = popts.IconColor,
+                }
+                pg.SetTitle = function(self4, v)
+                    self4.Title = v and tostring(v) or ""
+                    if self4._titleLbl and self4._titleLbl.Parent then self4._titleLbl.Text = self4.Title end
+                end
+                pg.SetInfo = function(self4, v)
+                    self4.Info = v and tostring(v) or ""
+                    if self4._infoLbl and self4._infoLbl.Parent then self4._infoLbl.Text = self4.Info end
+                end
+                pg.SetIcon = function(self4, v)
+                    self4.Icon = (type(v) == "string" and v ~= "") and v or nil
+                    if win._rebuildTabs then win._rebuildTabs() end
+                end
+                pg.SetIconColor = function(self4, v)
+                    if typeof(v) == "Color3" then
+                        self4.IconColor = v
+                        if self4._iconLbl and self4._iconLbl.Parent then self4._iconLbl.ImageColor3 = v end
+                    end
+                end
+                table.insert(self3._paragraphs, pg)
+                if win._rebuildTabs then win._rebuildTabs() end
+                return pg
             end
             table.insert(self2._subtitles, st)
             if win._rebuildTabs then win._rebuildTabs() end
