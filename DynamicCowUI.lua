@@ -81,7 +81,7 @@ local Config = {
     IslandDragDamp = 0.55,
     IslandDragMax = 70,
     IslandDragFixed = 54,
-    IslandDragStopDelay = 0.14,
+    IslandDragStopDelay = 0.35,
     IslandDragHold = 1.5,
     PanelExpandTime = 0.55,
     PanelMargin = 20,
@@ -129,6 +129,8 @@ local Config = {
     ContentEmptyText = "请先选中一个页面",
     ContentNoCtrlIcon = "ghost",
     ContentNoCtrlText = "这里还没有控件",
+    ContentScrollBarThickness = 4,
+    ContentScrollBarTransparency = 0.5,
     TabSelFill = Color3.fromRGB(34, 34, 42),
     TabSelFillTransparency = 0.15,
     TabSelStroke = Color3.new(1, 1, 1),
@@ -147,6 +149,7 @@ local Config = {
     SubTitleBlockGap = 10,
     SubTitleCollapseTime = 0.3,
     SubTitleBodyPadY = 8,
+    SubTitleBodyPadX = 4,
     ButtonHeight = 34,
     ButtonGap = 8,
     ButtonCorner = UDim.new(0.5, 0),
@@ -175,7 +178,7 @@ local Config = {
     CloseDialogW = 460,
     CloseDialogH = 168,
     CloseDialogFill = Color3.fromRGB(22, 22, 28),
-    CloseDialogFillTransparency = 0.05,
+    CloseDialogFillTransparency = 0.4,
     CloseDialogCorner = UDim.new(0, 18),
     CloseDialogPad = 22,
     CloseDialogBtnH = 42,
@@ -350,6 +353,16 @@ function Library.CreateWindow(opts)
     local fillCorner = Instance.new("UICorner")
     fillCorner.CornerRadius = Config.IslandCornerRadius
     fillCorner.Parent = fillFrame
+
+    local contentRoot = Instance.new("CanvasGroup")
+    contentRoot.Name = "ContentRoot"
+    contentRoot.Size = UDim2.new(1, 0, 1, 0)
+    contentRoot.Position = UDim2.new(0, 0, 0, 0)
+    contentRoot.BackgroundTransparency = 1
+    contentRoot.BorderSizePixel = 0
+    contentRoot.ClipsDescendants = false
+    contentRoot.ZIndex = 2
+    contentRoot.Parent = edge
 
     local stroke = Instance.new("UIStroke")
     stroke.Thickness = Config.BorderThickness
@@ -651,6 +664,8 @@ function Library.CreateWindow(opts)
     local ready = false
     local actionEnd = nil
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
+    local titleIcon = nil
+    local infoLabel = nil
 
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
         local s0 = edge.Size
@@ -957,20 +972,33 @@ function Library.CreateWindow(opts)
 
     local function playErrorSequence()
         expanded = false
-        local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-        local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
         flowSpeed = 0
         if backdrop and backdrop.Parent then backdrop:Destroy() end
-        edge.AnchorPoint = Vector2.new(0.5, 0.5)
-        TweenService:Create(edge, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Config.IslandSize, Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2) }):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
-        TweenService:Create(silverStroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
-        TweenService:Create(titleLabel, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
-        TweenService:Create(glowLabel, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-        TweenService:Create(titleScale, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-        if fillFrame and fillFrame.Parent then
-            TweenService:Create(fillFrame, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = Config.IslandFinalTransparency }):Play()
+        -- 1) 渐隐：面板内所有控件（选项卡/按钮/开关等）与标题图标/副标题先淡出，避免被压缩进灵动岛
+        local fadeDur = 0.35
+        if contentRoot and contentRoot.Parent then
+            TweenService:Create(contentRoot, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { GroupTransparency = 1, BackgroundTransparency = 1 }):Play()
         end
+        if titleIcon and titleIcon.Parent then
+            TweenService:Create(titleIcon, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
+        end
+        if infoLabel and infoLabel.Parent then
+            TweenService:Create(infoLabel, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
+        end
+        -- 2) 收起：内容淡出后再把灵动岛胶囊复位（避免控件被压缩）
+        task.delay(fadeDur, function()
+            if not alive then return end
+            edge.AnchorPoint = Vector2.new(0.5, 0.5)
+            TweenService:Create(edge, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Config.IslandSize, Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2) }):Play()
+            TweenService:Create(stroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+            TweenService:Create(silverStroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
+            TweenService:Create(titleLabel, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
+            TweenService:Create(glowLabel, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+            TweenService:Create(titleScale, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+            if fillFrame and fillFrame.Parent then
+                TweenService:Create(fillFrame, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = Config.IslandFinalTransparency }):Play()
+            end
+        end)
 
         task.delay(0.5, function()
             if islandTextContainer and islandTextContainer.Parent then
@@ -985,11 +1013,11 @@ function Library.CreateWindow(opts)
             islandTextContainer = createIslandText(Config.ErrorText, Config.ErrorTextColor)
         end)
 
-        task.delay(0.6, function()
+        task.delay(fadeDur + 0.6, function()
             spawnRedXBall()
         end)
 
-        task.delay(0.6 + Config.BallHoldTime + 0.95, function()
+        task.delay(fadeDur + 0.6 + Config.BallHoldTime + 0.95, function()
             explode()
             if fillFrame and fillFrame.Parent then
                 TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
@@ -1089,6 +1117,7 @@ function Library.CreateWindow(opts)
                         end
                     end
                     if dx < 0 then dx = 0 end
+                    if dragging and dragRestoreTmr then task.cancel(dragRestoreTmr) dragRestoreTmr = nil end
                     local extra = math.min(dx * Config.IslandDragDamp, Config.IslandDragMax)
                     if dragBaseSize then
                         edge.Size = UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + extra, dragBaseSize.Y.Scale, dragBaseSize.Y.Offset)
@@ -1109,8 +1138,6 @@ function Library.CreateWindow(opts)
                     end)
                 end)
                 local closeBtn = nil
-                local titleIcon = nil
-                local infoLabel = nil
                 local tabListContainer = nil
                 local tabContentContainer = nil
                 local tabContentBase = nil
@@ -1363,6 +1390,8 @@ function Library.CreateWindow(opts)
                             local bp = Instance.new("UIPadding")
                             bp.PaddingTop = UDim.new(0, Config.SubTitleBodyPadY)
                             bp.PaddingBottom = UDim.new(0, Config.SubTitleBodyPadY)
+                            bp.PaddingLeft = UDim.new(0, Config.SubTitleBodyPadX)
+                            bp.PaddingRight = UDim.new(0, Config.SubTitleBodyPadX)
                             bp.Parent = body
                             for bi, bt in ipairs(btns) do
                                 makeButton(bt, bi).Parent = body
@@ -1450,6 +1479,8 @@ function Library.CreateWindow(opts)
                 end
                 local function animateContentIn()
                     if not tabContentContainer or not tabContentBase then return end
+                    local sc = tabContentContainer:FindFirstChild("TabScroll")
+                    if sc then sc.CanvasPosition = Vector2.new(0, 0) end
                     tabContentContainer.GroupTransparency = 1
                     tabContentContainer.Position = UDim2.new(tabContentBase.X.Scale, tabContentBase.X.Offset + 18, tabContentBase.Y.Scale, tabContentBase.Y.Offset)
                     TweenService:Create(tabContentContainer, TweenInfo.new(Config.PageAnimTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
@@ -1638,7 +1669,7 @@ function Library.CreateWindow(opts)
                                 div.BackgroundColor3 = Config.DividerColor
                                 div.BorderSizePixel = 0
                                 div.ZIndex = 2
-                                div.Parent = edge
+                                div.Parent = contentRoot
                                 headerDivider = div
                                 local listTop = divY + Config.HeaderDividerGap
                                 local listW = Config.TabWidth
@@ -1649,7 +1680,7 @@ function Library.CreateWindow(opts)
                                     listFrame.Position = UDim2.new(0, titlePad, 0, listTop)
                                     listFrame.Size = UDim2.new(0, listW, 1, -(listTop + m))
                                     listFrame.ZIndex = 2
-                                    listFrame.Parent = edge
+                                    listFrame.Parent = contentRoot
                                     tabListContainer = listFrame
                                     local sep = Instance.new("Frame")
                                     sep.Name = "TabSeparator"
@@ -1658,7 +1689,7 @@ function Library.CreateWindow(opts)
                                     sep.BackgroundColor3 = Config.DividerColor
                                     sep.BorderSizePixel = 0
                                     sep.ZIndex = 2
-                                    sep.Parent = edge
+                                    sep.Parent = contentRoot
                                     tabSeparator = sep
                                     local contentX = titlePad + listW + Config.TabAreaGap
                                     local contentFrame = Instance.new("CanvasGroup")
@@ -1668,7 +1699,7 @@ function Library.CreateWindow(opts)
                                     contentFrame.Size = UDim2.new(1, -(contentX + titlePad), 1, -(listTop + m))
                                     contentFrame.ClipsDescendants = true
                                     contentFrame.ZIndex = 2
-                                    contentFrame.Parent = edge
+                                    contentFrame.Parent = contentRoot
                                     tabContentContainer = contentFrame
                                     tabContentBase = contentFrame.Position
                                     local function makeStateGroup(iconName, text)
@@ -1718,12 +1749,29 @@ function Library.CreateWindow(opts)
                                     end
                                     tabContentEmpty = makeStateGroup(Config.ContentEmptyIcon, Config.ContentEmptyText)
                                     tabContentNoCtrl = makeStateGroup(Config.ContentNoCtrlIcon, Config.ContentNoCtrlText)
+                                    local scroll = Instance.new("ScrollingFrame")
+                                    scroll.Name = "TabScroll"
+                                    scroll.BackgroundTransparency = 1
+                                    scroll.BorderSizePixel = 0
+                                    scroll.Size = UDim2.new(1, 0, 1, 0)
+                                    scroll.Position = UDim2.new(0, 0, 0, 0)
+                                    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+                                    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+                                    scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+                                    scroll.ScrollingEnabled = true
+                                    scroll.ScrollBarThickness = Config.ContentScrollBarThickness
+                                    scroll.ScrollBarImageTransparency = Config.ContentScrollBarTransparency
+                                    scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+                                    scroll.ClipsDescendants = true
+                                    scroll.ZIndex = 2
+                                    scroll.Parent = contentFrame
                                     local subList = Instance.new("Frame")
                                     subList.Name = "TabSubtitleList"
                                     subList.BackgroundTransparency = 1
-                                    subList.Size = UDim2.new(1, 0, 1, 0)
+                                    subList.Size = UDim2.new(1, 0, 0, 0)
+                                    subList.AutomaticSize = Enum.AutomaticSize.Y
                                     subList.ZIndex = 2
-                                    subList.Parent = contentFrame
+                                    subList.Parent = scroll
                                     local subListLayout = Instance.new("UIListLayout")
                                     subListLayout.FillDirection = Enum.FillDirection.Vertical
                                     subListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
@@ -1846,7 +1894,7 @@ function Library.CreateWindow(opts)
                                     lbl.TextXAlignment = Enum.TextXAlignment.Center
                                     lbl.TextYAlignment = Enum.TextYAlignment.Center
                                     lbl.ZIndex = 2
-                                    lbl.Parent = edge
+                                    lbl.Parent = contentRoot
                                     tabEmptyLabel = lbl
                                 end
                             end
@@ -1859,7 +1907,7 @@ function Library.CreateWindow(opts)
                             btn.BackgroundTransparency = 1
                             btn.ScaleType = Enum.ScaleType.Fit
                             btn.ImageColor3 = Color3.new(1, 1, 1)
-                            btn.Parent = edge
+                            btn.Parent = contentRoot
                             local closeHold = nil
                             local showCloseConfirm = nil
                             btn.InputBegan:Connect(function(bi)
@@ -1974,7 +2022,7 @@ function Library.CreateWindow(opts)
                                 dlg.Size = UDim2.new(1, 0, 1, 0)
                                 dlg.ZIndex = 70
                                 dlg.ClipsDescendants = true
-                                dlg.Parent = edge
+                                dlg.Parent = contentRoot
                                 local dc = Instance.new("UICorner")
                                 dc.CornerRadius = Config.CloseDialogCorner
                                 dc.Parent = dlg
