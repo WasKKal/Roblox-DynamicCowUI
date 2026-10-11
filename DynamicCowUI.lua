@@ -435,19 +435,13 @@ function Library.CreateWindow(opts)
     local alive = true
 
     local function explode()
-        local aPos, aSize
-        if edge and edge.Parent then
-            aPos = edge.AbsolutePosition
-            aSize = edge.AbsoluteSize
-        else
-            local sw = screenGui.AbsoluteSize.X
-            local sh = screenGui.AbsoluteSize.Y
-            aPos = Vector2.new(
-                Config.IslandPosition.X.Scale * sw + Config.IslandPosition.X.Offset,
-                Config.IslandPosition.Y.Scale * sh + Config.IslandPosition.Y.Offset
-            )
-            aSize = Vector2.new(Config.IslandSize.X.Offset, Config.IslandSize.Y.Offset)
-        end
+        local sw = screenGui.AbsoluteSize.X
+        local sh = screenGui.AbsoluteSize.Y
+        local aPos = Vector2.new(
+            Config.IslandPosition.X.Scale * sw + Config.IslandPosition.X.Offset,
+            Config.IslandPosition.Y.Scale * sh + Config.IslandPosition.Y.Offset
+        )
+        local aSize = Vector2.new(Config.IslandSize.X.Offset, Config.IslandSize.Y.Offset)
         local cx = aPos.X + aSize.X / 2
         local cy = aPos.Y + aSize.Y / 2
         local iw = aSize.X
@@ -551,21 +545,22 @@ function Library.CreateWindow(opts)
                 })
                 mergeTween:Play()
                 mergeTween.Completed:Connect(function()
-                    ball:Destroy()
-                    if islandTextContainer and not isError then
-                        for _, charFrame in ipairs(islandTextContainer:GetChildren()) do
-                            local lbl = charFrame:FindFirstChildOfClass("TextLabel")
-                            if lbl then
-                                TweenService:Create(lbl, TweenInfo.new(Config.FadeInTime), { TextColor3 = Color3.new(1, 1, 1) }):Play()
+                    if isError then
+                        local fi = Config.FadeInTime
+                        for _, node in ipairs(ball:GetChildren()) do
+                            if node:IsA("GuiObject") then
+                                TweenService:Create(node, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
                             end
                         end
-                    end
-                    if isError then
+                        TweenService:Create(ball, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+                        task.delay(fi, function() if ball and ball.Parent then ball:Destroy() end end)
+
                         flowSpeed = 0
-                        TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                        TweenService:Create(stroke, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                         silverStroke.Color = Config.RedXColor
-                        TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
-                        task.delay(Config.BallHoldTime + 0.4, function()
+                        TweenService:Create(silverStroke, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
+
+                        task.delay(0.2, function()
                             explode()
                             if fillFrame and fillFrame.Parent then
                                 TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
@@ -578,6 +573,15 @@ function Library.CreateWindow(opts)
                             end)
                         end)
                     else
+                        if islandTextContainer then
+                            for _, charFrame in ipairs(islandTextContainer:GetChildren()) do
+                                local lbl = charFrame:FindFirstChildOfClass("TextLabel")
+                                if lbl then
+                                    TweenService:Create(lbl, TweenInfo.new(Config.FadeInTime), { TextColor3 = Color3.new(1, 1, 1) }):Play()
+                                end
+                            end
+                        end
+                        ball:Destroy()
                         flowSpeed = 0
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
@@ -642,7 +646,13 @@ function Library.CreateWindow(opts)
             })
             mergeTween:Play()
             mergeTween.Completed:Connect(function()
-                if ball and ball.Parent then ball:Destroy() end
+                for _, node in ipairs(ball:GetChildren()) do
+                    if node:IsA("GuiObject") then
+                        TweenService:Create(node, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+                    end
+                end
+                TweenService:Create(ball, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+                task.delay(Config.FadeInTime, function() if ball and ball.Parent then ball:Destroy() end end)
             end)
         end)
         return ball
