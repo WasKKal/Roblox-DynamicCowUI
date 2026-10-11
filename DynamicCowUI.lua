@@ -433,7 +433,7 @@ function Library.CreateWindow(opts)
     local islandTextContainer = nil
     local alive = true
 
-    local function splitBall(islandTextContainer)
+    local function splitBall(islandTextContainer, isError)
         local ballD = Config.IslandSize.Y.Offset
         local ballInitX = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset - ballD / 2
         local ballCenterY = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
@@ -459,7 +459,30 @@ function Library.CreateWindow(opts)
             Position = UDim2.new(0.5, ballInitX + Config.BallSplitOffset, 0, ballCenterY),
         })
         splitTween:Play()
-        task.spawn(createCheckIcon, ball)
+        if isError then
+            local red = Config.RedXColor
+            local function makeRedLine(rot)
+                local f = Instance.new("Frame")
+                f.Size = UDim2.new(0, 0, 0, 3)
+                f.Position = UDim2.new(0.5, 0, 0.5, 0)
+                f.AnchorPoint = Vector2.new(0.5, 0.5)
+                f.BackgroundColor3 = red
+                f.BorderSizePixel = 0
+                f.Rotation = rot
+                f.Parent = ball
+                return f
+            end
+            local l1 = makeRedLine(45)
+            local l2 = makeRedLine(-45)
+            TweenService:Create(l1, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, ballD * 0.5, 0, 3) }):Play()
+            task.delay(0.16, function()
+                if l2 and l2.Parent then
+                    TweenService:Create(l2, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, ballD * 0.5, 0, 3) }):Play()
+                end
+            end)
+        else
+            task.spawn(createCheckIcon, ball)
+        end
 
         task.delay(Config.BallHoldTime, function()
             for _, node in ipairs(ball:GetChildren()) do
@@ -477,7 +500,7 @@ function Library.CreateWindow(opts)
                 mergeTween:Play()
                 mergeTween.Completed:Connect(function()
                     ball:Destroy()
-                    if islandTextContainer then
+                    if islandTextContainer and not isError then
                         for _, charFrame in ipairs(islandTextContainer:GetChildren()) do
                             local lbl = charFrame:FindFirstChildOfClass("TextLabel")
                             if lbl then
@@ -490,6 +513,20 @@ function Library.CreateWindow(opts)
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
                         TweenService:Create(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
+                        if isError then
+                            task.delay(Config.BallHoldTime, function()
+                                explode()
+                                if fillFrame and fillFrame.Parent then
+                                    TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+                                end
+                                TweenService:Create(silverStroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                                TweenService:Create(stroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                                task.delay(1.0, function()
+                                    alive = false
+                                    if screenGui and screenGui.Parent then screenGui:Destroy() end
+                                end)
+                            end)
+                        end
                     end)
                 end)
             end)
@@ -642,7 +679,6 @@ function Library.CreateWindow(opts)
     end
 
     task.delay(Config.ShrinkDelay, function()
-        if opts.ImmediatelyError then return end
         flowSpeed = Config.FlowSpeed
         gradient.Color = rainbowColors
         local shrinkTween = TweenService:Create(edge, TweenInfo.new(
@@ -857,11 +893,6 @@ function Library.CreateWindow(opts)
             end
         end,
     }
-    if opts.ImmediatelyError then
-        task.delay(0.35, function()
-            if alive and not win._added then playErrorSequence() end
-        end)
-    end
     return win
 end
 
