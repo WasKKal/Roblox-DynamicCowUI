@@ -56,6 +56,8 @@ local Config = {
 local Library = {}
 
 function Library.Create()
+    warn("[DynamicCowUI] 版本 = 2026-10-11-v7 (图标与ball用Position同步)")
+
     local lucideModule = nil
     local function loadLucide()
         if lucideModule then return lucideModule end
