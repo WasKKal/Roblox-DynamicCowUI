@@ -393,7 +393,7 @@ function Library.CreateWindow(opts)
         return ring
     end
 
-    local function createIslandText(text, color)
+    local function createIslandText(text, color, instant)
         text = text or Config.IslandText
         color = color or Config.IslandTextColor
         local ballD = Config.IslandSize.Y.Offset
@@ -445,15 +445,20 @@ function Library.CreateWindow(opts)
                 charLabel.TextYAlignment = Enum.TextYAlignment.Center
                 charLabel.Parent = charFrame
 
-                local dir = (idx % 2 == 0) and -1 or 1
-                local offset = Config.IslandSize.Y.Offset + 8
-                charLabel.Position = UDim2.new(0, 0, 0, dir * offset)
-                TweenService:Create(charLabel, TweenInfo.new(
-                    Config.TitleShrinkTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
-                ), {
-                    Position = UDim2.new(0, 0, 0, 0),
-                    TextTransparency = 0,
-                }):Play()
+                if instant then
+                    charLabel.Position = UDim2.new(0, 0, 0, 0)
+                    charLabel.TextTransparency = 0
+                else
+                    local dir = (idx % 2 == 0) and -1 or 1
+                    local offset = Config.IslandSize.Y.Offset + 8
+                    charLabel.Position = UDim2.new(0, 0, 0, dir * offset)
+                    TweenService:Create(charLabel, TweenInfo.new(
+                        Config.TitleShrinkTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
+                    ), {
+                        Position = UDim2.new(0, 0, 0, 0),
+                        TextTransparency = 0,
+                    }):Play()
+                end
                 idx = idx + 1
             end
         end
@@ -591,12 +596,12 @@ function Library.CreateWindow(opts)
                         TweenService:Create(silverStroke, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
 
                         task.delay(0.2, function()
+                            if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
+                            islandTextContainer = createIslandText(Config.ErrorText, Config.ErrorTextColor, true)
                             explode()
-                            if islandTextContainer and islandTextContainer.Parent then
-                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then TweenService:Create(lb, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
-                                end
+                            for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                local lb = cf:FindFirstChildOfClass("TextLabel")
+                                if lb then TweenService:Create(lb, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
                             end
                             if fillFrame and fillFrame.Parent then
                                 TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
@@ -618,6 +623,10 @@ function Library.CreateWindow(opts)
                             end
                         end
                         ball:Destroy()
+                        task.delay(Config.FadeInTime, function()
+                            if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
+                            islandTextContainer = createIslandText(title, Config.IslandTextColor, true)
+                        end)
                         flowSpeed = 0
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
@@ -790,7 +799,7 @@ function Library.CreateWindow(opts)
             fillTween:Play()
             fillTween.Completed:Connect(function()
                 if backdrop and backdrop.Parent then backdrop:Destroy() end
-                islandTextContainer = createIslandText(isError and Config.ErrorText or title, isError and Config.ErrorTextColor or Config.IslandTextColor)
+                islandTextContainer = createIslandText("DynamicCow", Config.IslandTextColor)
                 task.spawn(function() splitBall(islandTextContainer, isError) end)
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
                 edge.Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
