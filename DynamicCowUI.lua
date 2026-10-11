@@ -336,13 +336,13 @@ function Library.Create()
         container.Size = UDim2.new(0, Config.IslandSize.X.Offset - ballD - 8, 0, Config.IslandSize.Y.Offset - 8)
         container.Position = UDim2.new(
             Config.IslandPosition.X.Scale,
-            Config.IslandPosition.X.Offset + 4,
+            Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2 - ballD / 2,
             Config.IslandPosition.Y.Scale,
             Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
         )
         container.AnchorPoint = Vector2.new(0.5, 0.5)
         container.BackgroundColor3 = Color3.new(0, 0, 0)
-        container.BackgroundTransparency = 0
+        container.BackgroundTransparency = 1
         container.BorderSizePixel = 0
         container.Parent = screenGui
 
