@@ -45,7 +45,6 @@ local Config = {
     IslandTextSize = 20,
     FloatAmp = 3,
     FloatSpeed = 2,
-    FloatPhase = 0.6,
     IslandTapScale = 1.06,
     TapExpandTime = 0.25,
     TapShrinkTime = 0.3,
@@ -475,23 +474,33 @@ function Library.Create()
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
                         TweenService:Create(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
                         local floatStart = tick()
+                        local charFrames = {}
+                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                            if cf:FindFirstChildOfClass("TextLabel") then
+                                charFrames[#charFrames + 1] = cf
+                            end
+                        end
+                        local charCount = #charFrames
+                        local centerLow = math.floor((charCount - 1) / 2)
+                        local centerHigh = math.ceil((charCount - 1) / 2)
                         RunService.Heartbeat:Connect(function()
                             if not islandTextContainer or not islandTextContainer.Parent then return end
-                            local kids = islandTextContainer:GetChildren()
                             if expanded then
-                                for _, cf in ipairs(kids) do
+                                for _, cf in ipairs(charFrames) do
                                     local lb = cf:FindFirstChildOfClass("TextLabel")
                                     if lb then lb.Position = UDim2.new(0, 0, 0, 0) end
                                 end
                                 return
                             end
-                            local t = tick() - floatStart
-                            local n = 0
-                            for _, cf in ipairs(kids) do
+                            local wave = math.sin((tick() - floatStart) * Config.FloatSpeed)
+                            for i, cf in ipairs(charFrames) do
                                 local lb = cf:FindFirstChildOfClass("TextLabel")
                                 if lb then
-                                    n = n + 1
-                                    lb.Position = UDim2.new(0, Config.FloatAmp * math.sin(t * Config.FloatSpeed + n * Config.FloatPhase), 0, 0)
+                                    local idx = i - 1
+                                    local dir = 0
+                                    if idx < centerLow then dir = -1
+                                    elseif idx > centerHigh then dir = 1 end
+                                    lb.Position = UDim2.new(0, dir * Config.FloatAmp * wave, 0, 0)
                                 end
                             end
                         end)
