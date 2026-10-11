@@ -60,7 +60,7 @@ function Library.Create()
     local function loadLucide()
         if lucideModule then return lucideModule end
         local content
-        local localCachePath = "DynamicCowUI/Cache/lucide_v5.lua"
+        local localCachePath = "DynamicCowUI/Cache/lucide_v6.lua"
         if isfile and isfile(localCachePath) then
             local ok, lc = pcall(readfile, localCachePath)
             if ok and lc and #lc > 5000 and string.find(lc, "lucide%-icon%-latest") then content = lc end
