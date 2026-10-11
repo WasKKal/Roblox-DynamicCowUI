@@ -850,11 +850,18 @@ function Library.CreateWindow(opts)
         Add = function(self, content)
             self._added = true
         end,
+        _closeNow = function(self)
+            alive = false
+            if self.ScreenGui and self.ScreenGui.Parent then
+                pcall(function() self.ScreenGui:Destroy() end)
+            end
+        end,
     }
-    task.delay(Config.CreateWindowTimeout, function()
-        if win._added then return end
-        playErrorSequence()
-    end)
+    if opts.ImmediatelyError then
+        task.delay(0.35, function()
+            if alive and not win._added then playErrorSequence() end
+        end)
+    end
     return win
 end
 
