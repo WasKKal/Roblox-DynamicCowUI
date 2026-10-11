@@ -60,7 +60,7 @@ function Library.Create()
     local function loadLucide()
         if lucideModule then return lucideModule end
         local content
-        local localCachePath = "DynamicCowUI/Cache/lucide_module.lua"
+        local localCachePath = "DynamicCowUI/Cache/lucide_v5.lua"
         if isfile and isfile(localCachePath) then
             local ok, lc = pcall(readfile, localCachePath)
             if ok and lc and #lc > 5000 then content = lc end
@@ -115,6 +115,7 @@ function Library.Create()
     backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
     backdrop.BackgroundTransparency = Config.BackdropDim
     backdrop.BorderSizePixel = 0
+    backdrop.ZIndex = 0
     backdrop.Parent = screenGui
 
     local edge = Instance.new("Frame")
@@ -125,6 +126,7 @@ function Library.Create()
     edge.BackgroundTransparency = 1
     edge.ClipsDescendants = true
     edge.BorderSizePixel = 0
+    edge.ZIndex = 1
     edge.Parent = screenGui
 
     local islandScale = Instance.new("UIScale")
@@ -200,6 +202,7 @@ function Library.Create()
     titleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
     titleFrame.BackgroundTransparency = 1
     titleFrame.BorderSizePixel = 0
+    titleFrame.ZIndex = 2
     titleFrame.Parent = screenGui
 
     local titleScale = Instance.new("UIScale")
@@ -255,9 +258,19 @@ function Library.Create()
 
     local function createCheckIcon(parent)
         local lucide = loadLucide()
-        if not lucide then return end
+        if not lucide then
+            warn("[DynamicCowUI] createCheckIcon: lucide 模块未就绪, 跳过图标")
+            return
+        end
         local ok, icon = pcall(lucide.GetAsset, Config.LucideIcon)
-        if not ok or not icon or not icon.Url then return end
+        if not ok then
+            warn("[DynamicCowUI] createCheckIcon: GetAsset 报错: " .. tostring(icon))
+            return
+        end
+        if not icon or not icon.Url or icon.Url == "" then
+            warn("[DynamicCowUI] createCheckIcon: 图标 '" .. tostring(Config.LucideIcon) .. "' 资源为空 (getcustomasset/getsynasset 可能不可用), 跳过图标")
+            return
+        end
 
         local ringSize = Config.LucideIconSize + Config.RingThickness * 2 + 2
         local ring = Instance.new("Frame")
@@ -267,6 +280,7 @@ function Library.Create()
         ring.AnchorPoint = Vector2.new(0.5, 0.5)
         ring.BackgroundTransparency = 1
         ring.BorderSizePixel = 0
+        ring.ZIndex = 11
         ring.Parent = parent
 
         local ringCorner = Instance.new("UICorner")
@@ -294,6 +308,8 @@ function Library.Create()
         local img = Instance.new("ImageLabel")
         img.Name = "CheckIcon"
         img.Image = icon.Url
+        img.ImageRectOffset = Vector2.new(0, 0)
+        img.ImageRectSize = Vector2.new(0, 0)
         img.Size = UDim2.new(0, Config.LucideIconSize, 0, Config.LucideIconSize)
         img.Position = UDim2.new(0.5, 0, 0.5, 0)
         img.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -301,6 +317,7 @@ function Library.Create()
         img.ImageColor3 = Config.LucideColor
         img.ScaleType = Enum.ScaleType.Fit
         img.ImageTransparency = 1
+        img.ZIndex = 12
         if icon.ImageRectOffset then
             img.ImageRectOffset = icon.ImageRectOffset
             img.ImageRectSize = icon.ImageRectSize
@@ -331,7 +348,7 @@ function Library.Create()
         container.BackgroundColor3 = Color3.new(0, 0, 0)
         container.BackgroundTransparency = 0
         container.BorderSizePixel = 0
-        container.ZIndex = 1
+        container.ZIndex = 3
         container.Parent = screenGui
 
         local textCorner = Instance.new("UICorner")
@@ -396,6 +413,7 @@ function Library.Create()
         ball.BackgroundTransparency = 0
         ball.BorderSizePixel = 0
         ball.ClipsDescendants = true
+        ball.ZIndex = 10
         ball.Parent = screenGui
 
         local ballCorner = Instance.new("UICorner")
@@ -493,6 +511,7 @@ function Library.Create()
             })
             fillTween:Play()
             fillTween.Completed:Connect(function()
+                if backdrop and backdrop.Parent then backdrop:Destroy() end
                 local islandTextContainer = createIslandText()
                 task.spawn(splitBall, islandTextContainer)
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
