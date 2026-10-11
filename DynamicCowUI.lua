@@ -65,11 +65,25 @@ local Library = {}
 
 function Library.CreateWindow(opts)
     opts = opts or {}
-    local title = opts.Title or Config.TitleText
-    local isError = opts.ImmediatelyError == true
     if Library._demoWin and not Library._demoWin._added then
         pcall(function() Library._demoWin:_closeNow() end)
+        Library._demoWin = nil
     end
+    -- 异常值检测：避免直接抛出报错，非法输入统一改为播放错误动画
+    local isError = opts._error == true
+    local title = Config.TitleText
+    if not isError then
+        if type(opts) ~= "table" then
+            isError = true
+        elseif opts.Title ~= nil and (type(opts.Title) ~= "string" or #opts.Title == 0) then
+            isError = true
+        elseif opts.Title == nil then
+            title = Config.TitleText
+        else
+            title = opts.Title
+        end
+    end
+    if isError then title = Config.ErrorText end
     if isfolder and isfolder("lucide-icon-latest") then
         pcall(delfolder, "lucide-icon-latest")
     end
@@ -670,7 +684,8 @@ function Library.CreateWindow(opts)
         local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
         flowSpeed = 0
         if backdrop and backdrop.Parent then backdrop:Destroy() end
-        TweenService:Create(edge, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Config.IslandSize, Position = Config.IslandPosition }):Play()
+        edge.AnchorPoint = Vector2.new(0.5, 0.5)
+        TweenService:Create(edge, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Config.IslandSize, Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2) }):Play()
         TweenService:Create(stroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
         TweenService:Create(silverStroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
         TweenService:Create(titleLabel, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
@@ -918,6 +933,16 @@ function Library.CreateWindow(opts)
         _added = false,
         Add = function(self, content)
             self._added = true
+            local ok = pcall(function()
+                if content ~= nil and type(content) ~= "table" and typeof(content) ~= "Instance" then
+                    error("Add 接收了不支持的内容类型")
+                end
+            end)
+            if not ok then self:Error() end
+        end,
+        Error = function(self)
+            if not alive then return end
+            task.spawn(playErrorSequence)
         end,
         _closeNow = function(self)
             alive = false
@@ -929,6 +954,6 @@ function Library.CreateWindow(opts)
     return win
 end
 
-Library._demoWin = Library.CreateWindow({ Title = Config.TitleText, ImmediatelyError = true })
+Library._demoWin = Library.CreateWindow({ _error = true })
 
 return Library
