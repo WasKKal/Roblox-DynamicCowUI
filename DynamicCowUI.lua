@@ -304,8 +304,6 @@ function Library.Create()
         local img = Instance.new("ImageLabel")
         img.Name = "CheckIcon"
         img.Image = icon.Url
-        img.ImageRectOffset = Vector2.new(0, 0)
-        img.ImageRectSize = Vector2.new(0, 0)
         img.Size = UDim2.new(0, Config.LucideIconSize, 0, Config.LucideIconSize)
         img.Position = UDim2.new(0.5, 0, 0.5, 0)
         img.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -427,9 +425,10 @@ function Library.Create()
             for _, node in ipairs(ball:GetChildren()) do
                 if node.Name == "CheckRing" then
                     local rs = node:FindFirstChildOfClass("UIStroke")
-                    local img = node:FindFirstChild("CheckIcon")
                     if rs then TweenService:Create(rs, TweenInfo.new(Config.FadeInTime), { Transparency = 1 }):Play() end
-                    if img then TweenService:Create(img, TweenInfo.new(Config.FadeInTime), { ImageTransparency = 1 }):Play() end
+                end
+                if node.Name == "CheckIcon" then
+                    TweenService:Create(node, TweenInfo.new(Config.FadeInTime), { ImageTransparency = 1 }):Play()
                 end
             end
             task.delay(Config.FadeInTime, function()
