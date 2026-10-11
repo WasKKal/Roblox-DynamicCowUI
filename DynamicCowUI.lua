@@ -307,7 +307,7 @@ function Library.Create()
         img.Name = "CheckIcon"
         img.Image = icon.Url
         img.Size = UDim2.new(0, Config.LucideIconSize, 0, Config.LucideIconSize)
-        img.Position = UDim2.new(0, parent.AbsolutePosition.X + parent.AbsoluteSize.X / 2, 0, parent.AbsolutePosition.Y + parent.AbsoluteSize.Y / 2)
+        img.Position = parent.Position
         img.AnchorPoint = Vector2.new(0.5, 0.5)
         img.BackgroundTransparency = 1
         img.ImageColor3 = Config.LucideColor
@@ -320,7 +320,7 @@ function Library.Create()
         img.Parent = screenGui
         warn("[DynamicCowUI] 球内图标已创建 Url=" .. tostring(icon.Url) ..
             " ballPos=" .. tostring(parent.AbsolutePosition) .. " ballSize=" .. tostring(parent.AbsoluteSize) ..
-            " imgPos=" .. tostring(img.AbsolutePosition))
+            " imgPos=" .. tostring(img.AbsolutePosition) .. " ballUDim=" .. tostring(parent.Position))
 
         TweenService:Create(ringStroke, TweenInfo.new(Config.FadeInTime), { Transparency = 0 }):Play()
 
@@ -331,7 +331,7 @@ function Library.Create()
                 if trackConn then trackConn:Disconnect() end
                 return
             end
-            img.Position = UDim2.new(0, parent.AbsolutePosition.X + parent.AbsoluteSize.X / 2, 0, parent.AbsolutePosition.Y + parent.AbsoluteSize.Y / 2)
+            img.Position = parent.Position
         end)
 
         task.delay(Config.BallHoldTime, function()
