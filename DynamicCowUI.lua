@@ -53,7 +53,6 @@ local Config = {
     PanelMargin = 20,
     BackdropDim = 0.4,
     IslandFinalTransparency = 0.4,
-    CreateWindowTimeout = 4,
     ErrorText = "格式错误",
     ErrorTextColor = Color3.fromRGB(255, 80, 80),
     RedXColor = Color3.fromRGB(255, 60, 60),
@@ -645,6 +644,7 @@ function Library.CreateWindow(opts)
     end
 
     task.delay(Config.ShrinkDelay, function()
+        if opts.ImmediatelyError then return end
         flowSpeed = Config.FlowSpeed
         gradient.Color = rainbowColors
         local shrinkTween = TweenService:Create(edge, TweenInfo.new(
@@ -860,6 +860,6 @@ function Library.CreateWindow(opts)
     return win
 end
 
-Library._demoWin = Library.CreateWindow({ Title = Config.TitleText })
+Library._demoWin = Library.CreateWindow({ Title = Config.TitleText, ImmediatelyError = true })
 
 return Library
