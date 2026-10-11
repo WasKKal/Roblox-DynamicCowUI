@@ -115,7 +115,6 @@ function Library.Create()
     backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
     backdrop.BackgroundTransparency = Config.BackdropDim
     backdrop.BorderSizePixel = 0
-    backdrop.ZIndex = 0
     backdrop.Parent = screenGui
 
     local edge = Instance.new("Frame")
@@ -126,7 +125,6 @@ function Library.Create()
     edge.BackgroundTransparency = 1
     edge.ClipsDescendants = true
     edge.BorderSizePixel = 0
-    edge.ZIndex = 1
     edge.Parent = screenGui
 
     local islandScale = Instance.new("UIScale")
@@ -202,7 +200,6 @@ function Library.Create()
     titleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
     titleFrame.BackgroundTransparency = 1
     titleFrame.BorderSizePixel = 0
-    titleFrame.ZIndex = 2
     titleFrame.Parent = screenGui
 
     local titleScale = Instance.new("UIScale")
@@ -280,7 +277,6 @@ function Library.Create()
         ring.AnchorPoint = Vector2.new(0.5, 0.5)
         ring.BackgroundTransparency = 1
         ring.BorderSizePixel = 0
-        ring.ZIndex = 11
         ring.Parent = parent
 
         local ringCorner = Instance.new("UICorner")
@@ -317,7 +313,6 @@ function Library.Create()
         img.ImageColor3 = Config.LucideColor
         img.ScaleType = Enum.ScaleType.Fit
         img.ImageTransparency = 1
-        img.ZIndex = 12
         if icon.ImageRectOffset then
             img.ImageRectOffset = icon.ImageRectOffset
             img.ImageRectSize = icon.ImageRectSize
@@ -349,7 +344,6 @@ function Library.Create()
         container.BackgroundColor3 = Color3.new(0, 0, 0)
         container.BackgroundTransparency = 0
         container.BorderSizePixel = 0
-        container.ZIndex = 3
         container.Parent = screenGui
 
         local textCorner = Instance.new("UICorner")
@@ -414,7 +408,6 @@ function Library.Create()
         ball.BackgroundTransparency = 0
         ball.BorderSizePixel = 0
         ball.ClipsDescendants = true
-        ball.ZIndex = 10
         ball.Parent = screenGui
 
         local ballCorner = Instance.new("UICorner")
