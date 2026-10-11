@@ -581,6 +581,7 @@ function Library.Create()
                     TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                         Position = UDim2.new(Config.IslandPosition.X.Scale, cx, Config.IslandPosition.Y.Scale, cy),
                     }):Play()
+                    for _, cf in ipairs(islandTextContainer:GetChildren()) do local lb = cf:FindFirstChildOfClass("TextLabel") if lb then lb.TextTransparency = 0 end end
                     if closeBtn then closeBtn:Destroy() closeBtn = nil end
                     if titleIcon then titleIcon:Destroy() titleIcon = nil end
                     expanded = false
@@ -610,10 +611,25 @@ function Library.Create()
                             }):Play()
                             local titlePad = 12
                             local iconS = Config.LucideIconSize
-                            local iconGap = 6
-                            TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                Position = UDim2.new(0, m + titlePad + iconS + iconGap + islandTextContainer.AbsoluteSize.X / 2, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2),
-                            }):Play()
+                            local iconGap = 4
+                            local titleTargetX = m + titlePad + iconS + iconGap + islandTextContainer.AbsoluteSize.X / 2
+                            local titleTargetY = top + titlePad + islandTextContainer.AbsoluteSize.Y / 2
+                            local function fadeTitleLabels(t)
+                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                                    if lb then TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = t }):Play() end
+                                end
+                            end
+                            fadeTitleLabels(1)
+                            task.delay(Config.FadeInTime, function()
+                                if not expanded then return end
+                                local slide = 40
+                                islandTextContainer.Position = UDim2.new(0, titleTargetX + slide, 0, titleTargetY)
+                                TweenService:Create(islandTextContainer, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                    Position = UDim2.new(0, titleTargetX, 0, titleTargetY),
+                                }):Play()
+                                fadeTitleLabels(0)
+                            end)
                             if titleIcon then titleIcon:Destroy() end
                             local ic = Instance.new("ImageLabel")
                             ic.Name = "TitleIcon"
@@ -621,7 +637,7 @@ function Library.Create()
                             ic.AnchorPoint = Vector2.new(0.5, 0.5)
                             ic.BackgroundTransparency = 1
                             ic.ImageTransparency = 1
-                            ic.ImageColor3 = Config.IslandTextColor
+                            ic.ImageColor3 = Color3.new(1, 1, 1)
                             ic.ScaleType = Enum.ScaleType.Fit
                             ic.Position = UDim2.new(0, m + titlePad + iconS / 2, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2)
                             ic.Parent = screenGui
