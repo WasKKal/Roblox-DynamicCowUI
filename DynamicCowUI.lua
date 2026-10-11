@@ -435,10 +435,23 @@ function Library.CreateWindow(opts)
     local alive = true
 
     local function explode()
-        local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-        local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-        local iw = Config.IslandSize.X.Offset
-        local ih = Config.IslandSize.Y.Offset
+        local aPos, aSize
+        if edge and edge.Parent then
+            aPos = edge.AbsolutePosition
+            aSize = edge.AbsoluteSize
+        else
+            local sw = screenGui.AbsoluteSize.X
+            local sh = screenGui.AbsoluteSize.Y
+            aPos = Vector2.new(
+                Config.IslandPosition.X.Scale * sw + Config.IslandPosition.X.Offset,
+                Config.IslandPosition.Y.Scale * sh + Config.IslandPosition.Y.Offset
+            )
+            aSize = Vector2.new(Config.IslandSize.X.Offset, Config.IslandSize.Y.Offset)
+        end
+        local cx = aPos.X + aSize.X / 2
+        local cy = aPos.Y + aSize.Y / 2
+        local iw = aSize.X
+        local ih = aSize.Y
         local parts = {}
         for _ = 1, Config.ParticleCount do
             local p = Instance.new("Frame")
