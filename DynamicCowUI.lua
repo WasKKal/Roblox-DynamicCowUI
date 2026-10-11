@@ -617,7 +617,7 @@ function Library.CreateWindow(opts)
                 w = w + size * 0.32
             else
                 local ok, s = pcall(function()
-                    return game:GetService("TextService"):GetTextSize(ch, size, charFont(ch), Vector2.new(4000, 1)).X
+                    return game:GetService("TextService"):GetTextSize(ch, size, charFont(ch), Vector2.new(4000, 1))
                 end)
                 w = w + (ok and s.X or size)
             end
