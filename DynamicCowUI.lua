@@ -43,8 +43,7 @@ local Config = {
     IslandText = "DynamicCow",
     IslandTextColor = Color3.fromRGB(0, 255, 120),
     IslandTextSize = 20,
-    FloatAmp = 3,
-    FloatSpeed = 2,
+    TitleLeftShift = 10,
     IslandTapScale = 1.06,
     TapExpandTime = 0.25,
     TapShrinkTime = 0.3,
@@ -475,35 +474,6 @@ function Library.Create()
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
                         TweenService:Create(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
-                        local t0 = tick()
-                        local charList = {}
-                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                            if cf:FindFirstChildOfClass("TextLabel") then
-                                charList[#charList + 1] = cf
-                            end
-                        end
-                        local nChars = #charList
-                        local midLow = math.floor((nChars - 1) / 2)
-                        local midHigh = math.ceil((nChars - 1) / 2)
-                        RunService.Heartbeat:Connect(function()
-                            if not islandTextContainer or not islandTextContainer.Parent then return end
-                            if expanded then
-                                for _, cf in ipairs(charList) do
-                                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then lb.Position = UDim2.new(0, 0, 0, 0) end
-                                end
-                                return
-                            end
-                            local wave = math.sin((tick() - t0) * Config.FloatSpeed)
-                            for i, cf in ipairs(charList) do
-                                local lb = cf:FindFirstChildOfClass("TextLabel")
-                                if lb then
-                                    local idx = i - 1
-                                    local dir = (idx < midLow and -1) or (idx > midHigh and 1) or 0
-                                    lb.Position = UDim2.new(0, dir * Config.FloatAmp * wave, 0, 0)
-                                end
-                            end
-                        end)
                     end)
                 end)
             end)
@@ -602,10 +572,6 @@ function Library.Create()
                     longPress = task.delay(Config.LongPressThreshold, function()
                         if holding then
                             expanded = true
-                            for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                local lb = cf:FindFirstChildOfClass("TextLabel")
-                                if lb then lb.Position = UDim2.new(0, 0, 0, 0) end
-                            end
                             islandScale.Scale = 1
                             edge.AnchorPoint = Vector2.new(0, 0)
                             edge.Position = Config.IslandPosition
@@ -620,7 +586,8 @@ function Library.Create()
                             local titlePad = 12
                             local iconS = Config.LucideIconSize
                             local iconGap = 4
-                            local titleTargetX = m + titlePad + iconS + iconGap + islandTextContainer.AbsoluteSize.X / 2
+                            local leftShift = Config.TitleLeftShift
+                            local titleTargetX = m + titlePad + iconS + iconGap + islandTextContainer.AbsoluteSize.X / 2 - leftShift
                             local titleTargetY = top + titlePad + islandTextContainer.AbsoluteSize.Y / 2
                             local function fadeTitleLabels(t)
                                 for _, cf in ipairs(islandTextContainer:GetChildren()) do
@@ -647,7 +614,7 @@ function Library.Create()
                             ic.ImageTransparency = 1
                             ic.ImageColor3 = Color3.new(1, 1, 1)
                             ic.ScaleType = Enum.ScaleType.Fit
-                            ic.Position = UDim2.new(0, m + titlePad + iconS / 2, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2)
+                            ic.Position = UDim2.new(0, m + titlePad + iconS / 2 - leftShift, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2)
                             ic.Parent = screenGui
                             titleIcon = ic
                             task.spawn(function()
