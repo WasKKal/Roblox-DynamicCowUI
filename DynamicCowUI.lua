@@ -57,8 +57,6 @@ local Config = {
 local Library = {}
 
 function Library.Create()
-    warn("[DynamicCowUI] 版本 = 2026-10-11-v11 (面板展开/缩回改用Elastic弹性 + PanelExpandTime 0.7)")
-
     if isfolder and isfolder("lucide-icon-latest") then
         pcall(delfolder, "lucide-icon-latest")
     end
@@ -325,9 +323,6 @@ function Library.Create()
             img.ImageRectSize = icon.ImageRectSize
         end
         img.Parent = screenGui
-        warn("[DynamicCowUI] 球内图标已创建 Url=" .. tostring(icon.Url) ..
-            " ballPos=" .. tostring(parent.AbsolutePosition) .. " ballSize=" .. tostring(parent.AbsoluteSize) ..
-            " imgPos=" .. tostring(img.AbsolutePosition) .. " ballUDim=" .. tostring(parent.Position))
 
         TweenService:Create(ringStroke, TweenInfo.new(Config.FadeInTime), { Transparency = 0 }):Play()
 
