@@ -512,7 +512,7 @@ function Library.CreateWindow(opts)
                     if isError then
                         flowSpeed = 0
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
-                        silverStroke.Color3 = Config.RedXColor
+                        silverStroke.Color = Config.RedXColor
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
                         task.delay(Config.BallHoldTime + 0.4, function()
                             explode()
