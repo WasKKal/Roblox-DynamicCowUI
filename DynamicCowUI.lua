@@ -67,9 +67,9 @@ function Library.Create()
         end
         if not content then
             local urls = {
-                "https://gcore.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v5/lucide/init.lua",
-                "https://cdn.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v5/lucide/init.lua",
-                "https://raw.githubusercontent.com/WasKKal/DeltaExecutor-UI-Rebuild/master/lucide/init.lua",
+                "https://gcore.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v6/lucide/init.lua",
+                "https://cdn.jsdelivr.net/gh/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v6/lucide/init.lua",
+                "https://raw.githubusercontent.com/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v6/lucide/init.lua",
             }
             for _, url in ipairs(urls) do
                 for _ = 1, 2 do
@@ -310,7 +310,7 @@ function Library.Create()
         img.Position = UDim2.new(0.5, 0, 0.5, 0)
         img.AnchorPoint = Vector2.new(0.5, 0.5)
         img.BackgroundTransparency = 1
-        img.ImageColor3 = Color3.new(1, 1, 1)
+        img.ImageColor3 = Config.LucideColor
         img.ScaleType = Enum.ScaleType.Fit
         img.ImageTransparency = 0
         if icon.ImageRectOffset then
@@ -328,46 +328,6 @@ function Library.Create()
         end)
 
         return ring
-    end
-
-    local function createDebugCheckIcon()
-        local lucide = loadLucide()
-        if not lucide then warn("[DynamicCowUI][DEBUG] lucide 未就绪, 调试图标跳过") return end
-        local ok, icon = pcall(lucide.GetAsset, "check")
-        if not ok then warn("[DynamicCowUI][DEBUG] GetAsset 报错: " .. tostring(icon)) return end
-        if not icon or not icon.Url then warn("[DynamicCowUI][DEBUG] 图标 Url 为空 (getcustomasset/getsynasset 可能不可用)") return end
-        local dbg = Instance.new("Frame")
-        dbg.Name = "DebugCheckIcon"
-        dbg.Size = UDim2.fromOffset(96, 96)
-        dbg.Position = UDim2.new(0.5, 0, 0.5, 0)
-        dbg.AnchorPoint = Vector2.new(0.5, 0.5)
-        dbg.BackgroundColor3 = Color3.new(1, 1, 1)
-        dbg.BackgroundTransparency = 0
-        dbg.BorderSizePixel = 0
-        dbg.Parent = screenGui
-        local dc = Instance.new("UICorner")
-        dc.CornerRadius = UDim.new(0.18, 0)
-        dc.Parent = dbg
-        local dimg = Instance.new("ImageLabel")
-        dimg.Size = UDim2.fromOffset(64, 64)
-        dimg.Position = UDim2.new(0.5, 0, 0.5, 0)
-        dimg.AnchorPoint = Vector2.new(0.5, 0.5)
-        dimg.BackgroundTransparency = 1
-        dimg.Image = icon.Url
-        dimg.ImageColor3 = Color3.fromRGB(0, 200, 100)
-        dimg.ScaleType = Enum.ScaleType.Fit
-        dimg.Parent = dbg
-        local dlabel = Instance.new("TextLabel")
-        dlabel.Size = UDim2.new(1, 0, 0, 18)
-        dlabel.Position = UDim2.new(0.5, 0, 1, 4)
-        dlabel.AnchorPoint = Vector2.new(0.5, 0)
-        dlabel.BackgroundTransparency = 1
-        dlabel.Text = "DEBUG check"
-        dlabel.TextColor3 = Color3.new(1, 1, 1)
-        dlabel.TextSize = 14
-        dlabel.Font = Enum.Font.Code
-        dlabel.Parent = dbg
-        warn("[DynamicCowUI][DEBUG] 调试 check 已创建 Url=" .. tostring(icon.Url))
     end
 
     local function createIslandText()
@@ -549,7 +509,6 @@ function Library.Create()
                 if backdrop and backdrop.Parent then backdrop:Destroy() end
                 local islandTextContainer = createIslandText()
                 task.spawn(splitBall, islandTextContainer)
-                task.spawn(createDebugCheckIcon)
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
                 edge.Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
                 edge.Active = true
