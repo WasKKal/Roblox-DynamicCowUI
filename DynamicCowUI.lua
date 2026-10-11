@@ -56,7 +56,11 @@ local Config = {
 local Library = {}
 
 function Library.Create()
-    warn("[DynamicCowUI] 版本 = 2026-10-11-v7 (图标与ball用Position同步)")
+    warn("[DynamicCowUI] 版本 = 2026-10-11-v8 (强制清理旧图标缓存, 重生成白描边)")
+
+    if isfolder and isfolder("lucide-icon-latest") then
+        pcall(delfolder, "lucide-icon-latest")
+    end
 
     local lucideModule = nil
     local function loadLucide()
