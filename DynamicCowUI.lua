@@ -1913,6 +1913,7 @@ function Library.CreateWindow(opts)
                             btn.InputBegan:Connect(function(bi)
                                 if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
                                     if shutdown then return end
+                                    TweenService:Create(btn, TweenInfo.new(Config.CloseHoldTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Config.RedXColor }):Play()
                                     if closeHold then task.cancel(closeHold) end
                                     closeHold = task.delay(Config.CloseHoldTime, function()
                                         closeHold = nil
@@ -1922,6 +1923,7 @@ function Library.CreateWindow(opts)
                             end)
                             btn.InputEnded:Connect(function(bi)
                                 if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
+                                    TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Color3.new(1, 1, 1) }):Play()
                                     if closeHold then
                                         task.cancel(closeHold)
                                         closeHold = nil
