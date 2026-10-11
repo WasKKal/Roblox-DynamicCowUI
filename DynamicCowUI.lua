@@ -111,10 +111,10 @@ function Library.Create()
     local function createTestIcon()
         local lucide = loadLucide()
         if not lucide then warn("[TestIcon] lucide 模块未就绪") return end
-        local ok, icon = pcall(lucide.GetAsset, "yen")
+        local ok, icon = pcall(lucide.GetAsset, "check")
         print("[TestIcon] GetAsset ok=" .. tostring(ok) .. " name=" .. (icon and (icon.IconName or "?") or "nil") .. " urlType=" .. (icon and type(icon.Url) or "nil") .. " url=" .. (icon and tostring(icon.Url):sub(1, 60) or "nil"))
         if not ok or not icon or not icon.Url or icon.Url == "" then
-            warn("[TestIcon] 无法获取 yen 图标 (getcustomasset/getsynasset 可能不可用): " .. tostring(icon))
+            warn("[TestIcon] 无法获取 check 图标 (getcustomasset/getsynasset 可能不可用): " .. tostring(icon))
             return
         end
         local f = Instance.new("Frame")
@@ -444,7 +444,7 @@ function Library.Create()
         ball.Position = UDim2.new(0.5, ballInitX, 0, ballCenterY)
         ball.AnchorPoint = Vector2.new(0.5, 0.5)
         ball.BackgroundColor3 = Color3.new(0, 0, 0)
-        ball.BackgroundTransparency = 0
+        ball.BackgroundTransparency = 1
         ball.BorderSizePixel = 0
         ball.ClipsDescendants = true
         ball.ZIndex = 10
