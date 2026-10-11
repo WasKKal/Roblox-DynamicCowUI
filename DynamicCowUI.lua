@@ -67,6 +67,9 @@ local Library = {}
 function Library.CreateWindow(opts)
     opts = opts or {}
     local title = opts.Title or Config.TitleText
+    if Library._demoWin and not Library._demoWin._added then
+        pcall(function() Library._demoWin:_closeNow() end)
+    end
     if isfolder and isfolder("lucide-icon-latest") then
         pcall(delfolder, "lucide-icon-latest")
     end
@@ -856,5 +859,7 @@ function Library.CreateWindow(opts)
     end)
     return win
 end
+
+Library._demoWin = Library.CreateWindow({ Title = Config.TitleText })
 
 return Library
