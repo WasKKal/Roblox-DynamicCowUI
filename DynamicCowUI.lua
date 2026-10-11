@@ -51,6 +51,7 @@ local Config = {
     PanelExpandTime = 0.4,
     PanelMargin = 20,
     BackdropDim = 0.4,
+    IslandFinalTransparency = 0.4,
 }
 
 local Library = {}
@@ -474,6 +475,7 @@ function Library.Create()
                         flowSpeed = 0
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
+                        TweenService:Create(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
                     end)
                 end)
             end)
