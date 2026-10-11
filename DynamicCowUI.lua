@@ -108,6 +108,40 @@ function Library.Create()
     screenGui.IgnoreGuiInset = true
     screenGui.Parent = gethui()
 
+    local function createTestIcon()
+        local lucide = loadLucide()
+        if not lucide then warn("[TestIcon] lucide 模块未就绪") return end
+        local ok, icon = pcall(lucide.GetAsset, "yen")
+        print("[TestIcon] GetAsset ok=" .. tostring(ok) .. " name=" .. (icon and (icon.IconName or "?") or "nil") .. " urlType=" .. (icon and type(icon.Url) or "nil") .. " url=" .. (icon and tostring(icon.Url):sub(1, 60) or "nil"))
+        if not ok or not icon or not icon.Url or icon.Url == "" then
+            warn("[TestIcon] 无法获取 yen 图标 (getcustomasset/getsynasset 可能不可用): " .. tostring(icon))
+            return
+        end
+        local f = Instance.new("Frame")
+        f.Name = "TestIconFrame"
+        f.Size = UDim2.new(0, 160, 0, 160)
+        f.Position = UDim2.new(0.5, 0, 0.5, 0)
+        f.AnchorPoint = Vector2.new(0.5, 0.5)
+        f.BackgroundColor3 = Color3.new(0, 0, 0)
+        f.BackgroundTransparency = 0.35
+        f.BorderSizePixel = 0
+        f.ZIndex = 100
+        f.Parent = screenGui
+        local img = Instance.new("ImageLabel")
+        img.Name = "TestIcon"
+        img.Size = UDim2.new(1, 0, 1, 0)
+        img.BackgroundTransparency = 1
+        img.Image = icon.Url
+        img.ImageColor3 = Color3.fromRGB(0, 255, 120)
+        img.ScaleType = Enum.ScaleType.Fit
+        img.ImageRectOffset = Vector2.new(0, 0)
+        img.ImageRectSize = Vector2.new(0, 0)
+        if icon.ImageRectOffset then img.ImageRectOffset = icon.ImageRectOffset img.ImageRectSize = icon.ImageRectSize end
+        img.ZIndex = 101
+        img.Parent = f
+    end
+    task.spawn(createTestIcon)
+
     local backdrop = Instance.new("Frame")
     backdrop.Name = "Backdrop"
     backdrop.Size = UDim2.new(1, 0, 1, 0)
