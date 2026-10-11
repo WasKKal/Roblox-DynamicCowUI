@@ -1,10 +1,12 @@
 local svc = {
     RunService = game:GetService("RunService"),
     TweenService = game:GetService("TweenService"),
+    UserInputService = game:GetService("UserInputService"),
 }
 
 local RunService = svc.RunService
 local TweenService = svc.TweenService
+local UserInputService = svc.UserInputService
 
 local HTTP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
@@ -75,6 +77,12 @@ local Config = {
     TapShrinkTime = 0.3,
     TapCooldown = 0.2,
     LongPressThreshold = 0.5,
+    IslandDragThreshold = 8,
+    IslandDragDamp = 0.55,
+    IslandDragMax = 70,
+    IslandDragFixed = 54,
+    IslandDragStopDelay = 0.14,
+    IslandDragHold = 1.5,
     PanelExpandTime = 0.55,
     PanelMargin = 20,
     BackdropDim = 0.4,
@@ -162,6 +170,21 @@ local Config = {
     ActionExtendW = 40,
     ActionExtendH = 12,
     NotifyDrop = 36,
+    PageAnimTime = 0.28,
+    CloseHoldTime = 0.45,
+    CloseDialogW = 460,
+    CloseDialogH = 168,
+    CloseDialogFill = Color3.fromRGB(22, 22, 28),
+    CloseDialogFillTransparency = 0.05,
+    CloseDialogCorner = UDim.new(0, 18),
+    CloseDialogPad = 22,
+    CloseDialogBtnH = 42,
+    CloseDialogBtnGap = 18,
+    CloseDialogBtnW = 170,
+    CloseDialogTextSize = 18,
+    CloseDialogTextColor = Color3.new(1, 1, 1),
+    CloseCancelColor = Color3.fromRGB(64, 64, 76),
+    CloseConfirmColor = Color3.fromRGB(210, 66, 66),
     IslandActionStrokeTransparency = 0.35,
     IslandActionReveal = 0.3,
     ActionFlashTime = 0.3,
@@ -624,6 +647,7 @@ function Library.CreateWindow(opts)
     local expanded = false
     local islandTextContainer = nil
     local alive = true
+    local shutdown = false
     local ready = false
     local actionEnd = nil
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
@@ -1035,11 +1059,61 @@ function Library.CreateWindow(opts)
                 local interacting = false
                 local holding = false
                 local longPress = nil
+                local dragStartX = nil
+                local dragBaseSize = nil
+                local dragging = false
+                local dragStopTmr = nil
+                local dragRestoreTmr = nil
+                local function resetIslandDrag()
+                    if dragStopTmr then task.cancel(dragStopTmr) dragStopTmr = nil end
+                    if dragRestoreTmr then task.cancel(dragRestoreTmr) dragRestoreTmr = nil end
+                    if dragging and dragBaseSize then
+                        local tgt = dragBaseSize
+                        TweenService:Create(edge, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = tgt }):Play()
+                    end
+                    dragging = false
+                    dragStartX = nil
+                    dragBaseSize = nil
+                end
+                UserInputService.InputChanged:Connect(function(input)
+                    if not holding or expanded or not ready then return end
+                    if dragStartX == nil then return end
+                    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                    local dx = input.Position.X - dragStartX
+                    if not dragging then
+                        if dx > Config.IslandDragThreshold then
+                            dragging = true
+                            if longPress then task.cancel(longPress) longPress = nil end
+                        else
+                            return
+                        end
+                    end
+                    if dx < 0 then dx = 0 end
+                    local extra = math.min(dx * Config.IslandDragDamp, Config.IslandDragMax)
+                    if dragBaseSize then
+                        edge.Size = UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + extra, dragBaseSize.Y.Scale, dragBaseSize.Y.Offset)
+                    end
+                    if dragStopTmr then task.cancel(dragStopTmr) end
+                    dragStopTmr = task.delay(Config.IslandDragStopDelay, function()
+                        dragStopTmr = nil
+                        if dragging and holding and not expanded and dragBaseSize then
+                            TweenService:Create(edge, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                                Size = UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + math.min(Config.IslandDragFixed, Config.IslandDragMax), dragBaseSize.Y.Scale, dragBaseSize.Y.Offset),
+                            }):Play()
+                            if dragRestoreTmr then task.cancel(dragRestoreTmr) end
+                            dragRestoreTmr = task.delay(Config.IslandDragHold, function()
+                                dragRestoreTmr = nil
+                                resetIslandDrag()
+                            end)
+                        end
+                    end)
+                end)
                 local closeBtn = nil
                 local titleIcon = nil
                 local infoLabel = nil
                 local tabListContainer = nil
                 local tabContentContainer = nil
+                local tabContentBase = nil
                 local headerDivider = nil
                 local tabSeparator = nil
                 local tabEmptyLabel = nil
@@ -1055,6 +1129,7 @@ function Library.CreateWindow(opts)
                     tabContentEmpty = nil
                     tabContentNoCtrl = nil
                     tabSubtitleList = nil
+                    tabContentBase = nil
                 end
                 local function renderSubtitles(tab)
                     if not tabSubtitleList then return end
@@ -1132,7 +1207,7 @@ function Library.CreateWindow(opts)
                         tx.ZIndex = 3
                         tx.Parent = row
                         btn.MouseButton1Click:Connect(function()
-                            if not bt then return end
+                            if shutdown or not bt then return end
                             btn.BackgroundColor3 = Color3.fromRGB(96, 98, 112)
                             btn.BackgroundTransparency = 0
                             TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
@@ -1231,6 +1306,7 @@ function Library.CreateWindow(opts)
                         end
                         apply()
                         row.MouseButton1Click:Connect(function()
+                            if shutdown then return end
                             tg.Value = not tg.Value
                             apply()
                             if typeof(tg.Callback) == "function" then
@@ -1372,6 +1448,15 @@ function Library.CreateWindow(opts)
                         end)
                     end
                 end
+                local function animateContentIn()
+                    if not tabContentContainer or not tabContentBase then return end
+                    tabContentContainer.GroupTransparency = 1
+                    tabContentContainer.Position = UDim2.new(tabContentBase.X.Scale, tabContentBase.X.Offset + 18, tabContentBase.Y.Scale, tabContentBase.Y.Offset)
+                    TweenService:Create(tabContentContainer, TweenInfo.new(Config.PageAnimTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        GroupTransparency = 0,
+                        Position = tabContentBase,
+                    }):Play()
+                end
                 local function updateContentArea()
                     local hasSel = (win._activeTab ~= 0)
                     local tab = hasSel and win._tabs[win._activeTab] or nil
@@ -1431,6 +1516,9 @@ function Library.CreateWindow(opts)
                     if expanded then return end
                     interacting = true
                     holding = true
+                    dragStartX = input.Position.X
+                    dragBaseSize = edge.Size
+                    dragging = false
                     TweenService:Create(islandScale, TweenInfo.new(Config.TapExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = Config.IslandTapScale }):Play()
                     longPress = task.delay(Config.LongPressThreshold, function()
                         if holding then
@@ -1573,7 +1661,7 @@ function Library.CreateWindow(opts)
                                     sep.Parent = edge
                                     tabSeparator = sep
                                     local contentX = titlePad + listW + Config.TabAreaGap
-                                    local contentFrame = Instance.new("Frame")
+                                    local contentFrame = Instance.new("CanvasGroup")
                                     contentFrame.Name = "TabContent"
                                     contentFrame.BackgroundTransparency = 1
                                     contentFrame.Position = UDim2.new(0, contentX, 0, listTop)
@@ -1582,6 +1670,7 @@ function Library.CreateWindow(opts)
                                     contentFrame.ZIndex = 2
                                     contentFrame.Parent = edge
                                     tabContentContainer = contentFrame
+                                    tabContentBase = contentFrame.Position
                                     local function makeStateGroup(iconName, text)
                                         local g = Instance.new("Frame")
                                         g.Name = "StateGroup"
@@ -1718,9 +1807,11 @@ function Library.CreateWindow(opts)
                                             if tname and tname.Parent then TweenService:Create(tname, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
                                         end)
                                         row.MouseButton1Click:Connect(function()
+                                            if shutdown then return end
                                             win._activeTab = i
                                             updateTabsHighlight()
                                             updateContentArea()
+                                            animateContentIn()
                                         end)
                                         if hasIcon then
                                             task.spawn(function()
@@ -1769,9 +1860,25 @@ function Library.CreateWindow(opts)
                             btn.ScaleType = Enum.ScaleType.Fit
                             btn.ImageColor3 = Color3.new(1, 1, 1)
                             btn.Parent = edge
+                            local closeHold = nil
+                            local showCloseConfirm = nil
                             btn.InputBegan:Connect(function(bi)
                                 if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
-                                    collapsePanel()
+                                    if shutdown then return end
+                                    if closeHold then task.cancel(closeHold) end
+                                    closeHold = task.delay(Config.CloseHoldTime, function()
+                                        closeHold = nil
+                                        if showCloseConfirm then showCloseConfirm() end
+                                    end)
+                                end
+                            end)
+                            btn.InputEnded:Connect(function(bi)
+                                if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
+                                    if closeHold then
+                                        task.cancel(closeHold)
+                                        closeHold = nil
+                                        collapsePanel()
+                                    end
                                 end
                             end)
                             task.spawn(function()
@@ -1785,6 +1892,142 @@ function Library.CreateWindow(opts)
                                 end
                             end)
                             closeBtn = btn
+
+                            local closeDialog = nil
+                            local function setHeaderVisible(vis)
+                                local t = vis and 0 or 1
+                                if islandTextContainer and islandTextContainer.Parent then
+                                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                                        if lb then TweenService:Create(lb, TweenInfo.new(0.22), { TextTransparency = t }):Play() end
+                                    end
+                                end
+                                if titleIcon then TweenService:Create(titleIcon, TweenInfo.new(0.22), { ImageTransparency = t }):Play() end
+                                if infoLabel then TweenService:Create(infoLabel, TweenInfo.new(0.22), { TextTransparency = t }):Play() end
+                                if closeBtn then TweenService:Create(closeBtn, TweenInfo.new(0.22), { ImageTransparency = t }):Play() closeBtn.Active = vis end
+                            end
+                            local function makePill(label, color)
+                                local b = Instance.new("TextButton")
+                                b.Size = UDim2.new(0, Config.CloseDialogBtnW, 0, Config.CloseDialogBtnH)
+                                b.BackgroundColor3 = color
+                                b.Text = label
+                                b.TextColor3 = Color3.new(1, 1, 1)
+                                b.TextSize = 16
+                                b.Font = Enum.Font.GothamBold
+                                b.AutoButtonColor = false
+                                b.ZIndex = 72
+                                local c = Instance.new("UICorner")
+                                c.CornerRadius = UDim.new(0.5, 0)
+                                c.Parent = b
+                                return b
+                            end
+                            local function runCloseSequence()
+                                shutdown = true
+                                if closeBtn then closeBtn:Destroy() closeBtn = nil end
+                                if titleIcon then titleIcon:Destroy() titleIcon = nil end
+                                if infoLabel then infoLabel:Destroy() infoLabel = nil end
+                                destroyTabUI()
+                                local cx2 = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                                local cy2 = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+                                animateEdge(Config.IslandSize, Config.IslandPosition, 0.45, 0.2, function()
+                                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                                    edge.Position = UDim2.new(0.5, cx2, 0, cy2)
+                                    local list = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
+                                    if list then list.HorizontalAlignment = Enum.HorizontalAlignment.Center end
+                                    if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
+                                    islandTextContainer = createIslandText(Config.IslandText, Config.TitleColor, true)
+                                    TweenService:Create(stroke, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                                    silverStroke.Color = Config.RedXColor
+                                    TweenService:Create(silverStroke, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
+                                    if fillFrame and fillFrame.Parent then
+                                        TweenService:Create(fillFrame, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
+                                    end
+                                    task.delay(0.75, function()
+                                        explode()
+                                        if islandTextContainer and islandTextContainer.Parent then
+                                            for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                                local lb = cf:FindFirstChildOfClass("TextLabel")
+                                                if lb then TweenService:Create(lb, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                                            end
+                                        end
+                                        TweenService:Create(silverStroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                                        TweenService:Create(stroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                                        if fillFrame and fillFrame.Parent then
+                                            TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+                                        end
+                                        task.delay(1.0, function()
+                                            alive = false
+                                            if screenGui and screenGui.Parent then screenGui:Destroy() end
+                                        end)
+                                    end)
+                                end)
+                            end
+                            showCloseConfirm = function()
+                                if closeDialog or shutdown then return end
+                                setHeaderVisible(false)
+                                destroyTabUI()
+                                local dlg = Instance.new("Frame")
+                                dlg.Name = "CloseDialog"
+                                dlg.BackgroundColor3 = Config.CloseDialogFill
+                                dlg.BackgroundTransparency = Config.CloseDialogFillTransparency
+                                dlg.BorderSizePixel = 0
+                                dlg.Size = UDim2.new(1, 0, 1, 0)
+                                dlg.ZIndex = 70
+                                dlg.ClipsDescendants = true
+                                dlg.Parent = edge
+                                local dc = Instance.new("UICorner")
+                                dc.CornerRadius = Config.CloseDialogCorner
+                                dc.Parent = dlg
+                                local txt = Instance.new("TextLabel")
+                                txt.BackgroundTransparency = 1
+                                txt.AnchorPoint = Vector2.new(0.5, 0)
+                                txt.Position = UDim2.new(0.5, 0, 0, Config.CloseDialogPad)
+                                txt.Size = UDim2.new(1, -Config.CloseDialogPad * 2, 0, 0)
+                                txt.AutomaticSize = Enum.AutomaticSize.Y
+                                txt.Text = "你要关闭 " .. (tostring(title):gsub("<[^>]*>", "")) .. " 吗？\n这将会关闭所有功能"
+                                txt.TextColor3 = Config.CloseDialogTextColor
+                                txt.TextSize = Config.CloseDialogTextSize
+                                txt.Font = Enum.Font.Gotham
+                                txt.TextWrapped = true
+                                txt.ZIndex = 71
+                                txt.Parent = dlg
+                                local bars = Instance.new("Frame")
+                                bars.BackgroundTransparency = 1
+                                bars.AnchorPoint = Vector2.new(0.5, 1)
+                                bars.Position = UDim2.new(0.5, 0, 1, -Config.CloseDialogPad)
+                                bars.Size = UDim2.new(1, -Config.CloseDialogPad * 2, 0, Config.CloseDialogBtnH)
+                                bars.ZIndex = 71
+                                bars.Parent = dlg
+                                local bl = Instance.new("UIListLayout")
+                                bl.FillDirection = Enum.FillDirection.Horizontal
+                                bl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                                bl.VerticalAlignment = Enum.VerticalAlignment.Center
+                                bl.SortOrder = Enum.SortOrder.LayoutOrder
+                                bl.Padding = UDim.new(0, Config.CloseDialogBtnGap)
+                                bl.Parent = bars
+                                local cancelB = makePill("取消", Config.CloseCancelColor)
+                                cancelB.LayoutOrder = 1
+                                cancelB.Parent = bars
+                                cancelB.MouseButton1Click:Connect(function()
+                                    if closeDialog ~= dlg then return end
+                                    closeDialog = nil
+                                    dlg:Destroy()
+                                    setHeaderVisible(true)
+                                    buildTabUI()
+                                    animateEdge(UDim2.new(0, sw - m * 2, 0, sh - top - m), UDim2.new(0, m, 0, top), Config.PanelExpandTime)
+                                end)
+                                local okBtn = makePill("确认", Config.CloseConfirmColor)
+                                okBtn.LayoutOrder = 2
+                                okBtn.Parent = bars
+                                okBtn.MouseButton1Click:Connect(function()
+                                    if closeDialog ~= dlg then return end
+                                    closeDialog = nil
+                                    dlg:Destroy()
+                                    runCloseSequence()
+                                end)
+                                closeDialog = dlg
+                                animateEdge(UDim2.new(0, Config.CloseDialogW, 0, Config.CloseDialogH), UDim2.new(0, (sw - Config.CloseDialogW) / 2, 0, (sh - Config.CloseDialogH) / 2), 0.35)
+                            end
                         end
                     end)
                 end)
@@ -1793,6 +2036,7 @@ function Library.CreateWindow(opts)
                     if not interacting then return end
                     holding = false
                     if longPress then task.cancel(longPress) longPress = nil end
+                    resetIslandDrag()
                     if expanded then
                         task.delay(Config.TapShrinkTime + Config.TapCooldown, function()
                             interacting = false
