@@ -87,6 +87,14 @@ local Config = {
     ParticleGravity = 700,
     InfoTextSize = 16,
     InfoColor = Color3.fromRGB(200, 205, 210),
+    TitleColor = Color3.new(1, 1, 1),
+    TitleIconSize = 28,
+    TitleIconGap = 10,
+    TitleIconNudgeX = 8,
+    InfoBoxHeight = 22,
+    InfoTopGap = 8,
+    IslandHandoffDelay = 0.1,
+    IslandHandoffFade = 0.15,
 }
 
 local Library = {}
@@ -445,6 +453,31 @@ function Library.CreateWindow(opts)
         return ring
     end
 
+    local function parseColoredChars(text, baseColor)
+        local out = {}
+        local color = baseColor
+        local i = 1
+        local n = #text
+        while i <= n do
+            local rest = string.sub(text, i)
+            local s, e, hex = string.find(rest, "^<font%s+color%s*=%s*[\"']?(#?%x+)[\"']?%s*>")
+            local closeTag = string.match(rest, "^</font%s*>")
+            if s then
+                local okc, c = pcall(Color3.fromHex, (string.gsub(hex, "#", "")))
+                color = (okc and c) or color
+                i = i + e
+            elseif closeTag then
+                color = baseColor
+                i = i + #closeTag
+            else
+                local nxt = utf8.offset(text, 2, i) or (i + 1)
+                out[#out + 1] = { ch = string.sub(text, i, nxt - 1), color = color }
+                i = nxt
+            end
+        end
+        return out
+    end
+
     local function createIslandText(text, color, instant)
         text = text or Config.IslandText
         color = color or Config.IslandTextColor
@@ -475,8 +508,8 @@ function Library.CreateWindow(opts)
         list.Parent = container
 
         local idx = 0
-        for _, codepoint in utf8.codes(text) do
-            local ch = utf8.char(codepoint)
+        for _, item in ipairs(parseColoredChars(text, color)) do
+            local ch = item.ch
             if ch ~= " " then
                 local charFrame = Instance.new("Frame")
                 charFrame.Size = UDim2.new(0, 0, 1, 0)
@@ -489,7 +522,7 @@ function Library.CreateWindow(opts)
                 charLabel.Size = UDim2.new(1, 0, 1, 0)
                 charLabel.BackgroundTransparency = 1
                 charLabel.Text = ch
-                charLabel.TextColor3 = color
+                charLabel.TextColor3 = item.color
                 charLabel.TextTransparency = 1
                 charLabel.TextSize = Config.IslandTextSize
                 charLabel.Font = Enum.Font.FredokaOne
@@ -675,16 +708,16 @@ function Library.CreateWindow(opts)
                             end
                         end
                         ball:Destroy()
-                        task.delay(Config.FadeInTime, function()
+                        task.delay(Config.IslandHandoffDelay, function()
                             if islandTextContainer and islandTextContainer.Parent then
                                 for _, cf in ipairs(islandTextContainer:GetChildren()) do
                                     local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then TweenService:Create(lb, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                                    if lb then TweenService:Create(lb, TweenInfo.new(Config.IslandHandoffFade, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
                                 end
                             end
-                            task.delay(0.25, function()
+                            task.delay(Config.IslandHandoffFade, function()
                                 if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
-                                islandTextContainer = createIslandText(title, Config.IslandTextColor, true)
+                                islandTextContainer = createIslandText(title, Config.TitleColor, true)
                             end)
                         end)
                         flowSpeed = 0
@@ -873,6 +906,8 @@ function Library.CreateWindow(opts)
 
                 local function collapsePanel()
                     if not expanded then return end
+                    local ll = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
+                    if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
                     local shrinkBack = TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
@@ -917,11 +952,21 @@ function Library.CreateWindow(opts)
                                 Position = UDim2.new(0, m, 0, top),
                             }):Play()
                             local titlePad = 12
-                            local iconS = Config.LucideIconSize
-                            local iconGap = 4
-                            local leftShift = Config.TitleLeftShift
-                            local titleTargetX = m + titlePad + iconS + iconGap + islandTextContainer.AbsoluteSize.X / 2 - leftShift
-                            local titleTargetY = top + titlePad + islandTextContainer.AbsoluteSize.Y / 2
+                            local iconS = Config.TitleIconSize
+                            local iconGap = Config.TitleIconGap
+                            local titleW = islandTextContainer.AbsoluteSize.X
+                            local titleH = islandTextContainer.AbsoluteSize.Y
+                            local infoH = Config.InfoBoxHeight
+                            local vGap = Config.InfoTopGap
+                            local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
+                            local blockTop = top + titlePad
+                            local blockCY = blockTop + blockH / 2
+                            local iconLeft = m + titlePad + Config.TitleIconNudgeX
+                            local contentLeftX = iconLeft + iconS + iconGap
+                            local titleTargetX = contentLeftX + titleW / 2
+                            local titleTargetY = blockTop + titleH / 2
+                            local infoTop = blockTop + titleH + vGap
+                            local listLayout = islandTextContainer:FindFirstChildOfClass("UIListLayout")
                             local function fadeTitleLabels(t)
                                 for _, cf in ipairs(islandTextContainer:GetChildren()) do
                                     local lb = cf:FindFirstChildOfClass("TextLabel")
@@ -931,6 +976,7 @@ function Library.CreateWindow(opts)
                             fadeTitleLabels(1)
                             task.delay(Config.FadeInTime, function()
                                 if not expanded then return end
+                                if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
                                 local slide = 40
                                 islandTextContainer.Position = UDim2.new(0, titleTargetX + slide, 0, titleTargetY)
                                 TweenService:Create(islandTextContainer, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
@@ -939,7 +985,7 @@ function Library.CreateWindow(opts)
                                 fadeTitleLabels(0)
                                 if infoLabel and infoLabel.Parent then
                                     TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                        Position = UDim2.new(0, m + titlePad, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y + 10),
+                                        Position = UDim2.new(0, contentLeftX, 0, infoTop),
                                         TextTransparency = 0,
                                     }):Play()
                                 end
@@ -953,7 +999,7 @@ function Library.CreateWindow(opts)
                             ic.ImageTransparency = 1
                             ic.ImageColor3 = iconColor
                             ic.ScaleType = Enum.ScaleType.Fit
-                            ic.Position = UDim2.new(0, m + titlePad + iconS / 2 - leftShift, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2)
+                            ic.Position = UDim2.new(0, iconLeft + iconS / 2, 0, blockCY)
                             ic.Parent = screenGui
                             titleIcon = ic
                             task.spawn(function()
@@ -973,11 +1019,9 @@ function Library.CreateWindow(opts)
                             end)
                             if info ~= "" then
                                 if infoLabel then infoLabel:Destroy() end
-                                local infoX = m + titlePad
-                                local infoTop = top + titlePad + islandTextContainer.AbsoluteSize.Y + 10
                                 local il = Instance.new("TextLabel")
                                 il.Name = "InfoLabel"
-                                il.Size = UDim2.new(1, -(infoX + 12), 0, 24)
+                                il.Size = UDim2.new(1, -(contentLeftX + titlePad), 0, infoH)
                                 il.AutomaticSize = Enum.AutomaticSize.Y
                                 il.AnchorPoint = Vector2.new(0, 0)
                                 il.BackgroundTransparency = 1
@@ -990,7 +1034,7 @@ function Library.CreateWindow(opts)
                                 il.TextWrapped = true
                                 il.TextXAlignment = Enum.TextXAlignment.Left
                                 il.TextYAlignment = Enum.TextYAlignment.Top
-                                il.Position = UDim2.new(0, infoX + 40, 0, infoTop)
+                                il.Position = UDim2.new(0, contentLeftX + 40, 0, infoTop)
                                 il.Parent = screenGui
                                 infoLabel = il
                             end
