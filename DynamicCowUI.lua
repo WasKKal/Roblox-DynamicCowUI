@@ -310,7 +310,7 @@ function Library.Create()
         img.Position = UDim2.new(0.5, 0, 0.5, 0)
         img.AnchorPoint = Vector2.new(0.5, 0.5)
         img.BackgroundTransparency = 1
-        img.ImageColor3 = Config.LucideColor
+        img.ImageColor3 = Color3.new(1, 1, 1)
         img.ScaleType = Enum.ScaleType.Fit
         img.ImageTransparency = 1
         if icon.ImageRectOffset then
