@@ -43,6 +43,9 @@ local Config = {
     IslandText = "DynamicCow",
     IslandTextColor = Color3.fromRGB(0, 255, 120),
     IslandTextSize = 20,
+    FloatAmp = 3,
+    FloatSpeed = 2,
+    FloatPhase = 0.6,
     IslandTapScale = 1.06,
     TapExpandTime = 0.25,
     TapShrinkTime = 0.3,
@@ -387,10 +390,6 @@ function Library.Create()
                 charFrame.BorderSizePixel = 0
                 charFrame.Parent = container
 
-                local charScale = Instance.new("UIScale")
-                charScale.Scale = 1
-                charScale.Parent = charFrame
-
                 local charLabel = Instance.new("TextLabel")
                 charLabel.Size = UDim2.new(1, 0, 1, 0)
                 charLabel.BackgroundTransparency = 1
@@ -475,27 +474,24 @@ function Library.Create()
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
                         TweenService:Create(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
-                        local breatheAmp = 0.12
-                        local breatheSpeed = 2
-                        local breathePhase = 0.6
-                        local breatheStart = tick()
+                        local floatStart = tick()
                         RunService.Heartbeat:Connect(function()
                             if not islandTextContainer or not islandTextContainer.Parent then return end
                             local kids = islandTextContainer:GetChildren()
                             if expanded then
                                 for _, cf in ipairs(kids) do
-                                    local us = cf:FindFirstChildOfClass("UIScale")
-                                    if us then us.Scale = 1 end
+                                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                                    if lb then lb.Position = UDim2.new(0, 0, 0, 0) end
                                 end
                                 return
                             end
-                            local t = tick() - breatheStart
+                            local t = tick() - floatStart
                             local n = 0
                             for _, cf in ipairs(kids) do
-                                local us = cf:FindFirstChildOfClass("UIScale")
-                                if us then
+                                local lb = cf:FindFirstChildOfClass("TextLabel")
+                                if lb then
                                     n = n + 1
-                                    us.Scale = 1 + breatheAmp * math.sin(t * breatheSpeed + n * breathePhase)
+                                    lb.Position = UDim2.new(0, Config.FloatAmp * math.sin(t * Config.FloatSpeed + n * Config.FloatPhase), 0, 0)
                                 end
                             end
                         end)
