@@ -312,12 +312,13 @@ function Library.Create()
         img.BackgroundTransparency = 1
         img.ImageColor3 = Color3.new(1, 1, 1)
         img.ScaleType = Enum.ScaleType.Fit
-        img.ImageTransparency = 1
+        img.ImageTransparency = 0
         if icon.ImageRectOffset then
             img.ImageRectOffset = icon.ImageRectOffset
             img.ImageRectSize = icon.ImageRectSize
         end
-        img.Parent = ring
+        img.Parent = parent
+        warn("[DynamicCowUI] 球内图标已创建 Url=" .. tostring(icon.Url))
 
         TweenService:Create(ringStroke, TweenInfo.new(Config.FadeInTime), { Transparency = 0 }):Play()
         TweenService:Create(img, TweenInfo.new(Config.FadeInTime), { ImageTransparency = 0 }):Play()
