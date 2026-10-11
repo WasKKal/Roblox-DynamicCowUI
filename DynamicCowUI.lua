@@ -697,6 +697,40 @@ function Library.CreateWindow(opts)
         return container
     end
 
+    local function setIslandText(text, color)
+        text = text or Config.IslandText
+        color = color or Config.TitleColor
+        if not (islandTextContainer and islandTextContainer.Parent) then
+            islandTextContainer = createIslandText(text, color, true)
+            return
+        end
+        for _, child in ipairs(islandTextContainer:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+        for _, item in ipairs(parseColoredChars(text, color)) do
+            local ch = item.ch
+            if ch ~= " " then
+                local charFrame = Instance.new("Frame")
+                charFrame.Size = UDim2.new(0, 0, 1, 0)
+                charFrame.AutomaticSize = Enum.AutomaticSize.X
+                charFrame.BackgroundTransparency = 1
+                charFrame.BorderSizePixel = 0
+                charFrame.Parent = islandTextContainer
+                local charLabel = Instance.new("TextLabel")
+                charLabel.Size = UDim2.new(1, 0, 1, 0)
+                charLabel.BackgroundTransparency = 1
+                charLabel.Text = ch
+                charLabel.TextColor3 = item.color
+                charLabel.TextTransparency = 0
+                charLabel.TextSize = Config.IslandTextSize
+                charLabel.Font = charFont(ch)
+                charLabel.TextXAlignment = Enum.TextXAlignment.Center
+                charLabel.TextYAlignment = Enum.TextYAlignment.Center
+                charLabel.Parent = charFrame
+            end
+        end
+    end
+
     local expanded = false
     local winOpen = false
     local islandTextContainer = nil
@@ -1583,6 +1617,7 @@ function Library.CreateWindow(opts)
                     destroyTabUI()
                     win._rebuildTabs = nil
                     expanded = false
+                    setIslandText(title, Config.TitleColor)
                     interacting = false
                 end
 
@@ -2466,8 +2501,7 @@ function Library.CreateWindow(opts)
             if type(text) ~= "string" or #text == 0 then return end
             title = text
             if not alive or expanded then return end
-            if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
-            islandTextContainer = createIslandText(text, Config.TitleColor, true)
+            setIslandText(text, Config.TitleColor)
         end,
         ShowNotify = function(t)
             runIslandAction(t)
