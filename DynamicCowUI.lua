@@ -48,7 +48,7 @@ local Config = {
     TapShrinkTime = 0.3,
     TapCooldown = 0.2,
     LongPressThreshold = 0.5,
-    PanelExpandTime = 0.4,
+    PanelExpandTime = 0.7,
     PanelMargin = 20,
     BackdropDim = 0.4,
     IslandFinalTransparency = 0.4,
@@ -57,7 +57,7 @@ local Config = {
 local Library = {}
 
 function Library.Create()
-    warn("[DynamicCowUI] 版本 = 2026-10-11-v8 (强制清理旧图标缓存, 重生成白描边)")
+    warn("[DynamicCowUI] 版本 = 2026-10-11-v11 (面板展开/缩回改用Elastic弹性 + PanelExpandTime 0.7)")
 
     if isfolder and isfolder("lucide-icon-latest") then
         pcall(delfolder, "lucide-icon-latest")
@@ -545,7 +545,7 @@ function Library.Create()
                     if not expanded then return end
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                    local shrinkBack = TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                    local shrinkBack = TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
                         Size = Config.IslandSize,
                         Position = Config.IslandPosition,
                     })
@@ -576,7 +576,7 @@ function Library.Create()
                             local sh = screenGui.AbsoluteSize.Y
                             local m = Config.PanelMargin
                             local top = Config.IslandPosition.Y.Offset
-                            TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                            TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
                                 Size = UDim2.new(0, sw - m * 2, 0, sh - top - m),
                                 Position = UDim2.new(0, m, 0, top),
                             }):Play()
