@@ -66,6 +66,7 @@ local Library = {}
 function Library.CreateWindow(opts)
     opts = opts or {}
     local title = opts.Title or Config.TitleText
+    local isError = opts.ImmediatelyError == true
     if Library._demoWin and not Library._demoWin._added then
         pcall(function() Library._demoWin:_closeNow() end)
     end
@@ -508,26 +509,29 @@ function Library.CreateWindow(opts)
                             end
                         end
                     end
-                    task.delay(Config.FadeInTime, function()
+                    if isError then
+                        flowSpeed = 0
+                        TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                        silverStroke.Color3 = Config.RedXColor
+                        TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
+                        task.delay(Config.BallHoldTime + 0.4, function()
+                            explode()
+                            if fillFrame and fillFrame.Parent then
+                                TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+                            end
+                            TweenService:Create(silverStroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                            TweenService:Create(stroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                            task.delay(1.0, function()
+                                alive = false
+                                if screenGui and screenGui.Parent then screenGui:Destroy() end
+                            end)
+                        end)
+                    else
                         flowSpeed = 0
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
                         TweenService:Create(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
-                        if isError then
-                            task.delay(Config.BallHoldTime, function()
-                                explode()
-                                if fillFrame and fillFrame.Parent then
-                                    TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
-                                end
-                                TweenService:Create(silverStroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
-                                TweenService:Create(stroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
-                                task.delay(1.0, function()
-                                    alive = false
-                                    if screenGui and screenGui.Parent then screenGui:Destroy() end
-                                end)
-                            end)
-                        end
-                    end)
+                    end
                 end)
             end)
         end)
@@ -726,8 +730,8 @@ function Library.CreateWindow(opts)
             fillTween:Play()
             fillTween.Completed:Connect(function()
                 if backdrop and backdrop.Parent then backdrop:Destroy() end
-                islandTextContainer = createIslandText(title)
-                task.spawn(splitBall, islandTextContainer)
+                islandTextContainer = createIslandText(isError and Config.ErrorText or title, isError and Config.ErrorTextColor or Config.IslandTextColor)
+                task.spawn(function() splitBall(islandTextContainer, isError) end)
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
                 edge.Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
                 edge.Active = true
