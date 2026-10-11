@@ -87,12 +87,13 @@ local Config = {
     ParticleGravity = 700,
     InfoTextSize = 16,
     InfoColor = Color3.fromRGB(200, 205, 210),
+    HeaderPad = 8,
     TitleColor = Color3.new(1, 1, 1),
     TitleIconSize = 28,
     TitleIconGap = 10,
-    TitleIconNudgeX = 8,
+    TitleIconNudgeX = 4,
     InfoBoxHeight = 22,
-    InfoTopGap = 8,
+    InfoTopGap = 4,
     IslandHandoffDelay = 0.1,
     IslandHandoffFade = 0.15,
 }
@@ -951,7 +952,7 @@ function Library.CreateWindow(opts)
                                 Size = UDim2.new(0, sw - m * 2, 0, sh - top - m),
                                 Position = UDim2.new(0, m, 0, top),
                             }):Play()
-                            local titlePad = 12
+                            local titlePad = Config.HeaderPad
                             local iconS = Config.TitleIconSize
                             local iconGap = Config.TitleIconGap
                             local titleW = islandTextContainer.AbsoluteSize.X
