@@ -509,7 +509,7 @@ function Library.Create()
         flowSpeed = Config.FlowSpeed
         gradient.Color = rainbowColors
         local shrinkTween = TweenService:Create(edge, TweenInfo.new(
-            Config.ShrinkTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out
+            Config.ShrinkTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
         ), {
             Size = Config.IslandSize,
             Position = Config.IslandPosition,
@@ -568,7 +568,7 @@ function Library.Create()
                     if not expanded then return end
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                    local shrinkBack = TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                    local shrinkBack = TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                         Size = Config.IslandSize,
                         Position = Config.IslandPosition,
                     })
@@ -577,7 +577,7 @@ function Library.Create()
                         edge.AnchorPoint = Vector2.new(0.5, 0.5)
                         edge.Position = UDim2.new(0.5, cx, 0, cy)
                     end)
-                    TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                    TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                         Position = UDim2.new(Config.IslandPosition.X.Scale, cx, Config.IslandPosition.Y.Scale, cy),
                     }):Play()
                     if closeBtn then closeBtn:Destroy() closeBtn = nil end
@@ -602,7 +602,7 @@ function Library.Create()
                             local sh = screenGui.AbsoluteSize.Y
                             local m = Config.PanelMargin
                             local top = Config.IslandPosition.Y.Offset
-                            TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                            TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                                 Size = UDim2.new(0, sw - m * 2, 0, sh - top - m),
                                 Position = UDim2.new(0, m, 0, top),
                             }):Play()
