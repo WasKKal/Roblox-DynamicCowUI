@@ -23,7 +23,7 @@ local Config = {
     FadeInTime = 0.6,
     TargetTransparency = 0.5,
     ShrinkDelay = 1,
-    ShrinkTime = 1.8,
+    ShrinkTime = 1.5,
     IslandSize = UDim2.new(0, 180, 0, 36),
     IslandPosition = UDim2.new(0.5, -90, 0, 10),
     IslandCornerRadius = UDim.new(0, 18),
@@ -48,7 +48,7 @@ local Config = {
     TapShrinkTime = 0.3,
     TapCooldown = 0.2,
     LongPressThreshold = 0.5,
-    PanelExpandTime = 0.7,
+    PanelExpandTime = 0.55,
     PanelMargin = 20,
     BackdropDim = 0.4,
     IslandFinalTransparency = 0.4,
@@ -509,7 +509,7 @@ function Library.Create()
         flowSpeed = Config.FlowSpeed
         gradient.Color = rainbowColors
         local shrinkTween = TweenService:Create(edge, TweenInfo.new(
-            Config.ShrinkTime, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out
+            Config.ShrinkTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out
         ), {
             Size = Config.IslandSize,
             Position = Config.IslandPosition,
@@ -568,7 +568,7 @@ function Library.Create()
                     if not expanded then return end
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                    local shrinkBack = TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+                    local shrinkBack = TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                         Size = Config.IslandSize,
                         Position = Config.IslandPosition,
                     })
@@ -599,7 +599,7 @@ function Library.Create()
                             local sh = screenGui.AbsoluteSize.Y
                             local m = Config.PanelMargin
                             local top = Config.IslandPosition.Y.Offset
-                            TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+                            TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                                 Size = UDim2.new(0, sw - m * 2, 0, sh - top - m),
                                 Position = UDim2.new(0, m, 0, top),
                             }):Play()
