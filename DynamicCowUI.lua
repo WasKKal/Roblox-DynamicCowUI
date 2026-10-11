@@ -658,6 +658,7 @@ function Library.CreateWindow(opts)
     end
 
     local expanded = false
+    local winOpen = false
     local islandTextContainer = nil
     local alive = true
     local shutdown = false
@@ -972,6 +973,7 @@ function Library.CreateWindow(opts)
 
     local function playErrorSequence()
         expanded = false
+        winOpen = false
         flowSpeed = 0
         if backdrop and backdrop.Parent then backdrop:Destroy() end
         -- 1) 渐隐：面板内所有控件（选项卡/按钮/开关等）与标题图标/副标题先淡出，避免被压缩进灵动岛
@@ -1526,6 +1528,7 @@ function Library.CreateWindow(opts)
                     animateEdge(Config.IslandSize, Config.IslandPosition, Config.PanelExpandTime, Config.PanelBounce, function()
                         edge.AnchorPoint = Vector2.new(0.5, 0.5)
                         edge.Position = UDim2.new(0.5, cx, 0, cy)
+                        winOpen = false
                     end)
                     TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                         Position = UDim2.new(Config.IslandPosition.X.Scale, cx, Config.IslandPosition.Y.Scale, cy),
@@ -1567,6 +1570,7 @@ function Library.CreateWindow(opts)
                                 Config.PanelExpandTime
                             )
                             playBorderSweep()
+                            task.delay(Config.PanelExpandTime, function() winOpen = true end)
                             local titlePad = Config.HeaderPad
                             local iconS = Config.TitleIconSize
                             local iconGap = Config.TitleIconGap
@@ -2410,8 +2414,17 @@ function Library.CreateWindow(opts)
             task.delay(hold, endNow)
         end
     end
+    win.GetWindowAction = function()
+        return winOpen and "WindowOpen" or "WindowClose"
+    end
     win.DynamicIslandAction = setmetatable({
-        ChangeText = function() end,
+        ChangeText = function(text)
+            if type(text) ~= "string" or #text == 0 then return end
+            title = text
+            if not alive or expanded then return end
+            if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
+            islandTextContainer = createIslandText(text, Config.TitleColor, true)
+        end,
         ShowNotify = function(t)
             runIslandAction(t)
         end,
@@ -2421,6 +2434,9 @@ function Library.CreateWindow(opts)
     end
     Library._lastWin = win
     Library.DynamicIslandAction = win.DynamicIslandAction
+    Library.GetWindowAction = function()
+        return win:GetWindowAction()
+    end
     Library.ShowNotify = function(t)
         runIslandAction(t)
     end
