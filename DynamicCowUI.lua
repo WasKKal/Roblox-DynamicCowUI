@@ -111,7 +111,7 @@ local Config = {
     TabStagger = 0.06,
     TabFadeIn = 0.25,
     ContentEmptyIconSize = 48,
-    PanelEaseStyle = Enum.EasingStyle.Back,
+    PanelBounce = 0.7,
     InfoEnterDelay = 0.1,
     BorderSweepFade = 0.3,
     ContentEmptyIcon = "mouse-pointer-click",
@@ -216,7 +216,7 @@ function Library.CreateWindow(opts)
     end
     if isError then
         title = Config.ErrorText
-        reportError(errReason)
+        if opts._error ~= true then reportError(errReason) end
     end
     if isfolder and isfolder("lucide-icon-latest") then
         pcall(delfolder, "lucide-icon-latest")
@@ -610,6 +610,29 @@ function Library.CreateWindow(opts)
     local alive = true
     local ready = false
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
+
+    local function animateEdge(targetSize, targetPos, dur, over, onDone)
+        local s0 = edge.Size
+        local p0 = edge.Position
+        local c1 = over or Config.PanelBounce
+        local c3 = c1 + 1
+        local t0 = os.clock()
+        local conn
+        conn = RunService.Heartbeat:Connect(function()
+            if not alive then if conn then conn:Disconnect() end return end
+            local t = math.clamp((os.clock() - t0) / dur, 0, 1)
+            local e = 1 + c3 * (t - 1) ^ 3 + c1 * (t - 1) ^ 2
+            local function L(a, b) return a + (b - a) * e end
+            edge.Size = UDim2.new(L(s0.X.Scale, targetSize.X.Scale), L(s0.X.Offset, targetSize.X.Offset), L(s0.Y.Scale, targetSize.Y.Scale), L(s0.Y.Offset, targetSize.Y.Offset))
+            edge.Position = UDim2.new(L(p0.X.Scale, targetPos.X.Scale), L(p0.X.Offset, targetPos.X.Offset), L(p0.Y.Scale, targetPos.Y.Scale), L(p0.Y.Offset, targetPos.Y.Offset))
+            if t >= 1 then
+                if conn then conn:Disconnect() end
+                edge.Size = targetSize
+                edge.Position = targetPos
+                if onDone then onDone() end
+            end
+        end)
+    end
 
     local function playBorderSweep()
         if not alive then return end
@@ -1267,12 +1290,7 @@ function Library.CreateWindow(opts)
                     if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                    local shrinkBack = TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Config.PanelEaseStyle, Enum.EasingDirection.Out), {
-                        Size = Config.IslandSize,
-                        Position = Config.IslandPosition,
-                    })
-                    shrinkBack:Play()
-                    shrinkBack.Completed:Connect(function()
+                    animateEdge(Config.IslandSize, Config.IslandPosition, Config.PanelExpandTime, Config.PanelBounce, function()
                         edge.AnchorPoint = Vector2.new(0.5, 0.5)
                         edge.Position = UDim2.new(0.5, cx, 0, cy)
                     end)
@@ -1307,10 +1325,11 @@ function Library.CreateWindow(opts)
                             local sh = screenGui.AbsoluteSize.Y
                             local m = Config.PanelMargin
                             local top = Config.IslandPosition.Y.Offset
-                            TweenService:Create(edge, TweenInfo.new(Config.PanelExpandTime, Config.PanelEaseStyle, Enum.EasingDirection.Out), {
-                                Size = UDim2.new(0, sw - m * 2, 0, sh - top - m),
-                                Position = UDim2.new(0, m, 0, top),
-                            }):Play()
+                            animateEdge(
+                                UDim2.new(0, sw - m * 2, 0, sh - top - m),
+                                UDim2.new(0, m, 0, top),
+                                Config.PanelExpandTime
+                            )
                             playBorderSweep()
                             local titlePad = Config.HeaderPad
                             local iconS = Config.TitleIconSize
