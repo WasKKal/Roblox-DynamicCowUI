@@ -63,6 +63,16 @@ local Config = {
 
 local Library = {}
 
+-- 统一错误上报通道：所有错误都经由此处，默认用 warn() 打印到控制台。
+-- 若已存在等价通道可忽略；外部可挂接 Library.OnError(msg) 订阅全部错误上报。
+local function reportError(msg)
+    msg = tostring(msg)
+    warn("[DynamicCowUI] " .. msg)
+    if type(Library.OnError) == "function" then
+        pcall(Library.OnError, msg)
+    end
+end
+
 function Library.CreateWindow(opts)
     opts = opts or {}
     if Library._demoWin and not Library._demoWin._added then
@@ -71,19 +81,25 @@ function Library.CreateWindow(opts)
     end
     -- 异常值检测：避免直接抛出报错，非法输入统一改为播放错误动画
     local isError = opts._error == true
+    local errReason = isError and "CreateWindow 异常触发（缺失或未正常调用）" or nil
     local title = Config.TitleText
     if not isError then
         if type(opts) ~= "table" then
             isError = true
+            errReason = "CreateWindow 入参不是 table（收到 " .. type(opts) .. "）"
         elseif opts.Title ~= nil and (type(opts.Title) ~= "string" or #opts.Title == 0) then
             isError = true
+            errReason = "CreateWindow Title 非法（收到 " .. type(opts.Title) .. "）"
         elseif opts.Title == nil then
             title = Config.TitleText
         else
             title = opts.Title
         end
     end
-    if isError then title = Config.ErrorText end
+    if isError then
+        title = Config.ErrorText
+        reportError(errReason)
+    end
     if isfolder and isfolder("lucide-icon-latest") then
         pcall(delfolder, "lucide-icon-latest")
     end
@@ -119,9 +135,9 @@ function Library.CreateWindow(opts)
                 end)
             end
         end
-        if not content then warn("[DynamicCowUI] Lucide 资源下载失败，已取消加载 UI") return nil end
+        if not content then reportError("Lucide 资源下载失败，已取消加载 UI") return nil end
         local func, err = loadstring(content)
-        if not func then warn("[DynamicCowUI] Lucide 解析失败: " .. tostring(err)) return nil end
+        if not func then reportError("Lucide 解析失败: " .. tostring(err)) return nil end
         local ok, module = pcall(func)
         if not ok or type(module) ~= "table" or type(module.GetAsset) ~= "function" then return nil end
         lucideModule = module
@@ -129,7 +145,7 @@ function Library.CreateWindow(opts)
     end
 
     if not loadLucide() then
-        warn("[DynamicCowUI] Lucide 资源未就绪，已取消加载 UI")
+        reportError("Lucide 资源未就绪，已取消加载 UI")
         return
     end
 
@@ -289,16 +305,16 @@ function Library.CreateWindow(opts)
     local function createCheckIcon(parent)
         local lucide = loadLucide()
         if not lucide then
-            warn("[DynamicCowUI] createCheckIcon: lucide 模块未就绪, 跳过图标")
+            reportError("createCheckIcon: lucide 模块未就绪, 跳过图标")
             return
         end
         local ok, icon = pcall(lucide.GetAsset, Config.LucideIcon)
         if not ok then
-            warn("[DynamicCowUI] createCheckIcon: GetAsset 报错: " .. tostring(icon))
+            reportError("createCheckIcon: GetAsset 报错: " .. tostring(icon))
             return
         end
         if not icon or not icon.Url or icon.Url == "" then
-            warn("[DynamicCowUI] createCheckIcon: 图标 '" .. tostring(Config.LucideIcon) .. "' 资源为空 (getcustomasset/getsynasset 可能不可用), 跳过图标")
+            reportError("createCheckIcon: 图标 '" .. tostring(Config.LucideIcon) .. "' 资源为空 (getcustomasset/getsynasset 可能不可用), 跳过图标")
             return
         end
 
@@ -933,15 +949,19 @@ function Library.CreateWindow(opts)
         _added = false,
         Add = function(self, content)
             self._added = true
-            local ok = pcall(function()
+            local ok, em = pcall(function()
                 if content ~= nil and type(content) ~= "table" and typeof(content) ~= "Instance" then
                     error("Add 接收了不支持的内容类型")
                 end
             end)
-            if not ok then self:Error() end
+            if not ok then
+                reportError("Add 异常: " .. tostring(em))
+                self:Error()
+            end
         end,
         Error = function(self)
             if not alive then return end
+            reportError("触发错误销毁动画（格式错误 + 红 X + 爆炸）")
             task.spawn(playErrorSequence)
         end,
         _closeNow = function(self)
