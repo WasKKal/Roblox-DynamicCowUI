@@ -434,6 +434,44 @@ function Library.CreateWindow(opts)
     local islandTextContainer = nil
     local alive = true
 
+    local function explode()
+        local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+        local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+        local iw = Config.IslandSize.X.Offset
+        local ih = Config.IslandSize.Y.Offset
+        local parts = {}
+        for _ = 1, Config.ParticleCount do
+            local p = Instance.new("Frame")
+            p.Size = UDim2.fromOffset(Config.ParticleSize, Config.ParticleSize)
+            p.BackgroundColor3 = Color3.new(1, 1, 1)
+            p.BorderSizePixel = 0
+            p.AnchorPoint = Vector2.new(0.5, 0.5)
+            local px = cx + (math.random() * 2 - 1) * iw / 2
+            local py = cy + (math.random() * 2 - 1) * ih / 2
+            p.Position = UDim2.new(0, px, 0, py)
+            p.Parent = screenGui
+            local ang = math.random() * math.pi * 2
+            local spd = 140 + math.random() * 220
+            parts[#parts + 1] = { f = p, vx = math.cos(ang) * spd, vy = math.sin(ang) * spd - 160 }
+        end
+        local grav = Config.ParticleGravity
+        local conn
+        conn = RunService.Heartbeat:Connect(function(dt)
+            if not alive then if conn then conn:Disconnect() end return end
+            local sh = screenGui.AbsoluteSize.Y
+            local any = false
+            for _, pt in ipairs(parts) do
+                local p = pt.f
+                if p and p.Parent then
+                    pt.vy = pt.vy + grav * dt
+                    p.Position = UDim2.new(0, p.Position.X.Offset + pt.vx * dt, 0, p.Position.Y.Offset + pt.vy * dt)
+                    if p.AbsolutePosition.Y > sh + 30 then p:Destroy() else any = true end
+                end
+            end
+            if not any then if conn then conn:Disconnect() end end
+        end)
+    end
+
     local function splitBall(islandTextContainer, isError)
         local ballD = Config.IslandSize.Y.Offset
         local ballInitX = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset - ballD / 2
@@ -595,44 +633,6 @@ function Library.CreateWindow(opts)
             end)
         end)
         return ball
-    end
-
-    local function explode()
-        local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-        local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-        local iw = Config.IslandSize.X.Offset
-        local ih = Config.IslandSize.Y.Offset
-        local parts = {}
-        for _ = 1, Config.ParticleCount do
-            local p = Instance.new("Frame")
-            p.Size = UDim2.fromOffset(Config.ParticleSize, Config.ParticleSize)
-            p.BackgroundColor3 = Color3.new(1, 1, 1)
-            p.BorderSizePixel = 0
-            p.AnchorPoint = Vector2.new(0.5, 0.5)
-            local px = cx + (math.random() * 2 - 1) * iw / 2
-            local py = cy + (math.random() * 2 - 1) * ih / 2
-            p.Position = UDim2.new(0, px, 0, py)
-            p.Parent = screenGui
-            local ang = math.random() * math.pi * 2
-            local spd = 140 + math.random() * 220
-            parts[#parts + 1] = { f = p, vx = math.cos(ang) * spd, vy = math.sin(ang) * spd - 160 }
-        end
-        local grav = Config.ParticleGravity
-        local conn
-        conn = RunService.Heartbeat:Connect(function(dt)
-            if not alive then if conn then conn:Disconnect() end return end
-            local sh = screenGui.AbsoluteSize.Y
-            local any = false
-            for _, pt in ipairs(parts) do
-                local p = pt.f
-                if p and p.Parent then
-                    pt.vy = pt.vy + grav * dt
-                    p.Position = UDim2.new(0, p.Position.X.Offset + pt.vx * dt, 0, p.Position.Y.Offset + pt.vy * dt)
-                    if p.AbsolutePosition.Y > sh + 30 then p:Destroy() else any = true end
-                end
-            end
-            if not any then if conn then conn:Disconnect() end end
-        end)
     end
 
     local function playErrorSequence()
