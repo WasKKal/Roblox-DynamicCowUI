@@ -6,6 +6,30 @@ local svc = {
 local RunService = svc.RunService
 local TweenService = svc.TweenService
 
+local HTTP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+local function httpGet(url)
+    local req = request or http_request or (syn and syn.request) or (http and http.request)
+    if req then
+        local ok, res = pcall(req, {
+            Url = url,
+            Method = "GET",
+            Headers = { ["User-Agent"] = HTTP_UA },
+        })
+        if ok then
+            if type(res) == "table" then
+                local body = res.Body or res.body
+                if body and #body > 0 then return body end
+            elseif type(res) == "string" and #res > 0 then
+                return res
+            end
+        end
+    end
+    local ok, res = pcall(game.HttpGet, game, url)
+    if ok and res then return res end
+    return nil
+end
+
 local Config = {
     RainbowColors = {
         Color3.fromRGB(255, 0, 0),
@@ -34,6 +58,8 @@ local Config = {
     LucideIcon = "check",
     LucideColor = Color3.fromRGB(0, 255, 120),
     LucideIconSize = 22,
+    DefaultTitleIcon = "carton",
+    DefaultTitleIconColor = Color3.new(1, 1, 1),
     RingThickness = 3,
     RingColor = Color3.fromRGB(0, 255, 120),
     RingSpeed = 120,
@@ -59,6 +85,8 @@ local Config = {
     ParticleCount = 26,
     ParticleSize = 5,
     ParticleGravity = 700,
+    InfoTextSize = 16,
+    InfoColor = Color3.fromRGB(200, 205, 210),
 }
 
 local Library = {}
@@ -83,6 +111,9 @@ function Library.CreateWindow(opts)
     local isError = opts._error == true
     local errReason = isError and "CreateWindow 异常触发（缺失或未正常调用）" or nil
     local title = Config.TitleText
+    local info = ""
+    local iconName = Config.DefaultTitleIcon
+    local iconColor = Config.DefaultTitleIconColor
     if not isError then
         if type(opts) ~= "table" then
             isError = true
@@ -94,6 +125,30 @@ function Library.CreateWindow(opts)
             title = Config.TitleText
         else
             title = opts.Title
+        end
+        if not isError and opts.Info ~= nil then
+            if type(opts.Info) ~= "string" then
+                isError = true
+                errReason = "CreateWindow Info 非法（收到 " .. type(opts.Info) .. "）"
+            else
+                info = opts.Info
+            end
+        end
+        if not isError and opts.Icon ~= nil then
+            if type(opts.Icon) ~= "string" then
+                isError = true
+                errReason = "CreateWindow Icon 非法（收到 " .. type(opts.Icon) .. "）"
+            else
+                iconName = opts.Icon
+            end
+        end
+        if not isError and opts.IconColor ~= nil then
+            if typeof(opts.IconColor) ~= "Color3" then
+                isError = true
+                errReason = "CreateWindow IconColor 非法（收到 " .. (typeof(opts.IconColor) or type(opts.IconColor)) .. "）"
+            else
+                iconColor = opts.IconColor
+            end
         end
     end
     if isError then
@@ -120,12 +175,9 @@ function Library.CreateWindow(opts)
                 "https://raw.githubusercontent.com/WasKKal/DeltaExecutor-UI-Rebuild@lucide-v6/lucide/init.lua",
             }
             for _, url in ipairs(urls) do
-                for _ = 1, 2 do
-                    local ok, res = pcall(game.HttpGet, game, url)
-                    if ok and res and #res > 5000 then content = res break end
-                    task.wait(0.3)
-                end
-                if content then break end
+                local res = httpGet(url)
+                if res and #res > 5000 then content = res break end
+                task.wait(0.3)
             end
             if content then
                 pcall(function()
@@ -258,7 +310,7 @@ function Library.CreateWindow(opts)
     glowLabel.Name = "GlowLabel"
     glowLabel.Size = UDim2.new(1, 0, 1, 0)
     glowLabel.BackgroundTransparency = 1
-    glowLabel.Text = title
+    glowLabel.Text = Config.IslandText
     glowLabel.TextColor3 = Color3.new(1, 1, 1)
     glowLabel.TextStrokeColor3 = Color3.new(1, 1, 1)
     glowLabel.TextStrokeTransparency = 1
@@ -273,7 +325,7 @@ function Library.CreateWindow(opts)
     titleLabel.Name = "TitleLabel"
     titleLabel.Size = UDim2.new(1, 0, 1, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = title
+    titleLabel.Text = Config.IslandText
     titleLabel.TextColor3 = Color3.new(1, 1, 1)
     titleLabel.TextStrokeTransparency = 1
     titleLabel.TextTransparency = 1
@@ -514,7 +566,7 @@ function Library.CreateWindow(opts)
         end)
     end
 
-    local function splitBall(islandTextContainer, isError)
+    local function splitBall(isError)
         local ballD = Config.IslandSize.Y.Offset
         local ballInitX = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset - ballD / 2
         local ballCenterY = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
@@ -624,8 +676,16 @@ function Library.CreateWindow(opts)
                         end
                         ball:Destroy()
                         task.delay(Config.FadeInTime, function()
-                            if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
-                            islandTextContainer = createIslandText(title, Config.IslandTextColor, true)
+                            if islandTextContainer and islandTextContainer.Parent then
+                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                                    if lb then TweenService:Create(lb, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                                end
+                            end
+                            task.delay(0.25, function()
+                                if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
+                                islandTextContainer = createIslandText(title, Config.IslandTextColor, true)
+                            end)
                         end)
                         flowSpeed = 0
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
@@ -799,8 +859,8 @@ function Library.CreateWindow(opts)
             fillTween:Play()
             fillTween.Completed:Connect(function()
                 if backdrop and backdrop.Parent then backdrop:Destroy() end
-                islandTextContainer = createIslandText("DynamicCow", Config.IslandTextColor)
-                task.spawn(function() splitBall(islandTextContainer, isError) end)
+                islandTextContainer = createIslandText(Config.IslandText, Config.IslandTextColor)
+                task.spawn(function() splitBall(isError) end)
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
                 edge.Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
                 edge.Active = true
@@ -809,6 +869,7 @@ function Library.CreateWindow(opts)
                 local longPress = nil
                 local closeBtn = nil
                 local titleIcon = nil
+                local infoLabel = nil
 
                 local function collapsePanel()
                     if not expanded then return end
@@ -829,6 +890,7 @@ function Library.CreateWindow(opts)
                     for _, cf in ipairs(islandTextContainer:GetChildren()) do local lb = cf:FindFirstChildOfClass("TextLabel") if lb then lb.TextTransparency = 0 end end
                     if closeBtn then closeBtn:Destroy() closeBtn = nil end
                     if titleIcon then titleIcon:Destroy() titleIcon = nil end
+                    if infoLabel then infoLabel:Destroy() infoLabel = nil end
                     expanded = false
                     interacting = false
                 end
@@ -875,6 +937,12 @@ function Library.CreateWindow(opts)
                                     Position = UDim2.new(0, titleTargetX, 0, titleTargetY),
                                 }):Play()
                                 fadeTitleLabels(0)
+                                if infoLabel and infoLabel.Parent then
+                                    TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                        Position = UDim2.new(0, m + titlePad, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y + 10),
+                                        TextTransparency = 0,
+                                    }):Play()
+                                end
                             end)
                             if titleIcon then titleIcon:Destroy() end
                             local ic = Instance.new("ImageLabel")
@@ -883,7 +951,7 @@ function Library.CreateWindow(opts)
                             ic.AnchorPoint = Vector2.new(0.5, 0.5)
                             ic.BackgroundTransparency = 1
                             ic.ImageTransparency = 1
-                            ic.ImageColor3 = Color3.new(1, 1, 1)
+                            ic.ImageColor3 = iconColor
                             ic.ScaleType = Enum.ScaleType.Fit
                             ic.Position = UDim2.new(0, m + titlePad + iconS / 2 - leftShift, 0, top + titlePad + islandTextContainer.AbsoluteSize.Y / 2)
                             ic.Parent = screenGui
@@ -891,7 +959,7 @@ function Library.CreateWindow(opts)
                             task.spawn(function()
                                 local lucide = loadLucide()
                                 if lucide then
-                                    local ok, asset = pcall(lucide.GetAsset, "carton")
+                                    local ok, asset = pcall(lucide.GetAsset, iconName)
                                     if ok and asset and asset.Url then
                                         ic.Image = asset.Url
                                         if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
@@ -903,6 +971,29 @@ function Library.CreateWindow(opts)
                                     end
                                 end)
                             end)
+                            if info ~= "" then
+                                if infoLabel then infoLabel:Destroy() end
+                                local infoX = m + titlePad
+                                local infoTop = top + titlePad + islandTextContainer.AbsoluteSize.Y + 10
+                                local il = Instance.new("TextLabel")
+                                il.Name = "InfoLabel"
+                                il.Size = UDim2.new(1, -(infoX + 12), 0, 24)
+                                il.AutomaticSize = Enum.AutomaticSize.Y
+                                il.AnchorPoint = Vector2.new(0, 0)
+                                il.BackgroundTransparency = 1
+                                il.BorderSizePixel = 0
+                                il.Text = info
+                                il.TextColor3 = Config.InfoColor
+                                il.TextTransparency = 1
+                                il.TextSize = Config.InfoTextSize
+                                il.Font = Enum.Font.Gotham
+                                il.TextWrapped = true
+                                il.TextXAlignment = Enum.TextXAlignment.Left
+                                il.TextYAlignment = Enum.TextYAlignment.Top
+                                il.Position = UDim2.new(0, infoX + 40, 0, infoTop)
+                                il.Parent = screenGui
+                                infoLabel = il
+                            end
                             local btn = Instance.new("ImageButton")
                             btn.Name = "PanelClose"
                             btn.Size = UDim2.new(0, 20, 0, 20)
