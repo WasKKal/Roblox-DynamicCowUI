@@ -89,6 +89,8 @@ local Config = {
     InfoColor = Color3.fromRGB(200, 205, 210),
     HeaderPad = 8,
     PanelDrop = 8,
+    TitleDrop = 4,
+    InfoRise = 3,
     TitleColor = Color3.new(1, 1, 1),
     TitleIconSize = 28,
     TitleIconGap = 10,
@@ -148,9 +150,18 @@ local Config = {
     ButtonTextColor = Color3.new(1, 1, 1),
     ButtonIconSize = 18,
     ButtonIconGap = 8,
+    ToggleWidth = 46,
+    ToggleHeight = 26,
+    TogglePad = 3,
+    ToggleIconRatio = 0.6,
+    ToggleTrackColor = Color3.fromRGB(72, 72, 84),
+    ToggleThumbColor = Color3.new(1, 1, 1),
+    ToggleOnColor = Color3.fromRGB(0, 200, 120),
+    ToggleIconColor = Color3.fromRGB(44, 44, 54),
     ActionHoldTime = 3,
     ActionExtendW = 40,
     ActionExtendH = 12,
+    NotifyDrop = 36,
     IslandActionStrokeTransparency = 0.35,
     IslandActionReveal = 0.3,
     ActionFlashTime = 0.3,
@@ -1135,13 +1146,109 @@ function Library.CreateWindow(opts)
                         end)
                         return btn
                     end
+                    local function makeToggle(tg, order)
+                        local row = Instance.new("TextButton")
+                        row.Name = "SubToggle"
+                        row.Size = UDim2.new(1, 0, 0, Config.ButtonHeight)
+                        row.BackgroundTransparency = 1
+                        row.Text = ""
+                        row.AutoButtonColor = false
+                        row.LayoutOrder = order
+                        row.ZIndex = 3
+                        local tlbl = Instance.new("TextLabel")
+                        tlbl.Name = "TglText"
+                        tlbl.BackgroundTransparency = 1
+                        tlbl.AnchorPoint = Vector2.new(0, 0.5)
+                        tlbl.Position = UDim2.new(0, 0, 0.5, 0)
+                        tlbl.Size = UDim2.new(1, -(Config.ToggleWidth + 14), 1, 0)
+                        tlbl.Text = tg.Title
+                        tlbl.TextColor3 = Config.ButtonTextColor
+                        tlbl.TextSize = Config.ButtonTextSize
+                        tlbl.Font = Enum.Font.GothamMedium
+                        tlbl.TextXAlignment = Enum.TextXAlignment.Left
+                        tlbl.TextYAlignment = Enum.TextYAlignment.Center
+                        tlbl.ZIndex = 3
+                        tlbl.Parent = row
+                        local trackW = Config.ToggleWidth
+                        local trackH = Config.ToggleHeight
+                        local pad = Config.TogglePad
+                        local thumbS = trackH - pad * 2
+                        local track = Instance.new("Frame")
+                        track.Name = "TglTrack"
+                        track.AnchorPoint = Vector2.new(1, 0.5)
+                        track.Position = UDim2.new(1, 0, 0.5, 0)
+                        track.Size = UDim2.fromOffset(trackW, trackH)
+                        track.BackgroundColor3 = tg.TrackColor or Config.ToggleTrackColor
+                        track.BorderSizePixel = 0
+                        track.ZIndex = 3
+                        track.Parent = row
+                        local tcc0 = Instance.new("UICorner")
+                        tcc0.CornerRadius = UDim.new(0.5, 0)
+                        tcc0.Parent = track
+                        local thumb = Instance.new("Frame")
+                        thumb.Name = "TglThumb"
+                        thumb.AnchorPoint = Vector2.new(0, 0.5)
+                        thumb.Position = UDim2.new(0, pad, 0.5, 0)
+                        thumb.Size = UDim2.fromOffset(thumbS, thumbS)
+                        thumb.BackgroundColor3 = tg.ThumbColor or Config.ToggleThumbColor
+                        thumb.BorderSizePixel = 0
+                        thumb.ZIndex = 4
+                        thumb.Parent = track
+                        local tcc1 = Instance.new("UICorner")
+                        tcc1.CornerRadius = UDim.new(0.5, 0)
+                        tcc1.Parent = thumb
+                        if tg.Icon ~= nil and tg.Icon ~= "" then
+                            local tic = Instance.new("ImageLabel")
+                            tic.Name = "TglIcon"
+                            tic.AnchorPoint = Vector2.new(0.5, 0.5)
+                            tic.Position = UDim2.new(0.5, 0, 0.5, 0)
+                            tic.Size = UDim2.fromOffset(thumbS * Config.ToggleIconRatio, thumbS * Config.ToggleIconRatio)
+                            tic.BackgroundTransparency = 1
+                            tic.ImageColor3 = tg.IconColor or Config.ToggleIconColor
+                            tic.ScaleType = Enum.ScaleType.Fit
+                            tic.ZIndex = 5
+                            tic.Parent = thumb
+                            task.spawn(function()
+                                local lucide = loadLucide()
+                                if lucide then
+                                    local okI, asset = pcall(lucide.GetAsset, tg.Icon)
+                                    if okI and asset and asset.Url then
+                                        tic.Image = asset.Url
+                                        if asset.ImageRectOffset then tic.ImageRectOffset = asset.ImageRectOffset tic.ImageRectSize = asset.ImageRectSize end
+                                    end
+                                end
+                            end)
+                        end
+                        local function apply()
+                            local on = tg.Value
+                            local targetX = on and (trackW - pad - thumbS) or pad
+                            TweenService:Create(thumb, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                                Position = UDim2.new(0, targetX, 0.5, 0),
+                            }):Play()
+                            TweenService:Create(track, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                BackgroundColor3 = on and Config.ToggleOnColor or (tg.TrackColor or Config.ToggleTrackColor),
+                            }):Play()
+                        end
+                        apply()
+                        row.MouseButton1Click:Connect(function()
+                            tg.Value = not tg.Value
+                            apply()
+                            if typeof(tg.Callback) == "function" then
+                                local okC, errC = pcall(tg.Callback, tg.Value)
+                                if not okC then reportError("AddToggle Callback 报错: " .. tostring(errC)) end
+                            end
+                        end)
+                        return row
+                    end
                     for _, st in ipairs(tab._subtitles) do
                         local btns = st._buttons or {}
+                        local tgts = st._toggles or {}
+                        local ccount = #btns + #tgts
                         local contentH
-                        if #btns > 0 then
-                            contentH = Config.SubTitleBodyPadY * 2 + #btns * Config.ButtonHeight + (#btns - 1) * Config.ButtonGap
+                        if ccount > 0 then
+                            contentH = Config.SubTitleBodyPadY * 2 + ccount * Config.ButtonHeight + (ccount - 1) * Config.ButtonGap
                         else
-                            contentH = Config.SubTitleBodyHeight
+                            contentH = 0
                         end
                         local fullH = headH + divGap + contentH
                         local minH = headH + divGap
@@ -1164,14 +1271,14 @@ function Library.CreateWindow(opts)
                         body.Size = UDim2.new(1, 0, 0, contentH)
                         body.Position = UDim2.new(0, 0, 0, headH + divGap)
                         body.BackgroundColor3 = Config.SubTitleBodyFill
-                        body.BackgroundTransparency = (#btns > 0) and 1 or Config.SubTitleBodyFillTransparency
+                        body.BackgroundTransparency = 1
                         body.BorderSizePixel = 0
                         body.ZIndex = 1
                         body.Parent = block
                         local bc = Instance.new("UICorner")
                         bc.CornerRadius = UDim.new(0, 6)
                         bc.Parent = body
-                        if #btns > 0 then
+                        if ccount > 0 then
                             local bl = Instance.new("UIListLayout")
                             bl.FillDirection = Enum.FillDirection.Vertical
                             bl.SortOrder = Enum.SortOrder.LayoutOrder
@@ -1183,6 +1290,9 @@ function Library.CreateWindow(opts)
                             bp.Parent = body
                             for bi, bt in ipairs(btns) do
                                 makeButton(bt, bi).Parent = body
+                            end
+                            for ti, tg in ipairs(tgts) do
+                                makeToggle(tg, #btns + ti).Parent = body
                             end
                         end
                         local hasIco = (st.Icon ~= nil and st.Icon ~= "")
@@ -1351,8 +1461,8 @@ function Library.CreateWindow(opts)
                             local iconLeft = m + titlePad + Config.TitleIconNudgeX
                             local contentLeftX = iconLeft + iconS + iconGap
                             local titleTargetX = contentLeftX + titleW / 2
-                            local titleTargetY = blockTop + titleH / 2
-                            local infoTop = blockTop + titleH + vGap
+                            local titleTargetY = blockTop + titleH / 2 + Config.TitleDrop
+                            local infoTop = blockTop + titleH + vGap - Config.InfoRise
                             local listLayout = islandTextContainer:FindFirstChildOfClass("UIListLayout")
                             win._titleLeftX = contentLeftX
                             win._titleY = titleTargetY
@@ -1597,9 +1707,9 @@ function Library.CreateWindow(opts)
                                             tname.Position = UDim2.new(0, Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap, 0, 0)
                                             tname.TextXAlignment = Enum.TextXAlignment.Left
                                         else
-                                            tname.Size = UDim2.new(1, 0, 1, 0)
-                                            tname.Position = UDim2.new(0, 0, 0, 0)
-                                            tname.TextXAlignment = Enum.TextXAlignment.Center
+                                            tname.Size = UDim2.new(1, -(Config.TabRowPadX * 2), 1, 0)
+                                            tname.Position = UDim2.new(0, Config.TabRowPadX, 0, 0)
+                                            tname.TextXAlignment = Enum.TextXAlignment.Left
                                         end
                                         tname.Parent = row
                                         task.delay(Config.PanelExpandTime + (i - 1) * Config.TabStagger, function()
@@ -1753,6 +1863,7 @@ function Library.CreateWindow(opts)
                 IconColor = sopts.IconColor,
                 collapsed = false,
                 _buttons = {},
+                _toggles = {},
             }
             st.AddButton = function(self3, bopts)
                 bopts = bopts or {}
@@ -1776,6 +1887,38 @@ function Library.CreateWindow(opts)
                 table.insert(self3._buttons, bt)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return bt
+            end
+            st.AddToggle = function(self3, topts)
+                topts = topts or {}
+                local ok4, em4 = pcall(function()
+                    if type(topts) ~= "table" then error("AddToggle 入参不是 table") end
+                    if topts.Title ~= nil and (type(topts.Title) ~= "string" or #topts.Title == 0) then error("AddToggle Title 非法") end
+                    if topts.Icon ~= nil and type(topts.Icon) ~= "string" then error("AddToggle Icon 非法") end
+                    if topts.IconColor ~= nil and typeof(topts.IconColor) ~= "Color3" then error("AddToggle IconColor 非法") end
+                    if topts.ThumbColor ~= nil and typeof(topts.ThumbColor) ~= "Color3" then error("AddToggle ThumbColor 非法") end
+                    if topts.TrackColor ~= nil and typeof(topts.TrackColor) ~= "Color3" then error("AddToggle TrackColor 非法") end
+                end)
+                if not ok4 then
+                    reportError("AddToggle 异常: " .. tostring(em4))
+                    win:Error()
+                    return nil
+                end
+                local tg = {
+                    Title = topts.Title or "Toggle",
+                    Icon = topts.Icon,
+                    IconColor = topts.IconColor,
+                    ThumbColor = topts.ThumbColor,
+                    TrackColor = topts.TrackColor,
+                    Value = topts.Default == true,
+                    Callback = topts.Callback,
+                }
+                tg.Set = function(self4, v)
+                    self4.Value = v and true or false
+                    if win._rebuildTabs then win._rebuildTabs() end
+                end
+                table.insert(self3._toggles, tg)
+                if win._rebuildTabs then win._rebuildTabs() end
+                return tg
             end
             table.insert(self2._subtitles, st)
             if win._rebuildTabs then win._rebuildTabs() end
@@ -1856,7 +1999,7 @@ function Library.CreateWindow(opts)
                 if brandLbl and brandLbl.Parent then TweenService:Create(brandLbl, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
             end)
             local H = Config.IslandSize.Y.Offset
-            local cy = Config.IslandPosition.Y.Scale * screenGui.AbsoluteSize.Y + Config.IslandPosition.Y.Offset + H / 2
+            local cy = Config.IslandPosition.Y.Scale * screenGui.AbsoluteSize.Y + Config.IslandPosition.Y.Offset + H / 2 + Config.NotifyDrop
             local pad = 20
             local textW = game:GetService("TextService"):GetTextSize(text, Config.IslandTextSize, Enum.Font.FredokaOne, Vector2.new(4000, H)).X
             local fullW = textW + pad * 2
