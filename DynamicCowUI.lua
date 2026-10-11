@@ -600,8 +600,6 @@ function Library.CreateWindow(opts)
         local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
         flowSpeed = 0
         if backdrop and backdrop.Parent then backdrop:Destroy() end
-        edge.AnchorPoint = Vector2.new(0.5, 0.5)
-        edge.Position = UDim2.new(0.5, cx, 0, cy)
         TweenService:Create(edge, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Config.IslandSize, Position = Config.IslandPosition }):Play()
         TweenService:Create(stroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
         TweenService:Create(silverStroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
