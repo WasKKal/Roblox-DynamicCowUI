@@ -135,6 +135,21 @@ local Config = {
     SubTitleDividerGap = 10,
     SubTitleBlockGap = 10,
     SubTitleCollapseTime = 0.3,
+    SubTitleBodyPadY = 8,
+    ButtonHeight = 34,
+    ButtonGap = 8,
+    ButtonCorner = UDim.new(0.5, 0),
+    ButtonFill = Color3.fromRGB(40, 40, 48),
+    ButtonFillTransparency = 0.2,
+    ButtonStroke = Color3.fromRGB(92, 94, 106),
+    ButtonStrokeTransparency = 0.5,
+    ButtonTextSize = 15,
+    ButtonTextColor = Color3.new(1, 1, 1),
+    ButtonIconSize = 18,
+    ButtonIconGap = 8,
+    ActionHoldTime = 3,
+    ActionExtendW = 40,
+    ActionExtendH = 12,
 }
 
 local Library = {}
@@ -1008,11 +1023,99 @@ function Library.CreateWindow(opts)
                     end
                     if not tab or not tab._subtitles then return end
                     local headH = Config.SubTitleRowHeight
-                    local bodyH = Config.SubTitleBodyHeight
                     local divGap = Config.SubTitleDividerGap
-                    local fullH = headH + divGap + bodyH
-                    local minH = headH + divGap
+                    local function makeButton(bt, order)
+                        local btn = Instance.new("TextButton")
+                        btn.Name = "SubButton"
+                        btn.Size = UDim2.new(1, 0, 0, Config.ButtonHeight)
+                        btn.BackgroundColor3 = Config.ButtonFill
+                        btn.BackgroundTransparency = Config.ButtonFillTransparency
+                        btn.Text = ""
+                        btn.AutoButtonColor = false
+                        btn.LayoutOrder = order
+                        btn.ZIndex = 3
+                        local bcorner = Instance.new("UICorner")
+                        bcorner.CornerRadius = Config.ButtonCorner
+                        bcorner.Parent = btn
+                        local bstroke = Instance.new("UIStroke")
+                        bstroke.Color = Config.ButtonStroke
+                        bstroke.Transparency = Config.ButtonStrokeTransparency
+                        bstroke.Thickness = 1
+                        bstroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                        bstroke.Parent = btn
+                        local row = Instance.new("Frame")
+                        row.Name = "Row"
+                        row.BackgroundTransparency = 1
+                        row.Size = UDim2.new(1, 0, 1, 0)
+                        row.ZIndex = 3
+                        row.Parent = btn
+                        local rl = Instance.new("UIListLayout")
+                        rl.FillDirection = Enum.FillDirection.Horizontal
+                        rl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                        rl.VerticalAlignment = Enum.VerticalAlignment.Center
+                        rl.SortOrder = Enum.SortOrder.LayoutOrder
+                        rl.Padding = UDim.new(0, Config.ButtonIconGap)
+                        rl.Parent = row
+                        if bt.Icon ~= nil and bt.Icon ~= "" then
+                            local ic = Instance.new("ImageLabel")
+                            ic.Name = "BtnIcon"
+                            ic.Size = UDim2.fromOffset(Config.ButtonIconSize, Config.ButtonIconSize)
+                            ic.BackgroundTransparency = 1
+                            ic.ImageColor3 = bt.IconColor or Config.ButtonTextColor
+                            ic.ScaleType = Enum.ScaleType.Fit
+                            ic.LayoutOrder = 1
+                            ic.ZIndex = 3
+                            ic.Parent = row
+                            task.spawn(function()
+                                local lucide = loadLucide()
+                                if lucide then
+                                    local okB, asset = pcall(lucide.GetAsset, bt.Icon)
+                                    if okB and asset and asset.Url then
+                                        ic.Image = asset.Url
+                                        if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                    end
+                                end
+                            end)
+                        end
+                        local tx = Instance.new("TextLabel")
+                        tx.Name = "BtnText"
+                        tx.BackgroundTransparency = 1
+                        tx.Size = UDim2.new(0, 0, 1, 0)
+                        tx.AutomaticSize = Enum.AutomaticSize.X
+                        tx.Text = bt.Title
+                        tx.TextColor3 = Config.ButtonTextColor
+                        tx.TextSize = Config.ButtonTextSize
+                        tx.Font = Enum.Font.GothamMedium
+                        tx.TextXAlignment = Enum.TextXAlignment.Center
+                        tx.TextYAlignment = Enum.TextYAlignment.Center
+                        tx.LayoutOrder = 2
+                        tx.ZIndex = 3
+                        tx.Parent = row
+                        btn.MouseButton1Click:Connect(function()
+                            if not bt then return end
+                            btn.BackgroundColor3 = Color3.fromRGB(96, 98, 112)
+                            btn.BackgroundTransparency = 0
+                            TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                BackgroundColor3 = Config.ButtonFill,
+                                BackgroundTransparency = Config.ButtonFillTransparency,
+                            }):Play()
+                            if typeof(bt.OnClick) == "function" then
+                                local okC, errC = pcall(bt.OnClick)
+                                if not okC then reportError("AddButton OnClick 报错: " .. tostring(errC)) end
+                            end
+                        end)
+                        return btn
+                    end
                     for _, st in ipairs(tab._subtitles) do
+                        local btns = st._buttons or {}
+                        local contentH
+                        if #btns > 0 then
+                            contentH = Config.SubTitleBodyPadY * 2 + #btns * Config.ButtonHeight + (#btns - 1) * Config.ButtonGap
+                        else
+                            contentH = Config.SubTitleBodyHeight
+                        end
+                        local fullH = headH + divGap + contentH
+                        local minH = headH + divGap
                         local block = Instance.new("Frame")
                         block.Name = "SubBlock"
                         block.BackgroundTransparency = 1
@@ -1029,16 +1132,30 @@ function Library.CreateWindow(opts)
                         div.Parent = block
                         local body = Instance.new("Frame")
                         body.Name = "SubBody"
-                        body.Size = UDim2.new(1, 0, 0, bodyH)
+                        body.Size = UDim2.new(1, 0, 0, contentH)
                         body.Position = UDim2.new(0, 0, 0, headH + divGap)
                         body.BackgroundColor3 = Config.SubTitleBodyFill
-                        body.BackgroundTransparency = Config.SubTitleBodyFillTransparency
+                        body.BackgroundTransparency = (#btns > 0) and 1 or Config.SubTitleBodyFillTransparency
                         body.BorderSizePixel = 0
                         body.ZIndex = 1
                         body.Parent = block
                         local bc = Instance.new("UICorner")
                         bc.CornerRadius = UDim.new(0, 6)
                         bc.Parent = body
+                        if #btns > 0 then
+                            local bl = Instance.new("UIListLayout")
+                            bl.FillDirection = Enum.FillDirection.Vertical
+                            bl.SortOrder = Enum.SortOrder.LayoutOrder
+                            bl.Padding = UDim.new(0, Config.ButtonGap)
+                            bl.Parent = body
+                            local bp = Instance.new("UIPadding")
+                            bp.PaddingTop = UDim.new(0, Config.SubTitleBodyPadY)
+                            bp.PaddingBottom = UDim.new(0, Config.SubTitleBodyPadY)
+                            bp.Parent = body
+                            for bi, bt in ipairs(btns) do
+                                makeButton(bt, bi).Parent = body
+                            end
+                        end
                         local hasIco = (st.Icon ~= nil and st.Icon ~= "")
                         local tX = 0
                         if hasIco then
@@ -1607,7 +1724,31 @@ function Library.CreateWindow(opts)
                 Icon = sopts.Icon,
                 IconColor = sopts.IconColor,
                 collapsed = false,
+                _buttons = {},
             }
+            st.AddButton = function(self3, bopts)
+                bopts = bopts or {}
+                local ok3, em3 = pcall(function()
+                    if type(bopts) ~= "table" then error("AddButton 入参不是 table") end
+                    if bopts.Title ~= nil and (type(bopts.Title) ~= "string" or #bopts.Title == 0) then error("AddButton Title 非法") end
+                    if bopts.Icon ~= nil and type(bopts.Icon) ~= "string" then error("AddButton Icon 非法") end
+                    if bopts.IconColor ~= nil and typeof(bopts.IconColor) ~= "Color3" then error("AddButton IconColor 非法") end
+                end)
+                if not ok3 then
+                    reportError("AddButton 异常: " .. tostring(em3))
+                    win:Error()
+                    return nil
+                end
+                local bt = {
+                    Title = bopts.Title or "Button",
+                    Icon = bopts.Icon,
+                    IconColor = bopts.IconColor,
+                    OnClick = bopts.OnClick,
+                }
+                table.insert(self3._buttons, bt)
+                if win._rebuildTabs then win._rebuildTabs() end
+                return bt
+            end
             table.insert(self2._subtitles, st)
             if win._rebuildTabs then win._rebuildTabs() end
             return st
@@ -1627,6 +1768,153 @@ function Library.CreateWindow(opts)
             pcall(function() self.ScreenGui:Destroy() end)
         end
     end
+
+    local actionBusy = false
+    local function runIslandAction(text)
+        if actionBusy or not alive then return end
+        if type(text) ~= "string" or #text == 0 then
+            reportError("DynamicIslandAction.ChangeText 需要非空字符串")
+            return
+        end
+        actionBusy = true
+        local hold = Config.ActionHoldTime
+        local function flash(labels)
+            task.delay(0.3, function()
+                if not alive then return end
+                for _, lb in ipairs(labels) do
+                    if lb and lb.Parent then TweenService:Create(lb, TweenInfo.new(0.12), { TextColor3 = Config.IslandTextColor }):Play() end
+                end
+                task.delay(0.16, function()
+                    if not alive then return end
+                    for _, lb in ipairs(labels) do
+                        if lb and lb.Parent then TweenService:Create(lb, TweenInfo.new(0.12), { TextColor3 = Color3.new(1, 1, 1) }):Play() end
+                    end
+                end)
+            end)
+        end
+        local function colLabels(container)
+            local ls = {}
+            if container and container.Parent then
+                for _, cf in ipairs(container:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then ls[#ls + 1] = lb end
+                end
+            end
+            return ls
+        end
+
+        if expanded then
+            if islandTextContainer and islandTextContainer.Parent then
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then TweenService:Create(lb, TweenInfo.new(0.2), { TextTransparency = 1 }):Play() end
+                end
+            end
+            local cy = Config.IslandPosition.Y.Scale * screenGui.AbsoluteSize.Y + Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+            local cap = Instance.new("Frame")
+            cap.Name = "IslandActionCapsule"
+            cap.BackgroundTransparency = 1
+            cap.AnchorPoint = Vector2.new(0.5, 0.5)
+            cap.Position = UDim2.new(0.5, 0, 0, cy)
+            cap.Size = UDim2.new(0, 0, 0, Config.IslandSize.Y.Offset)
+            cap.AutomaticSize = Enum.AutomaticSize.X
+            cap.ZIndex = 60
+            cap.Parent = screenGui
+            local cc = Instance.new("UICorner")
+            cc.CornerRadius = UDim.new(0.5, 0)
+            cc.Parent = cap
+            local cs = Instance.new("UIStroke")
+            cs.Color = Color3.new(1, 1, 1)
+            cs.Thickness = Config.BorderThickness
+            cs.Transparency = 1
+            cs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            cs.Parent = cap
+            local cpad = Instance.new("UIPadding")
+            cpad.PaddingLeft = UDim.new(0, 18)
+            cpad.PaddingRight = UDim.new(0, 18)
+            cpad.Parent = cap
+            local clbl = Instance.new("TextLabel")
+            clbl.BackgroundTransparency = 1
+            clbl.Size = UDim2.new(0, 0, 1, 0)
+            clbl.AutomaticSize = Enum.AutomaticSize.X
+            clbl.Text = text
+            clbl.TextColor3 = Color3.new(1, 1, 1)
+            clbl.TextSize = Config.IslandTextSize
+            clbl.Font = Enum.Font.FredokaOne
+            clbl.TextTransparency = 1
+            clbl.ZIndex = 60
+            clbl.Parent = cap
+            TweenService:Create(cs, TweenInfo.new(0.25), { Transparency = 0 }):Play()
+            TweenService:Create(clbl, TweenInfo.new(0.25), { TextTransparency = 0 }):Play()
+            flash({ clbl })
+            task.delay(hold, function()
+                if not alive then actionBusy = false return end
+                if cs and cs.Parent then TweenService:Create(cs, TweenInfo.new(0.3), { Transparency = 1 }):Play() end
+                if clbl and clbl.Parent then TweenService:Create(clbl, TweenInfo.new(0.3), { TextTransparency = 1 }):Play() end
+                task.delay(0.32, function() if cap and cap.Parent then cap:Destroy() end end)
+                if islandTextContainer and islandTextContainer.Parent then
+                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                        if lb then TweenService:Create(lb, TweenInfo.new(0.3), { TextTransparency = 0 }):Play() end
+                    end
+                end
+                actionBusy = false
+            end)
+        else
+            local dw = Config.ActionExtendW
+            local dh = Config.ActionExtendH
+            local curSize = edge.Size
+            local curPos = edge.Position
+            local oldContainer = islandTextContainer
+            TweenService:Create(edge, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Size = UDim2.new(curSize.X.Scale, curSize.X.Offset + dw, curSize.Y.Scale, curSize.Y.Offset + dh),
+                Position = UDim2.new(curPos.X.Scale, curPos.X.Offset, curPos.Y.Scale, curPos.Y.Offset + dh / 2),
+            }):Play()
+            if oldContainer and oldContainer.Parent then
+                for _, cf in ipairs(oldContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then TweenService:Create(lb, TweenInfo.new(0.2), { TextTransparency = 1 }):Play() end
+                end
+            end
+            task.delay(0.24, function()
+                if not alive then actionBusy = false return end
+                if oldContainer and oldContainer.Parent then oldContainer:Destroy() end
+                islandTextContainer = createIslandText(text, Color3.new(1, 1, 1), true)
+                islandTextContainer.Position = UDim2.new(
+                    Config.IslandPosition.X.Scale,
+                    Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2,
+                    Config.IslandPosition.Y.Scale,
+                    Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2 + dh / 2
+                )
+                flash(colLabels(islandTextContainer))
+                task.delay(hold, function()
+                    if not alive then actionBusy = false return end
+                    if islandTextContainer and islandTextContainer.Parent then
+                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                            local lb = cf:FindFirstChildOfClass("TextLabel")
+                            if lb then TweenService:Create(lb, TweenInfo.new(0.3), { TextTransparency = 1 }):Play() end
+                        end
+                    end
+                    TweenService:Create(edge, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        Size = UDim2.new(curSize.X.Scale, curSize.X.Offset, curSize.Y.Scale, curSize.Y.Offset),
+                        Position = UDim2.new(curPos.X.Scale, curPos.X.Offset, curPos.Y.Scale, curPos.Y.Offset),
+                    }):Play()
+                    task.delay(0.32, function()
+                        if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
+                        islandTextContainer = createIslandText(title, Config.TitleColor, true)
+                        actionBusy = false
+                    end)
+                end)
+            end)
+        end
+    end
+    win.DynamicIslandAction = setmetatable({
+        ChangeText = function(t)
+            runIslandAction(t)
+        end,
+    }, { __call = function(self) return self end })
+    Library._lastWin = win
+    Library.DynamicIslandAction = win.DynamicIslandAction
     return win
 end
 
