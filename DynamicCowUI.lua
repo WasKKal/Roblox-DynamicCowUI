@@ -77,6 +77,13 @@ local Config = {
     TapExpandTime = 0.25,
     TapShrinkTime = 0.3,
     TapCooldown = 0.2,
+    TapWindow = 0.8,
+    HintText = "长按灵动岛以展开面板",
+    HintTextSize = 17,
+    HintExtendPad = 36,
+    HintHoldTime = 4,
+    HintRevealStep = 0.04,
+    HintRevealTime = 0.3,
     LongPressThreshold = 0.5,
     IslandDragThreshold = 8,
     IslandDragDamp = 0.55,
@@ -1171,10 +1178,130 @@ function Library.CreateWindow(opts)
                 local dragging = false
                 local dragStopTmr = nil
                 local dragRestoreTmr = nil
+                local tapCount = 0
+                local tapWindowTmr = nil
+                local hintActive = false
+                local hintContainer = nil
+                local hintTmr = nil
+                local hintBaseSize = nil
+                local hintBaseAnchor = nil
+                local hintBasePos = nil
+                local islandRest = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
+                local function clearHint()
+                    if tapWindowTmr then task.cancel(tapWindowTmr) tapWindowTmr = nil end
+                    if hintTmr then task.cancel(hintTmr) hintTmr = nil end
+                    if hintContainer and hintContainer.Parent then hintContainer:Destroy() end
+                    hintContainer = nil
+                    if hintActive and edge and edge.Parent and hintBaseSize and not expanded then
+                        if hintBaseAnchor then edge.AnchorPoint = hintBaseAnchor end
+                        if hintBasePos then edge.Position = hintBasePos end
+                        TweenService:Create(edge, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = hintBaseSize }):Play()
+                    end
+                    hintBaseSize = nil
+                    hintBaseAnchor = nil
+                    hintBasePos = nil
+                    hintActive = false
+                    if islandTextContainer and islandTextContainer.Parent then
+                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                            local lb = cf:FindFirstChildOfClass("TextLabel")
+                            if lb then TweenService:Create(lb, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                        end
+                    end
+                end
+                local function playHintAnimation()
+                    if hintActive or expanded or not alive or not ready then return end
+                    if actionBusy and actionEnd then actionEnd(true) end
+                    hintActive = true
+                    if islandTextContainer and islandTextContainer.Parent then
+                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                            local lb = cf:FindFirstChildOfClass("TextLabel")
+                            if lb then TweenService:Create(lb, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                        end
+                    end
+                    hintBaseSize = edge.Size
+                    hintBaseAnchor = edge.AnchorPoint
+                    hintBasePos = edge.Position
+                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                    edge.Position = islandRest
+                    local txt = Config.HintText
+                    local tsize = Config.HintTextSize
+                    local tw = measureTextWidth(txt, tsize) + Config.HintExtendPad
+                    local baseW = Config.IslandSize.X.Offset
+                    local targetW = math.max(baseW + 80, tw)
+                    TweenService:Create(edge, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        Size = UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
+                    }):Play()
+                    local hc = Instance.new("Frame")
+                    hc.Name = "IslandHintContainer"
+                    hc.Size = UDim2.new(1, 0, 1, 0)
+                    hc.BackgroundTransparency = 1
+                    hc.BorderSizePixel = 0
+                    hc.ClipsDescendants = true
+                    hc.ZIndex = 55
+                    hc.Parent = edge
+                    local hl = Instance.new("UIListLayout")
+                    hl.FillDirection = Enum.FillDirection.Horizontal
+                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                    hl.VerticalAlignment = Enum.VerticalAlignment.Center
+                    hl.Parent = hc
+                    local chars = {}
+                    local idx = 0
+                    for _, item in ipairs(parseColoredChars(txt, Config.TitleColor)) do
+                        local ch = item.ch
+                        if ch ~= " " then
+                            local cf2 = Instance.new("Frame")
+                            cf2.Size = UDim2.new(0, 0, 1, 0)
+                            cf2.AutomaticSize = Enum.AutomaticSize.X
+                            cf2.BackgroundTransparency = 1
+                            cf2.BorderSizePixel = 0
+                            cf2.Parent = hc
+                            local cl = Instance.new("TextLabel")
+                            cl.Size = UDim2.new(1, 0, 1, 0)
+                            cl.BackgroundTransparency = 1
+                            cl.Text = ch
+                            cl.TextColor3 = Config.TitleColor
+                            cl.TextTransparency = 1
+                            cl.TextSize = tsize
+                            cl.Font = charFont(ch)
+                            cl.TextXAlignment = Enum.TextXAlignment.Center
+                            cl.TextYAlignment = Enum.TextYAlignment.Center
+                            cl.Parent = cf2
+                            chars[#chars + 1] = { label = cl, order = idx }
+                            idx = idx + 1
+                        end
+                    end
+                    local center = (#chars - 1) / 2
+                    for _, c in ipairs(chars) do
+                        local dist = math.abs(c.order - center)
+                        task.delay(dist * Config.HintRevealStep, function()
+                            if not hintActive or not c.label.Parent then return end
+                            TweenService:Create(c.label, TweenInfo.new(Config.HintRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                        end)
+                    end
+                    hintContainer = hc
+                    if hintTmr then task.cancel(hintTmr) end
+                    hintTmr = task.delay(Config.HintHoldTime, function()
+                        if hintActive then clearHint() end
+                    end)
+                end
+                local function registerIslandTap()
+                    if hintActive or expanded or not alive or not ready then return end
+                    tapCount = tapCount + 1
+                    if tapWindowTmr then task.cancel(tapWindowTmr) end
+                    tapWindowTmr = task.delay(Config.TapWindow, function()
+                        tapCount = 0
+                        tapWindowTmr = nil
+                    end)
+                    if tapCount >= 3 then
+                        tapCount = 0
+                        if tapWindowTmr then task.cancel(tapWindowTmr) tapWindowTmr = nil end
+                        playHintAnimation()
+                    end
+                end
                 local function resetIslandDrag()
                     if dragStopTmr then task.cancel(dragStopTmr) dragStopTmr = nil end
                     if dragRestoreTmr then task.cancel(dragRestoreTmr) dragRestoreTmr = nil end
-                    if dragging and dragBaseSize then
+                    if dragging and dragBaseSize and not expanded then
                         local tgt = dragBaseSize
                         TweenService:Create(edge, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = tgt }):Play()
                     end
@@ -1635,6 +1762,7 @@ function Library.CreateWindow(opts)
                     TweenService:Create(islandScale, TweenInfo.new(Config.TapExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = Config.IslandTapScale }):Play()
                     longPress = task.delay(Config.LongPressThreshold, function()
                         if holding then
+                            if hintActive then clearHint() end
                             expanded = true
                             islandScale.Scale = 1
                             edge.AnchorPoint = Vector2.new(0, 0)
@@ -2177,9 +2305,17 @@ function Library.CreateWindow(opts)
                         end)
                     else
                         TweenService:Create(islandScale, TweenInfo.new(Config.TapShrinkTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-                        task.delay(Config.TapShrinkTime + Config.TapCooldown, function()
-                            interacting = false
-                        end)
+                        if hintActive then
+                            clearHint()
+                            task.delay(Config.TapShrinkTime, function()
+                                interacting = false
+                            end)
+                        else
+                            registerIslandTap()
+                            task.delay(Config.TapShrinkTime, function()
+                                interacting = false
+                            end)
+                        end
                     end
                 end)
             end)
