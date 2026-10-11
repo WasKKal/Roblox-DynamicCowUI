@@ -105,6 +105,7 @@ local Config = {
     TabIconSize = 18,
     TabTextSize = 15,
     TabTextGap = 8,
+    TabRowPadX = 6,
     TabActiveColor = Color3.fromRGB(255, 255, 255),
     TabInactiveColor = Color3.fromRGB(150, 152, 162),
     TabStagger = 0.06,
@@ -592,6 +593,7 @@ function Library.CreateWindow(opts)
     local expanded = false
     local islandTextContainer = nil
     local alive = true
+    local ready = false
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
 
     local function playBorderSweep()
@@ -795,6 +797,7 @@ function Library.CreateWindow(opts)
                             task.delay(Config.IslandHandoffFade, function()
                                 if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
                                 islandTextContainer = createIslandText(title, Config.TitleColor, true)
+                                ready = true
                             end)
                         end)
                         flowSpeed = 0
@@ -1171,6 +1174,7 @@ function Library.CreateWindow(opts)
 
                 edge.InputBegan:Connect(function(input)
                     if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                    if not ready then return end
                     if interacting then return end
                     if expanded then return end
                     interacting = true
@@ -1425,7 +1429,7 @@ function Library.CreateWindow(opts)
                                             ticon = Instance.new("ImageLabel")
                                             ticon.Name = "TabIcon"
                                             ticon.Size = UDim2.fromOffset(Config.TabIconSize, Config.TabIconSize)
-                                            ticon.Position = UDim2.new(0, 0, 0.5, 0)
+                                            ticon.Position = UDim2.new(0, Config.TabRowPadX, 0.5, 0)
                                             ticon.AnchorPoint = Vector2.new(0, 0.5)
                                             ticon.BackgroundTransparency = 1
                                             ticon.ImageColor3 = tab.IconColor or Config.TabInactiveColor
@@ -1444,8 +1448,8 @@ function Library.CreateWindow(opts)
                                         tname.TextTransparency = 1
                                         tname.ZIndex = 3
                                         if hasIcon then
-                                            tname.Size = UDim2.new(1, -(Config.TabIconSize + Config.TabTextGap), 1, 0)
-                                            tname.Position = UDim2.new(0, Config.TabIconSize + Config.TabTextGap, 0, 0)
+                                            tname.Size = UDim2.new(1, -(Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap), 1, 0)
+                                            tname.Position = UDim2.new(0, Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap, 0, 0)
                                             tname.TextXAlignment = Enum.TextXAlignment.Left
                                         else
                                             tname.Size = UDim2.new(1, 0, 1, 0)
