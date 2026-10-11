@@ -88,6 +88,7 @@ local Config = {
     InfoTextSize = 16,
     InfoColor = Color3.fromRGB(200, 205, 210),
     HeaderPad = 8,
+    PanelDrop = 8,
     TitleColor = Color3.new(1, 1, 1),
     TitleIconSize = 28,
     TitleIconGap = 10,
@@ -127,7 +128,7 @@ local Config = {
     SubTitleIconSize = 20,
     SubTitleTextSize = 16,
     SubTitleArrowSize = 18,
-    SubTitleArrowRotate = 90,
+    SubTitleArrowRotate = -90,
     SubTitleColor = Color3.new(1, 1, 1),
     SubTitleBodyHeight = 48,
     SubTitleBodyFill = Color3.fromRGB(28, 28, 34),
@@ -152,6 +153,8 @@ local Config = {
     ActionExtendH = 12,
     IslandActionStrokeTransparency = 0.35,
     IslandActionReveal = 0.3,
+    ActionFlashTime = 0.3,
+    ActionFlashHold = 0.25,
 }
 
 local Library = {}
@@ -611,6 +614,7 @@ function Library.CreateWindow(opts)
     local islandTextContainer = nil
     local alive = true
     local ready = false
+    local actionEnd = nil
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
 
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
@@ -1288,6 +1292,7 @@ function Library.CreateWindow(opts)
 
                 local function collapsePanel()
                     if not expanded then return end
+                    if actionEnd then actionEnd() end
                     local ll = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
                     if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
@@ -1326,7 +1331,7 @@ function Library.CreateWindow(opts)
                             local sw = screenGui.AbsoluteSize.X
                             local sh = screenGui.AbsoluteSize.Y
                             local m = Config.PanelMargin
-                            local top = Config.IslandPosition.Y.Offset
+                            local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
                             animateEdge(
                                 UDim2.new(0, sw - m * 2, 0, sh - top - m),
                                 UDim2.new(0, m, 0, top),
@@ -1796,7 +1801,7 @@ function Library.CreateWindow(opts)
     local function runIslandAction(text)
         if actionBusy or not alive then return end
         if type(text) ~= "string" or #text == 0 then
-            reportError("DynamicIslandAction.ChangeText 需要非空字符串")
+            reportError("ShowNotify 需要非空字符串")
             return
         end
         actionBusy = true
@@ -1805,12 +1810,12 @@ function Library.CreateWindow(opts)
             task.delay(0.3, function()
                 if not alive then return end
                 for _, lb in ipairs(labels) do
-                    if lb and lb.Parent then TweenService:Create(lb, TweenInfo.new(0.12), { TextColor3 = Config.IslandTextColor }):Play() end
+                    if lb and lb.Parent then TweenService:Create(lb, TweenInfo.new(Config.ActionFlashTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextColor3 = Config.IslandTextColor }):Play() end
                 end
-                task.delay(0.16, function()
+                task.delay(Config.ActionFlashHold, function()
                     if not alive then return end
                     for _, lb in ipairs(labels) do
-                        if lb and lb.Parent then TweenService:Create(lb, TweenInfo.new(0.12), { TextColor3 = Color3.new(1, 1, 1) }):Play() end
+                        if lb and lb.Parent then TweenService:Create(lb, TweenInfo.new(Config.ActionFlashTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextColor3 = Color3.new(1, 1, 1) }):Play() end
                     end
                 end)
             end)
@@ -1889,8 +1894,11 @@ function Library.CreateWindow(opts)
             TweenService:Create(cs, TweenInfo.new(rv, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Transparency = Config.IslandActionStrokeTransparency }):Play()
             TweenService:Create(clbl, TweenInfo.new(rv, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
             TweenService:Create(cap, TweenInfo.new(rv, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, fullW, 0, H) }):Play()
-            flash({ clbl })
-            task.delay(hold, function()
+            local ended = false
+            local function endNow()
+                if ended then return end
+                ended = true
+                actionEnd = nil
                 if not alive then actionBusy = false return end
                 TweenService:Create(cs, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Transparency = 1 }):Play()
                 TweenService:Create(clbl, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
@@ -1907,13 +1915,39 @@ function Library.CreateWindow(opts)
                     end
                 end
                 actionBusy = false
-            end)
+            end
+            actionEnd = endNow
+            flash({ clbl })
+            task.delay(hold, endNow)
         else
             local dw = Config.ActionExtendW
             local dh = Config.ActionExtendH
             local curSize = edge.Size
             local curPos = edge.Position
             local oldContainer = islandTextContainer
+            local ended = false
+            local function endNow()
+                if ended then return end
+                ended = true
+                actionEnd = nil
+                if not alive then actionBusy = false return end
+                if islandTextContainer and islandTextContainer.Parent then
+                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                        if lb then TweenService:Create(lb, TweenInfo.new(0.3), { TextTransparency = 1 }):Play() end
+                    end
+                end
+                TweenService:Create(edge, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(curSize.X.Scale, curSize.X.Offset, curSize.Y.Scale, curSize.Y.Offset),
+                    Position = UDim2.new(curPos.X.Scale, curPos.X.Offset, curPos.Y.Scale, curPos.Y.Offset),
+                }):Play()
+                task.delay(0.32, function()
+                    if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
+                    islandTextContainer = createIslandText(title, Config.TitleColor, true)
+                    actionBusy = false
+                end)
+            end
+            actionEnd = endNow
             TweenService:Create(edge, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                 Size = UDim2.new(curSize.X.Scale, curSize.X.Offset + dw, curSize.Y.Scale, curSize.Y.Offset + dh),
                 Position = UDim2.new(curPos.X.Scale, curPos.X.Offset, curPos.Y.Scale, curPos.Y.Offset + dh / 2),
@@ -1925,7 +1959,7 @@ function Library.CreateWindow(opts)
                 end
             end
             task.delay(0.24, function()
-                if not alive then actionBusy = false return end
+                if ended or not alive then return end
                 if oldContainer and oldContainer.Parent then oldContainer:Destroy() end
                 islandTextContainer = createIslandText(text, Color3.new(1, 1, 1), true)
                 islandTextContainer.Position = UDim2.new(
@@ -1935,34 +1969,24 @@ function Library.CreateWindow(opts)
                     Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2 + dh / 2
                 )
                 flash(colLabels(islandTextContainer))
-                task.delay(hold, function()
-                    if not alive then actionBusy = false return end
-                    if islandTextContainer and islandTextContainer.Parent then
-                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                            local lb = cf:FindFirstChildOfClass("TextLabel")
-                            if lb then TweenService:Create(lb, TweenInfo.new(0.3), { TextTransparency = 1 }):Play() end
-                        end
-                    end
-                    TweenService:Create(edge, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                        Size = UDim2.new(curSize.X.Scale, curSize.X.Offset, curSize.Y.Scale, curSize.Y.Offset),
-                        Position = UDim2.new(curPos.X.Scale, curPos.X.Offset, curPos.Y.Scale, curPos.Y.Offset),
-                    }):Play()
-                    task.delay(0.32, function()
-                        if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
-                        islandTextContainer = createIslandText(title, Config.TitleColor, true)
-                        actionBusy = false
-                    end)
-                end)
             end)
+            task.delay(hold, endNow)
         end
     end
     win.DynamicIslandAction = setmetatable({
-        ChangeText = function(t)
+        ChangeText = function() end,
+        ShowNotify = function(t)
             runIslandAction(t)
         end,
     }, { __call = function(self) return self end })
+    win.ShowNotify = function(self, t)
+        runIslandAction(t)
+    end
     Library._lastWin = win
     Library.DynamicIslandAction = win.DynamicIslandAction
+    Library.ShowNotify = function(t)
+        runIslandAction(t)
+    end
     return win
 end
 
