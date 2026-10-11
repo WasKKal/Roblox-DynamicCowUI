@@ -416,6 +416,8 @@ function Library.Create()
         return container
     end
 
+    local expanded = false
+
     local function splitBall(islandTextContainer)
         local ballD = Config.IslandSize.Y.Offset
         local ballInitX = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset - ballD / 2
@@ -473,33 +475,31 @@ function Library.Create()
                         TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                         TweenService:Create(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
                         TweenService:Create(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
-                        local floatStart = tick()
-                        local charFrames = {}
+                        local t0 = tick()
+                        local charList = {}
                         for _, cf in ipairs(islandTextContainer:GetChildren()) do
                             if cf:FindFirstChildOfClass("TextLabel") then
-                                charFrames[#charFrames + 1] = cf
+                                charList[#charList + 1] = cf
                             end
                         end
-                        local charCount = #charFrames
-                        local centerLow = math.floor((charCount - 1) / 2)
-                        local centerHigh = math.ceil((charCount - 1) / 2)
+                        local nChars = #charList
+                        local midLow = math.floor((nChars - 1) / 2)
+                        local midHigh = math.ceil((nChars - 1) / 2)
                         RunService.Heartbeat:Connect(function()
                             if not islandTextContainer or not islandTextContainer.Parent then return end
                             if expanded then
-                                for _, cf in ipairs(charFrames) do
+                                for _, cf in ipairs(charList) do
                                     local lb = cf:FindFirstChildOfClass("TextLabel")
                                     if lb then lb.Position = UDim2.new(0, 0, 0, 0) end
                                 end
                                 return
                             end
-                            local wave = math.sin((tick() - floatStart) * Config.FloatSpeed)
-                            for i, cf in ipairs(charFrames) do
+                            local wave = math.sin((tick() - t0) * Config.FloatSpeed)
+                            for i, cf in ipairs(charList) do
                                 local lb = cf:FindFirstChildOfClass("TextLabel")
                                 if lb then
                                     local idx = i - 1
-                                    local dir = 0
-                                    if idx < centerLow then dir = -1
-                                    elseif idx > centerHigh then dir = 1 end
+                                    local dir = (idx < midLow and -1) or (idx > midHigh and 1) or 0
                                     lb.Position = UDim2.new(0, dir * Config.FloatAmp * wave, 0, 0)
                                 end
                             end
@@ -566,7 +566,6 @@ function Library.Create()
                 local interacting = false
                 local holding = false
                 local longPress = nil
-                local expanded = false
                 local closeBtn = nil
                 local titleIcon = nil
 
@@ -603,6 +602,10 @@ function Library.Create()
                     longPress = task.delay(Config.LongPressThreshold, function()
                         if holding then
                             expanded = true
+                            for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                local lb = cf:FindFirstChildOfClass("TextLabel")
+                                if lb then lb.Position = UDim2.new(0, 0, 0, 0) end
+                            end
                             islandScale.Scale = 1
                             edge.AnchorPoint = Vector2.new(0, 0)
                             edge.Position = Config.IslandPosition
