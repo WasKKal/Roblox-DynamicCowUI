@@ -707,6 +707,7 @@ function Library.CreateWindow(opts)
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
     local titleIcon = nil
     local infoLabel = nil
+    local brandLbl = nil
 
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
         local s0 = edge.Size
@@ -1024,6 +1025,7 @@ function Library.CreateWindow(opts)
         if titleIcon and titleIcon.Parent then
             TweenService:Create(titleIcon, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
         end
+        if brandLbl and brandLbl.Parent then brandLbl:Destroy() brandLbl = nil end
         if infoLabel and infoLabel.Parent then
             TweenService:Create(infoLabel, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
         end
@@ -1577,6 +1579,7 @@ function Library.CreateWindow(opts)
                     if closeBtn then closeBtn:Destroy() closeBtn = nil end
                     if titleIcon then titleIcon:Destroy() titleIcon = nil end
                     if infoLabel then infoLabel:Destroy() infoLabel = nil end
+                    if brandLbl then brandLbl:Destroy() brandLbl = nil end
                     destroyTabUI()
                     win._rebuildTabs = nil
                     expanded = false
@@ -2020,6 +2023,7 @@ function Library.CreateWindow(opts)
                                 if closeBtn then closeBtn:Destroy() closeBtn = nil end
                                 if titleIcon then titleIcon:Destroy() titleIcon = nil end
                                 if infoLabel then infoLabel:Destroy() infoLabel = nil end
+                                if brandLbl then brandLbl:Destroy() brandLbl = nil end
                                 destroyTabUI()
                                 local cx2 = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                                 local cy2 = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
@@ -2319,7 +2323,7 @@ function Library.CreateWindow(opts)
                     if lb then TweenService:Create(lb, TweenInfo.new(0.2), { TextTransparency = 1 }):Play() end
                 end
             end
-            local brandLbl = Instance.new("TextLabel")
+            brandLbl = Instance.new("TextLabel")
             brandLbl.Name = "IslandActionBrand"
             brandLbl.BackgroundTransparency = 1
             brandLbl.AnchorPoint = Vector2.new(0, 0.5)
@@ -2387,7 +2391,7 @@ function Library.CreateWindow(opts)
                 task.delay(0.38, function() if cap and cap.Parent then cap:Destroy() end end)
                 if brandLbl and brandLbl.Parent then
                     TweenService:Create(brandLbl, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
-                    task.delay(0.32, function() if brandLbl and brandLbl.Parent then brandLbl:Destroy() end end)
+                    task.delay(0.32, function() if brandLbl and brandLbl.Parent then brandLbl:Destroy() end brandLbl = nil end)
                 end
                 if islandTextContainer and islandTextContainer.Parent then
                     for _, cf in ipairs(islandTextContainer:GetChildren()) do
