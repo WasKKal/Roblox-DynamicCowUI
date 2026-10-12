@@ -80,7 +80,8 @@ local Config = {
     HintText = "长按灵动岛以展开面板",
     HintTextSize = 17,
     HintExtendPad = 36,
-    HintHoldTime = 4,
+    -- 连点三次提示：显示后 1.5 秒自动结束并恢复灵动岛
+    HintHoldTime = 1.5,
     HintRevealStep = 0.04,
     HintRevealTime = 0.3,
     LongPressThreshold = 0.5,
@@ -88,8 +89,9 @@ local Config = {
     IslandDragDamp = 0.55,
     IslandDragMax = 70,
     IslandDragFixed = 54,
-    IslandDragStopDelay = 0.35,
-    IslandDragHold = 1.5,
+    -- 拖停判定与保持时间：过短会让拉扯动画在手指停顿瞬间就被判定为停止并回弹
+    IslandDragStopDelay = 0.7,
+    IslandDragHold = 4,
     PanelExpandTime = 0.55,
     PanelMargin = 20,
     BackdropDim = 0.4,
@@ -1366,6 +1368,15 @@ function Library.CreateWindow(opts)
                 local dragging = false
                 local dragStopTmr = nil
                 local dragRestoreTmr = nil
+                local dragSizeTween = nil
+                -- 灵动岛自身尺寸的补间统一走这里：新动画开始前先取消上一条，
+                -- 避免「松开后回弹还没播完就再次按下」时基础尺寸取到补间中间值而拉扯异常
+                local function tweenEdgeSize(size, dur)
+                    if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
+                    dragSizeTween = TweenService:Create(edge, TweenInfo.new(dur, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = size })
+                    dragSizeTween:Play()
+                    return dragSizeTween
+                end
                 local tapCount = 0
                 local tapWindowTmr = nil
                 local hintActive = false
@@ -1375,12 +1386,14 @@ function Library.CreateWindow(opts)
                 local hintBaseAnchor = nil
                 local hintBasePos = nil
                 local islandRest = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
-                local function clearHint()
+                -- skipRestore=true 表示调用方即将自行接管灵动岛几何（例如长按展开面板），
+                -- 此时不能再把 AnchorPoint/Position/Size 拉回提示前的状态，否则会与展开动画互相打架
+                local function clearHint(skipRestore)
                     if tapWindowTmr then task.cancel(tapWindowTmr) tapWindowTmr = nil end
                     if hintTmr then task.cancel(hintTmr) hintTmr = nil end
                     if hintContainer and hintContainer.Parent then hintContainer:Destroy() end
                     hintContainer = nil
-                    if hintActive and edge and edge.Parent and hintBaseSize and not expanded then
+                    if not skipRestore and hintActive and edge and edge.Parent and hintBaseSize and not expanded then
                         if hintBaseAnchor then edge.AnchorPoint = hintBaseAnchor end
                         if hintBasePos then edge.Position = hintBasePos end
                         TweenService:Create(edge, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = hintBaseSize }):Play()
@@ -1389,7 +1402,7 @@ function Library.CreateWindow(opts)
                     hintBaseAnchor = nil
                     hintBasePos = nil
                     hintActive = false
-                    if islandTextContainer and islandTextContainer.Parent then
+                    if not skipRestore and islandTextContainer and islandTextContainer.Parent then
                         for _, cf in ipairs(islandTextContainer:GetChildren()) do
                             local lb = cf:FindFirstChildOfClass("TextLabel")
                             if lb then TweenService:Create(lb, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
@@ -1490,8 +1503,7 @@ function Library.CreateWindow(opts)
                     if dragStopTmr then task.cancel(dragStopTmr) dragStopTmr = nil end
                     if dragRestoreTmr then task.cancel(dragRestoreTmr) dragRestoreTmr = nil end
                     if dragging and dragBaseSize and not expanded then
-                        local tgt = dragBaseSize
-                        TweenService:Create(edge, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = tgt }):Play()
+                        tweenEdgeSize(dragBaseSize, 0.3)
                     end
                     dragging = false
                     dragStartX = nil
@@ -1520,9 +1532,7 @@ function Library.CreateWindow(opts)
                     dragStopTmr = task.delay(Config.IslandDragStopDelay, function()
                         dragStopTmr = nil
                         if dragging and holding and not expanded and dragBaseSize then
-                            TweenService:Create(edge, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                                Size = UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + math.min(Config.IslandDragFixed, Config.IslandDragMax), dragBaseSize.Y.Scale, dragBaseSize.Y.Offset),
-                            }):Play()
+                            tweenEdgeSize(UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + math.min(Config.IslandDragFixed, Config.IslandDragMax), dragBaseSize.Y.Scale, dragBaseSize.Y.Offset), 0.18)
                             if dragRestoreTmr then task.cancel(dragRestoreTmr) end
                             dragRestoreTmr = task.delay(Config.IslandDragHold, function()
                                 dragRestoreTmr = nil
@@ -2556,12 +2566,16 @@ function Library.CreateWindow(opts)
                     interacting = true
                     holding = true
                     dragStartX = input.Position.X
-                    dragBaseSize = edge.Size
+                    -- 基础尺寸取静止态尺寸（提示展开中则取当前尺寸），并取消尚未播完的回弹补间，
+                    -- 保证紧接着的拉扯动画有一个干净、稳定的起点
+                    if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
+                    dragBaseSize = hintActive and edge.Size or Config.IslandSize
                     dragging = false
                     TweenService:Create(islandScale, TweenInfo.new(Config.TapExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = Config.IslandTapScale }):Play()
                     longPress = task.delay(Config.LongPressThreshold, function()
                             if holding then
-                                if hintActive then clearHint() end
+                                -- 展开会立即接管 AnchorPoint/Position/Size，这里只清除提示状态，不做几何还原
+                                if hintActive then clearHint(true) end
                                 expanded = true
                                 titleGen = titleGen + 1
                                 local myTitleGen = titleGen
@@ -3117,6 +3131,7 @@ function Library.CreateWindow(opts)
                     if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
                     if not interacting then return end
                     holding = false
+                    local wasDragging = dragging
                     if longPress then task.cancel(longPress) longPress = nil end
                     resetIslandDrag()
                     if expanded then
@@ -3125,7 +3140,8 @@ function Library.CreateWindow(opts)
                         TweenService:Create(islandScale, TweenInfo.new(Config.TapShrinkTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = 1 }):Play()
                         if hintActive then
                             clearHint()
-                        else
+                        elseif not wasDragging then
+                            -- 拉扯过的不算点击，避免拖动误触发连点三次提示
                             registerIslandTap()
                         end
                         interacting = false
