@@ -193,9 +193,9 @@ local Config = {
     TabSelStrokeThickness = 1,
     TabSelCorner = UDim.new(0, 8),
     -- 选中指示器切换动画
-    TabSelMoveTime = 0.26,      -- 指示器滑向新选项卡的时长
+    -- 注意：每个 TabRow 自带一个 TabSel（相对所在行定位，Position 恒为 0,0），
+    -- 所以指示器只能在「行内」淡入淡出，不存在跨行滑动；不要给它补间 Position。
     TabSelFadeTime = 0.18,      -- 淡入/淡出时长
-    TabSelEasingStyle = Enum.EasingStyle.Quart,
     SubTitleRowHeight = 30,
     SubTitleIconSize = 20,
     SubTitleTextSize = 16,
@@ -1986,6 +1986,9 @@ function Library.CreateWindow(a, ...)
                     end)
                 end)
                 local closeBtn = nil
+                -- 二次确认弹窗句柄：buildCloseButton 需要它做守卫，
+                -- 避免收起流程中又触发长按确认
+                local closeDialog = nil
                 local tabListContainer = nil
                 local tabContentContainer = nil
                 local tabContentBase = nil
@@ -3024,24 +3027,22 @@ function Library.CreateWindow(a, ...)
                                 local base = (td and td.IconColor) or Config.TabInactiveColor
                                 TweenService:Create(ic2, TweenInfo.new(0.15), { ImageColor3 = active and Config.TabActiveColor or base }):Play()
                             end
-                            -- 选中指示器改为补间移动 + 淡入淡出：
-                            -- 从上一个选中行滑到当前行，取消选中则淡出隐藏。
-                            -- 行是绝对定位（Y = (i-1)*(TabRowHeight+TabRowGap)），故直接补间 sel.Position。
+                            -- 选中指示器：每个 TabRow 自带一个 TabSel（Position 恒为 0,0，
+                            -- 因为它相对所在行定位），所以这里只做淡入淡出，
+                            -- 绝不能补间 Position —— 否则会向下偏移一个行高，看起来跑到下一个选项卡上。
                             if sel then
-                                local targetY = (idx - 1) * (Config.TabRowHeight + Config.TabRowGap)
                                 if active then
                                     local first = not sel.Visible
                                     if first then
-                                        sel.Position = UDim2.new(0, 0, 0, targetY)
+                                        sel.Position = UDim2.new(0, 0, 0, 0)
                                         sel.BackgroundTransparency = 1
                                     end
                                     sel.Visible = true
                                     sel.ZIndex = 2
                                     TweenService:Create(sel, TweenInfo.new(
-                                        first and Config.TabSelFadeTime or Config.TabSelMoveTime,
-                                        Config.TabSelEasingStyle, Enum.EasingDirection.Out
+                                        Config.TabSelFadeTime,
+                                        Enum.EasingStyle.Sine, Enum.EasingDirection.Out
                                     ), {
-                                        Position = UDim2.new(0, 0, 0, targetY),
                                         BackgroundTransparency = Config.TabSelFillTransparency,
                                     }):Play()
                                 else
@@ -3379,13 +3380,24 @@ function Library.CreateWindow(a, ...)
                             btn.ImageColor3 = Color3.new(1, 1, 1)
                             btn.Parent = contentRoot
                             local closeHold = nil
+                            -- 按下时刻的按钮有效性令牌：collapsePanel 会让本按钮立即失效，
+                            -- 防止「快速点击后立刻按住」在旧按钮上重启closeHold 计时器，
+                            -- 导致收起动画与二次确认动画同时播放。
+                            local pressGen = 0
                             btn.InputBegan:Connect(function(bi)
                                 if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
                                     if shutdown then return end
+                                    -- 面板已收起 / 二次确认中 / 按钮已被移除时，忽略本次按下
+                                    if not expanded or closeDialog or btn.Parent == nil then return end
+                                    pressGen = pressGen + 1
+                                    local myGen = pressGen
                                     TweenService:Create(btn, TweenInfo.new(Config.CloseHoldTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Config.RedXColor }):Play()
                                     if closeHold then safeCancel(closeHold) end
                                     closeHold = task.delay(Config.CloseHoldTime, function()
                                         closeHold = nil
+                                        -- 计时期间若发生过收起/二次确认，则本次长按作废
+                                        if myGen ~= pressGen then return end
+                                        if not expanded or closeDialog then return end
                                         if onHoldConfirm then onHoldConfirm() end
                                     end)
                                 end
@@ -3396,7 +3408,11 @@ function Library.CreateWindow(a, ...)
                                     if closeHold then
                                         safeCancel(closeHold)
                                         closeHold = nil
-                                        collapsePanel()
+                                        -- 已进入收起/二次确认流程时不再重复触发
+                                        if expanded and not closeDialog then
+                                            pressGen = pressGen + 1
+                                            collapsePanel()
+                                        end
                                     end
                                 end
                             end)
@@ -3578,6 +3594,12 @@ function Library.CreateWindow(a, ...)
                     if wasExpanded then
                         collapsePanel(true)
                         task.wait(Config.PanelExpandTime * 0.5)
+                        -- 等待期间窗口可能被关闭/销毁，必须重新确认状态，
+                        -- 否则会继续往下建胖岛并留下状态污染
+                        if not alive or shutdown then
+                            iconTextBusy = false
+                            return
+                        end
                     end
                     expanded = false
                     winOpen = false
@@ -3665,9 +3687,14 @@ function Library.CreateWindow(a, ...)
                     )
 
                     task.delay(Config.IconTextHoldTime, function()
-                        if not alive then return end
-                        if hc and hc.Parent then hc:Destroy() end
+                        -- 无论后续走哪条分支，都必须先解除 busy 与销毁胖岛容器，
+                        -- 否则一次异常会让 iconTextBusy 永久为 true，后续调用全被静默吞掉
                         iconTextBusy = false
+                        if not alive or shutdown then
+                            if hc and hc.Parent then hc:Destroy() end
+                            return
+                        end
+                        if hc and hc.Parent then hc:Destroy() end
 
                         animateEdge(Config.IslandSize, islandRest, Config.IconTextRestoreTime, 0)
 
@@ -3679,13 +3706,28 @@ function Library.CreateWindow(a, ...)
 
                         if wasExpanded then
                             task.delay(Config.IconTextGrowTime, function()
-                                if not alive or expanded then return end
+                                -- 关键：此处不可因 expanded 已为 true 就 return。
+                                -- collapsePanel 已经跑完（面板已收起、Title/Info/TabList 已销毁），
+                                -- 若此处提前退出，面板就永远停在「收起且无内容」的状态。
+                                -- 正确做法是让本次恢复流程自行完成重建（下面会强制接管）。
+                                if not alive or shutdown then return end
+                                if expanded then
+                                    -- 用户在等待期间已手动展开：放弃本次恢复，
+                                    -- 但仍需把面板内容重建回来，避免用户看到空面板。
+                                    if lastPanelLayout then
+                                        buildTabUI(lastPanelLayout)
+                                        buildCloseButton(function() showCloseConfirm() end)
+                                        buildHeaderDecor()
+                                    end
+                                    return
+                                end
                                 expanded = true
                                 titleGen = titleGen + 1
                                 local myGen = titleGen
                                 islandScale.Scale = 1
                                 if islandTextContainer and islandTextContainer.Parent then
-                                    setIslandText(title, Config.TitleColor)
+                                    -- 面板态显示原始标题（收起态的 override 文字不该出现在面板里）
+                                    setIslandText(islandTextOverride or title, Config.TitleColor)
                                     for _, cf in ipairs(islandTextContainer:GetChildren()) do
                                         local lb = cf:FindFirstChildOfClass("TextLabel")
                                         if lb then lb.TextTransparency = 1 end
@@ -3705,7 +3747,7 @@ function Library.CreateWindow(a, ...)
                                 playBorderSweep()
                                 if lastPanelLayout then
                                     buildTabUI(lastPanelLayout)
-                                    buildCloseButton()
+                                    buildCloseButton(function() showCloseConfirm() end)
                                     buildHeaderDecor()
                                 end
                                 task.delay(Config.PanelExpandTime, function() winOpen = true end)
@@ -4111,7 +4153,6 @@ if hintActive then clearHint(true) end
                             buildTabUI(lastPanelLayout)
                             buildCloseButton(function() showCloseConfirm() end)
 
-                            local closeDialog = nil
                             local function setHeaderVisible(vis)
                                 local t = vis and 0 or 1
                                 if islandTextContainer and islandTextContainer.Parent then
