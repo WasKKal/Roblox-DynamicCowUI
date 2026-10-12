@@ -76,7 +76,6 @@ local Config = {
     IslandTapScale = 1.06,
     TapExpandTime = 0.25,
     TapShrinkTime = 0.3,
-    TapCooldown = 0.2,
     TapWindow = 0.8,
     HintText = "长按灵动岛以展开面板",
     HintTextSize = 17,
@@ -216,6 +215,7 @@ local Config = {
     ParagraphBorderThickness = 1,
     ParagraphBackPad = 8,
     ParagraphDarken = 0.1,
+    ParagraphTitleDrop = 4,
     SliderRowHeight = 34,
     SliderTitleSize = 14,
     SliderTitleColor = Color3.new(1, 1, 1),
@@ -230,6 +230,36 @@ local Config = {
     SliderThumbColor = Color3.fromRGB(245, 245, 248),
     SliderThumbSize = 16,
     SliderAnimTime = 0.3,
+    DropdownRowHeight = 36,
+    DropdownTitleSize = 14,
+    DropdownTitleColor = Color3.new(1, 1, 1),
+    DropdownTitlePadX = 10,
+    DropdownTitleMinW = 40,
+    DropdownTitleGap = 10,
+    DropdownCapsuleW = 120,
+    DropdownCapsuleH = 26,
+    DropdownCapsuleStroke = Color3.fromRGB(150, 150, 160),
+    DropdownCapsuleStrokeThickness = 1,
+    DropdownCapsuleTextColor = Color3.new(1, 1, 1),
+    DropdownCapsuleTextSize = 13,
+    DropdownCapsulePlaceholder = "未选择",
+    DropdownMenuW = 200,
+    DropdownMenuMaxH = 220,
+    DropdownOptionH = 30,
+    DropdownMenuPad = 6,
+    DropdownMenuFill = Color3.fromRGB(24, 24, 30),
+    DropdownMenuFillTransparency = 0.02,
+    DropdownMenuStroke = Color3.fromRGB(150, 150, 160),
+    DropdownMenuStrokeThickness = 1,
+    DropdownOptionTextColor = Color3.fromRGB(230, 230, 235),
+    DropdownOptionTextSize = 13,
+    DropdownOptionHover = Color3.fromRGB(48, 48, 58),
+    DropdownOptionSelected = Color3.fromRGB(60, 100, 175),
+    DropdownRevealTime = 0.22,
+    DropdownOptionStagger = 0.05,
+    DropdownCollapseTime = 0.2,
+    DropdownMenuZ = 200,
+    DropdownArrowSize = 12,
 }
 
 local Library = {}
@@ -254,6 +284,73 @@ local function darkenColor(c, amt)
     return Color3.new(r, g, b)
 end
 
+local function ensureConfigFolder(folder)
+    if type(folder) ~= "string" or #folder == 0 then return false end
+    local base = "DynamicCowUI/Config"
+    local path = base .. "/" .. folder
+    pcall(function()
+        if isfolder and not isfolder(base) then makefolder(base) end
+        if isfolder and not isfolder(path) then makefolder(path) end
+    end)
+    return true
+end
+
+local function saveConfigValue(folder, key, value)
+    if type(folder) ~= "string" or #folder == 0 then return false end
+    if type(key) ~= "string" or #key == 0 then return false end
+    local path = "DynamicCowUI/Config/" .. folder .. "/" .. key .. ".json"
+    local ok, json = pcall(function()
+        return game:GetService("HttpService"):JSONEncode({ Value = value })
+    end)
+    if not (ok and json) then return false end
+    pcall(function()
+        if isfolder and not isfolder("DynamicCowUI/Config") then makefolder("DynamicCowUI/Config") end
+        if isfolder and not isfolder("DynamicCowUI/Config/" .. folder) then makefolder("DynamicCowUI/Config/" .. folder) end
+        writefile(path, json)
+    end)
+    return true
+end
+
+local function loadConfigValue(folder, key)
+    if type(folder) ~= "string" or #folder == 0 then return nil end
+    if type(key) ~= "string" or #key == 0 then return nil end
+    local path = "DynamicCowUI/Config/" .. folder .. "/" .. key .. ".json"
+    if not (isfile and isfile(path)) then return nil end
+    local ok, content = pcall(readfile, path)
+    if not (ok and content) then return nil end
+    local ok2, data = pcall(function() return game:GetService("HttpService"):JSONDecode(content) end)
+    if ok2 and data and data.Value ~= nil then return data.Value end
+    return nil
+end
+
+local function configFilePath(folder, name)
+    return "DynamicCowUI/Config/" .. folder .. "/" .. name .. ".json"
+end
+
+local function loadConfigFile(folder, name)
+    local path = configFilePath(folder, name)
+    if not (isfile and isfile(path)) then return {} end
+    local ok, content = pcall(readfile, path)
+    if not (ok and content) then return {} end
+    local ok2, data = pcall(function() return game:GetService("HttpService"):JSONDecode(content) end)
+    if ok2 and data and type(data) == "table" then return data end
+    return {}
+end
+
+local function writeConfigFile(folder, name, data)
+    if type(folder) ~= "string" or #folder == 0 then return false end
+    if type(name) ~= "string" or #name == 0 then return false end
+    local path = configFilePath(folder, name)
+    local ok, json = pcall(function() return game:GetService("HttpService"):JSONEncode(data) end)
+    if not (ok and json) then return false end
+    pcall(function()
+        if isfolder and not isfolder("DynamicCowUI/Config") then makefolder("DynamicCowUI/Config") end
+        if isfolder and not isfolder("DynamicCowUI/Config/" .. folder) then makefolder("DynamicCowUI/Config/" .. folder) end
+        writefile(path, json)
+    end)
+    return true
+end
+
 function Library.CreateWindow(opts)
     opts = opts or {}
     if Library._demoWin and not Library._demoWin._added then
@@ -267,6 +364,8 @@ function Library.CreateWindow(opts)
     local info = ""
     local iconName = Config.DefaultTitleIcon
     local iconColor = Config.DefaultTitleIconColor
+    local configFolder = nil
+    local autoLoadConfig = true
     if not isError then
         if type(opts) ~= "table" then
             isError = true
@@ -301,6 +400,20 @@ function Library.CreateWindow(opts)
                 errReason = "CreateWindow IconColor 非法（收到 " .. (typeof(opts.IconColor) or type(opts.IconColor)) .. "）"
             else
                 iconColor = opts.IconColor
+            end
+        end
+        if not isError and opts.Folder ~= nil then
+            if type(opts.Folder) ~= "string" or #opts.Folder == 0 then
+                reportError("CreateWindow Folder 非法（收到 " .. type(opts.Folder) .. "），已忽略")
+            else
+                configFolder = opts.Folder
+            end
+        end
+        if not isError and opts.AutoLoadConfig ~= nil then
+            if type(opts.AutoLoadConfig) ~= "boolean" then
+                reportError("CreateWindow AutoLoadConfig 非法（收到 " .. type(opts.AutoLoadConfig) .. "），已忽略")
+            else
+                autoLoadConfig = opts.AutoLoadConfig
             end
         end
     end
@@ -786,9 +899,14 @@ function Library.CreateWindow(opts)
     local ready = false
     local actionEnd = nil
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
+    win._configFolder = configFolder
+    win._autoLoadConfig = autoLoadConfig
+    win._cfgIndex = {}
+    if win._configFolder then ensureConfigFolder(win._configFolder) end
     local titleIcon = nil
     local infoLabel = nil
     local brandLbl = nil
+    local openDropdownClose = nil
     local titleGen = 0
     local titleTweens = {}
     local function cancelTitleTweens()
@@ -796,6 +914,13 @@ function Library.CreateWindow(opts)
             pcall(function() tw:Cancel() end)
         end
         titleTweens = {}
+    end
+
+    local function clearBrand()
+        if brandLbl and brandLbl.Parent then
+            pcall(function() brandLbl:Destroy() end)
+        end
+        brandLbl = nil
     end
 
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
@@ -986,7 +1111,7 @@ function Library.CreateWindow(opts)
 
                         task.delay(0.2, function()
                             if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
-                            islandTextContainer = createIslandText(Config.ErrorText, Config.ErrorTextColor, true)
+                            islandTextContainer = createIslandText(errText, Config.ErrorTextColor, true)
                             explode()
                             for _, cf in ipairs(islandTextContainer:GetChildren()) do
                                 local lb = cf:FindFirstChildOfClass("TextLabel")
@@ -1101,7 +1226,8 @@ function Library.CreateWindow(opts)
         return ball
     end
 
-    local function playErrorSequence()
+    local function playErrorSequence(customText)
+        local errText = (type(customText) == "string" and #customText > 0) and customText or Config.ErrorText
         expanded = false
         winOpen = false
         flowSpeed = 0
@@ -1143,7 +1269,7 @@ function Library.CreateWindow(opts)
         end)
         task.delay(0.75, function()
             if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
-            islandTextContainer = createIslandText(Config.ErrorText, Config.ErrorTextColor)
+            islandTextContainer = createIslandText(errText, Config.ErrorTextColor)
         end)
 
         task.delay(fadeDur + 0.6, function()
@@ -1401,6 +1527,7 @@ function Library.CreateWindow(opts)
                 local tabContentNoCtrl = nil
                 local tabSubtitleList = nil
                 local function destroyTabUI()
+                    if openDropdownClose then openDropdownClose() end
                     if tabListContainer then tabListContainer:Destroy() tabListContainer = nil end
                     if tabContentContainer then tabContentContainer:Destroy() tabContentContainer = nil end
                     if headerDivider then headerDivider:Destroy() headerDivider = nil end
@@ -1502,6 +1629,10 @@ function Library.CreateWindow(opts)
                         return btn
                     end
                     local function makeToggle(tg, order)
+                        if win._autoLoadConfig and tg.ConfigKey and win._configFolder then
+                            local sv = loadConfigValue(win._configFolder, tg.ConfigKey)
+                            if sv ~= nil then tg.Value = (sv == true) end
+                        end
                         local row = Instance.new("TextButton")
                         row.Name = "SubToggle"
                         row.Size = UDim2.new(1, 0, 0, Config.ButtonHeight)
@@ -1589,6 +1720,9 @@ function Library.CreateWindow(opts)
                             if shutdown then return end
                             tg.Value = not tg.Value
                             apply()
+                            if tg.ConfigKey and win._configFolder then
+                                saveConfigValue(win._configFolder, tg.ConfigKey, tg.Value)
+                            end
                             if typeof(tg.Callback) == "function" then
                                 local okC, errC = pcall(tg.Callback, tg.Value)
                                 if not okC then reportError("AddToggle Callback 报错: " .. tostring(errC)) end
@@ -1656,10 +1790,13 @@ function Library.CreateWindow(opts)
                         local vl = Instance.new("UIListLayout")
                         vl.FillDirection = Enum.FillDirection.Vertical
                         vl.HorizontalAlignment = Enum.HorizontalAlignment.Left
-                        vl.VerticalAlignment = Enum.VerticalAlignment.Center
+                        vl.VerticalAlignment = Enum.VerticalAlignment.Top
                         vl.SortOrder = Enum.SortOrder.LayoutOrder
                         vl.Padding = UDim.new(0, Config.ParagraphTextGap)
                         vl.Parent = txt
+                        local txtPad = Instance.new("UIPadding")
+                        txtPad.PaddingTop = UDim.new(0, Config.ParagraphTitleDrop)
+                        txtPad.Parent = txt
                         local titleLbl = Instance.new("TextLabel")
                         titleLbl.Name = "ParaTitle"
                         titleLbl.BackgroundTransparency = 1
@@ -1697,6 +1834,10 @@ function Library.CreateWindow(opts)
                         return frame
                     end
                     local function makeSlider(sl, order)
+                        if win._autoLoadConfig and sl.ConfigKey and win._configFolder then
+                            local sv = loadConfigValue(win._configFolder, sl.ConfigKey)
+                            if sv ~= nil and type(sv) == "number" then sl.Value = sv end
+                        end
                         local rowH = Config.SliderRowHeight
                         local frame = Instance.new("Frame")
                         frame.Name = "SubSlider"
@@ -1787,6 +1928,9 @@ function Library.CreateWindow(opts)
                             f = clampFrac(f)
                             sl.Value = snapVal(sl.MinValue + f * getRange())
                             sl._refresh(animate)
+                            if sl.ConfigKey and win._configFolder then
+                                saveConfigValue(win._configFolder, sl.ConfigKey, sl.Value)
+                            end
                             if type(sl.OnChanged) == "function" then
                                 local okC, errC = pcall(sl.OnChanged, sl.Value)
                                 if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
@@ -1826,16 +1970,305 @@ function Library.CreateWindow(opts)
                         sl._titleLbl = titleLbl
                         return frame
                     end
+                    local function makeDropdown(d, order)
+                        d.Multiple = d.Multiple and true or false
+                        if win._autoLoadConfig and d.ConfigKey and win._configFolder then
+                            local sv = loadConfigValue(win._configFolder, d.ConfigKey)
+                            if sv ~= nil then d.Selected = sv end
+                        end
+                        if not d.Multiple then
+                            d.Selected = (type(d.Selected) == "string" and d.Selected) or nil
+                        else
+                            if type(d.Selected) ~= "table" then d.Selected = {} end
+                        end
+                        local function isSelected(name)
+                            if d.Multiple then
+                                for _, s in ipairs(d.Selected) do if s == name then return true end end
+                                return false
+                            end
+                            return d.Selected == name
+                        end
+                        local function truncateToWidth(text, maxW)
+                            if text == "" then return text end
+                            if measureTextWidth(text, Config.DropdownCapsuleTextSize) <= maxW then return text end
+                            local chars = {}
+                            for _, cp in utf8.codes(text) do chars[#chars + 1] = utf8.char(cp) end
+                            local out = ""
+                            for i = 1, #chars do
+                                local cand = out .. chars[i]
+                                if measureTextWidth(cand .. "…", Config.DropdownCapsuleTextSize) > maxW then
+                                    return out .. "…"
+                                end
+                                out = cand
+                            end
+                            return out .. "…"
+                        end
+                        local function capsuleText()
+                            local maxW = Config.DropdownCapsuleW - Config.DropdownMenuPad * 2 - Config.DropdownArrowSize - 6
+                            if d.Multiple then
+                                local n = #d.Selected
+                                if n == 0 then return Config.DropdownCapsulePlaceholder end
+                                local joined = table.concat(d.Selected, ", ")
+                                if measureTextWidth(joined, Config.DropdownCapsuleTextSize) > maxW then
+                                    return "已选择" .. n .. "个"
+                                end
+                                return joined
+                            end
+                            if not d.Selected then return Config.DropdownCapsulePlaceholder end
+                            return truncateToWidth(d.Selected, maxW)
+                        end
+                        local function refreshCapsule()
+                            if d._label and d._label.Parent then d._label.Text = capsuleText() end
+                        end
+                        local function saveSel()
+                            if d.ConfigKey and win._configFolder then saveConfigValue(win._configFolder, d.ConfigKey, d.Selected) end
+                        end
+                        local function refreshHighlights()
+                            if not d._menuScroll then return end
+                            for _, ob in ipairs(d._menuScroll:GetChildren()) do
+                                if ob:IsA("TextButton") then
+                                    ob.BackgroundColor3 = isSelected(ob:GetAttribute("OptName")) and Config.DropdownOptionSelected or Config.DropdownMenuFill
+                                end
+                            end
+                        end
+                        local function applySelection(name)
+                            if d.Multiple then
+                                local idx = 0
+                                for i, s in ipairs(d.Selected) do if s == name then idx = i break end end
+                                if idx > 0 then table.remove(d.Selected, idx) else d.Selected[#d.Selected + 1] = name end
+                            else
+                                d.Selected = name
+                            end
+                            refreshCapsule()
+                            saveSel()
+                            refreshHighlights()
+                            if type(d.OnChanged) == "function" then
+                                local okC, errC = pcall(d.OnChanged, d.Selected)
+                                if not okC then reportError("AddDropdown OnChanged 报错: " .. tostring(errC)) end
+                            end
+                            if not d.Multiple and d._closeMenu then d._closeMenu(true) end
+                        end
+                        local frame = Instance.new("Frame")
+                        frame.Name = "SubDropdown"
+                        frame.BackgroundTransparency = 1
+                        frame.Size = UDim2.new(1, 0, 0, Config.DropdownRowHeight)
+                        frame.LayoutOrder = order
+                        frame.ZIndex = 3
+                        local titleW = measureTextWidth(d.Title or "", Config.DropdownTitleSize) + Config.DropdownTitlePadX
+                        if titleW < Config.DropdownTitleMinW then titleW = Config.DropdownTitleMinW end
+                        local titleLbl = Instance.new("TextLabel")
+                        titleLbl.Name = "DdTitle"
+                        titleLbl.BackgroundTransparency = 1
+                        titleLbl.Size = UDim2.new(0, titleW, 1, 0)
+                        titleLbl.Position = UDim2.new(0, 0, 0, 0)
+                        titleLbl.Text = d.Title or ""
+                        titleLbl.TextColor3 = Config.DropdownTitleColor
+                        titleLbl.TextSize = Config.DropdownTitleSize
+                        titleLbl.Font = Enum.Font.GothamBold
+                        titleLbl.RichText = true
+                        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+                        titleLbl.TextYAlignment = Enum.TextYAlignment.Center
+                        titleLbl.ZIndex = 3
+                        titleLbl.Parent = frame
+                        local capsule = Instance.new("TextButton")
+                        capsule.Name = "DdCapsule"
+                        capsule.AutoButtonColor = false
+                        capsule.AnchorPoint = Vector2.new(1, 0.5)
+                        capsule.Position = UDim2.new(1, 0, 0.5, 0)
+                        capsule.Size = UDim2.new(0, Config.DropdownCapsuleW, 0, Config.DropdownCapsuleH)
+                        capsule.BackgroundTransparency = 1
+                        capsule.Text = ""
+                        capsule.ZIndex = 3
+                        capsule.Parent = frame
+                        local capCorner = Instance.new("UICorner")
+                        capCorner.CornerRadius = UDim.new(0.5, 0)
+                        capCorner.Parent = capsule
+                        local capStroke = Instance.new("UIStroke")
+                        capStroke.Color = Config.DropdownCapsuleStroke
+                        capStroke.Thickness = Config.DropdownCapsuleStrokeThickness
+                        capStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                        capStroke.Parent = capsule
+                        local label = Instance.new("TextLabel")
+                        label.Name = "DdLabel"
+                        label.BackgroundTransparency = 1
+                        label.AnchorPoint = Vector2.new(0, 0.5)
+                        label.Position = UDim2.new(0, Config.DropdownMenuPad + 2, 0.5, 0)
+                        label.Size = UDim2.new(1, -(Config.DropdownMenuPad * 2 + Config.DropdownArrowSize + 6), 1, 0)
+                        label.Font = Enum.Font.Gotham
+                        label.TextColor3 = Config.DropdownCapsuleTextColor
+                        label.TextSize = Config.DropdownCapsuleTextSize
+                        label.TextXAlignment = Enum.TextXAlignment.Left
+                        label.TextYAlignment = Enum.TextYAlignment.Center
+                        label.ZIndex = 4
+                        label.Parent = capsule
+                        local arrow = Instance.new("ImageLabel")
+                        arrow.Name = "DdArrow"
+                        arrow.AnchorPoint = Vector2.new(1, 0.5)
+                        arrow.Position = UDim2.new(1, -Config.DropdownMenuPad - 2, 0.5, 0)
+                        arrow.Size = UDim2.fromOffset(Config.DropdownArrowSize, Config.DropdownArrowSize)
+                        arrow.BackgroundTransparency = 1
+                        arrow.ImageColor3 = Config.DropdownCapsuleStroke
+                        arrow.ScaleType = Enum.ScaleType.Fit
+                        arrow.ZIndex = 4
+                        arrow.Parent = capsule
+                        task.spawn(function()
+                            local lucide = loadLucide()
+                            if lucide then
+                                local okA, asset = pcall(lucide.GetAsset, "chevron-down")
+                                if okA and asset and asset.Url then
+                                    arrow.Image = asset.Url
+                                    if asset.ImageRectOffset then arrow.ImageRectOffset = asset.ImageRectOffset arrow.ImageRectSize = asset.ImageRectSize end
+                                end
+                            end
+                        end)
+                        local function openMenu()
+                            if openDropdownClose then openDropdownClose() end
+                            local ap = capsule.AbsolutePosition
+                            local as = capsule.AbsoluteSize
+                            local optList = d.Options or {}
+                            local count = #optList
+                            if count == 0 then return end
+                            local neededH = math.min(count * Config.DropdownOptionH + Config.DropdownMenuPad * 2, Config.DropdownMenuMaxH)
+                            local mask = Instance.new("TextButton")
+                            mask.Name = "DdMask"
+                            mask.Size = UDim2.new(1, 0, 1, 0)
+                            mask.BackgroundTransparency = 1
+                            mask.Text = ""
+                            mask.AutoButtonColor = false
+                            mask.ZIndex = Config.DropdownMenuZ - 1
+                            mask.Parent = screenGui
+                            local menu = Instance.new("Frame")
+                            menu.Name = "DdMenu"
+                            menu.BackgroundColor3 = Config.DropdownMenuFill
+                            menu.BackgroundTransparency = 1
+                            menu.BorderSizePixel = 0
+                            menu.AnchorPoint = Vector2.new(1, 0)
+                            menu.Position = UDim2.new(0, ap.X + as.X, 0, ap.Y)
+                            menu.Size = UDim2.new(0, as.X, 0, as.Y)
+                            menu.ClipsDescendants = true
+                            menu.ZIndex = Config.DropdownMenuZ
+                            menu.Parent = screenGui
+                            local mc = Instance.new("UICorner")
+                            mc.CornerRadius = UDim.new(0.5, 0)
+                            mc.Parent = menu
+                            local ms = Instance.new("UIStroke")
+                            ms.Color = Config.DropdownMenuStroke
+                            ms.Thickness = Config.DropdownMenuStrokeThickness
+                            ms.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                            ms.Parent = menu
+                            local scroll = Instance.new("ScrollingFrame")
+                            scroll.Name = "DdScroll"
+                            scroll.BackgroundTransparency = 1
+                            scroll.BorderSizePixel = 0
+                            scroll.Size = UDim2.new(1, 0, 1, 0)
+                            scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+                            scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+                            scroll.ScrollBarThickness = 3
+                            scroll.ZIndex = Config.DropdownMenuZ + 1
+                            scroll.Parent = menu
+                            local sl2 = Instance.new("UIListLayout")
+                            sl2.FillDirection = Enum.FillDirection.Vertical
+                            sl2.SortOrder = Enum.SortOrder.LayoutOrder
+                            sl2.Padding = UDim.new(0, 0)
+                            sl2.Parent = scroll
+                            local sp = Instance.new("UIPadding")
+                            sp.PaddingTop = UDim.new(0, Config.DropdownMenuPad)
+                            sp.PaddingBottom = UDim.new(0, Config.DropdownMenuPad)
+                            sp.PaddingLeft = UDim.new(0, Config.DropdownMenuPad)
+                            sp.PaddingRight = UDim.new(0, Config.DropdownMenuPad)
+                            sp.Parent = scroll
+                            d._menuScroll = scroll
+                            for i, opt in ipairs(optList) do
+                                local ob = Instance.new("TextButton")
+                                ob.Name = "DdOption"
+                                ob.Size = UDim2.new(1, 0, 0, Config.DropdownOptionH)
+                                ob.BackgroundColor3 = isSelected(opt) and Config.DropdownOptionSelected or Config.DropdownMenuFill
+                                ob.BackgroundTransparency = 1
+                                ob.TextTransparency = 1
+                                ob.Text = opt
+                                ob.TextColor3 = Config.DropdownOptionTextColor
+                                ob.TextSize = Config.DropdownOptionTextSize
+                                ob.Font = Enum.Font.Gotham
+                                ob.TextXAlignment = Enum.TextXAlignment.Left
+                                ob.AutoButtonColor = false
+                                ob.LayoutOrder = i
+                                ob.ZIndex = Config.DropdownMenuZ + 2
+                                ob:SetAttribute("OptName", opt)
+                                ob.Parent = scroll
+                                ob.MouseButton1Click:Connect(function()
+                                    applySelection(opt)
+                                end)
+                                ob.MouseEnter:Connect(function()
+                                    if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownOptionHover }):Play() end
+                                end)
+                                ob.MouseLeave:Connect(function()
+                                    if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownMenuFill }):Play() end
+                                end)
+                            end
+                            scroll.CanvasSize = UDim2.new(0, 0, 0, count * Config.DropdownOptionH + Config.DropdownMenuPad * 2)
+                            local closed = false
+                            local function closeMenu(animate)
+                                if closed then return end
+                                closed = true
+                                if openDropdownClose == closeMenu then openDropdownClose = nil end
+                                if d._menuScroll == scroll then d._menuScroll = nil end
+                                d._closeMenu = nil
+                                local function finish()
+                                    if mask and mask.Parent then mask:Destroy() end
+                                    if menu and menu.Parent then menu:Destroy() end
+                                end
+                                if animate then
+                                    for _, ob in ipairs(scroll:GetChildren()) do
+                                        if ob:IsA("TextButton") then
+                                            TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+                                        end
+                                    end
+                                    TweenService:Create(menu, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Size = UDim2.new(0, as.X, 0, as.Y), BackgroundTransparency = 1 }):Play()
+                                    TweenService:Create(ms, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Transparency = 1 }):Play()
+                                    task.delay(Config.DropdownCollapseTime + 0.05, finish)
+                                else
+                                    finish()
+                                end
+                            end
+                            d._closeMenu = closeMenu
+                            mask.MouseButton1Click:Connect(function()
+                                closeMenu(true)
+                            end)
+                            openDropdownClose = closeMenu
+                            TweenService:Create(menu, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, Config.DropdownMenuW, 0, neededH) }):Play()
+                            TweenService:Create(menu, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.DropdownMenuFillTransparency }):Play()
+                            for i, ob in ipairs(scroll:GetChildren()) do
+                                if ob:IsA("TextButton") then
+                                    task.delay(Config.DropdownRevealTime + (i - 1) * Config.DropdownOptionStagger, function()
+                                        if closed or not ob.Parent then return end
+                                        TweenService:Create(ob, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 0, TextTransparency = 0 }):Play()
+                                    end)
+                                end
+                            end
+                        end
+                        capsule.MouseButton1Click:Connect(function()
+                            openMenu()
+                        end)
+                        d._refreshCapsule = refreshCapsule
+                        refreshCapsule()
+                        d._frame = frame
+                        d._capsule = capsule
+                        d._label = label
+                        d._titleLbl = titleLbl
+                        return frame
+                    end
                     for _, st in ipairs(tab._subtitles) do
                         local btns = st._buttons or {}
                         local tgts = st._toggles or {}
                         local pgrs = st._paragraphs or {}
                         local slds = st._sliders or {}
+                        local ddns = st._dropdowns or {}
                         local itemH = {}
                         for _ in ipairs(btns) do itemH[#itemH + 1] = Config.ButtonHeight end
                         for _ in ipairs(tgts) do itemH[#itemH + 1] = Config.ButtonHeight end
                         for _ in ipairs(pgrs) do itemH[#itemH + 1] = Config.ParagraphRowHeight end
                         for _ in ipairs(slds) do itemH[#itemH + 1] = Config.SliderRowHeight end
+                        for _ in ipairs(ddns) do itemH[#itemH + 1] = Config.DropdownRowHeight end
                         local ccount = #itemH
                         local sumH = 0
                         for _, h in ipairs(itemH) do sumH = sumH + h end
@@ -1896,6 +2329,9 @@ function Library.CreateWindow(opts)
                             end
                             for si, sl in ipairs(slds) do
                                 makeSlider(sl, #btns + #tgts + #pgrs + si).Parent = body
+                            end
+                            for di, dd in ipairs(ddns) do
+                                makeDropdown(dd, #btns + #tgts + #pgrs + #slds + di).Parent = body
                             end
                         end
                         local hasIco = (st.Icon ~= nil and st.Icon ~= "")
@@ -2035,7 +2471,7 @@ function Library.CreateWindow(opts)
                     if closeBtn then closeBtn:Destroy() closeBtn = nil end
                     if titleIcon then titleIcon:Destroy() titleIcon = nil end
                     if infoLabel then infoLabel:Destroy() infoLabel = nil end
-                    if brandLbl then brandLbl:Destroy() brandLbl = nil end
+                    clearBrand()
                     destroyTabUI()
                     win._rebuildTabs = nil
                     expanded = false
@@ -2290,6 +2726,9 @@ function Library.CreateWindow(opts)
                                     subListLayout.SortOrder = Enum.SortOrder.LayoutOrder
                                     subListLayout.Padding = UDim.new(0, Config.SubTitleBlockGap)
                                     subListLayout.Parent = subList
+                                    local subListPad = Instance.new("UIPadding")
+                                    subListPad.PaddingRight = UDim.new(0, Config.ContentScrollBarThickness + 2)
+                                    subListPad.Parent = subList
                                     tabSubtitleList = subList
                                     for i, tab in ipairs(win._tabs) do
                                         local row = Instance.new("TextButton")
@@ -2488,7 +2927,7 @@ function Library.CreateWindow(opts)
                                 if closeBtn then closeBtn:Destroy() closeBtn = nil end
                                 if titleIcon then titleIcon:Destroy() titleIcon = nil end
                                 if infoLabel then infoLabel:Destroy() infoLabel = nil end
-                                if brandLbl then brandLbl:Destroy() brandLbl = nil end
+                                clearBrand()
                                 destroyTabUI()
                                 local cx2 = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                                 local cy2 = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
@@ -2601,22 +3040,15 @@ function Library.CreateWindow(opts)
                     if longPress then task.cancel(longPress) longPress = nil end
                     resetIslandDrag()
                     if expanded then
-                        task.delay(Config.TapShrinkTime + Config.TapCooldown, function()
-                            interacting = false
-                        end)
+                        interacting = false
                     else
                         TweenService:Create(islandScale, TweenInfo.new(Config.TapShrinkTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = 1 }):Play()
                         if hintActive then
                             clearHint()
-                            task.delay(Config.TapShrinkTime, function()
-                                interacting = false
-                            end)
                         else
                             registerIslandTap()
-                            task.delay(Config.TapShrinkTime, function()
-                                interacting = false
-                            end)
                         end
+                        interacting = false
                     end
                 end)
             end)
@@ -2681,6 +3113,7 @@ function Library.CreateWindow(opts)
                 _toggles = {},
                 _paragraphs = {},
                 _sliders = {},
+                _dropdowns = {},
             }
             st.AddButton = function(self3, bopts)
                 bopts = bopts or {}
@@ -2714,10 +3147,16 @@ function Library.CreateWindow(opts)
                     if topts.IconColor ~= nil and typeof(topts.IconColor) ~= "Color3" then error("AddToggle IconColor 非法") end
                     if topts.ThumbColor ~= nil and typeof(topts.ThumbColor) ~= "Color3" then error("AddToggle ThumbColor 非法") end
                     if topts.TrackColor ~= nil and typeof(topts.TrackColor) ~= "Color3" then error("AddToggle TrackColor 非法") end
+                    if topts.ConfigKey ~= nil and (type(topts.ConfigKey) ~= "string" or #topts.ConfigKey == 0) then error("AddToggle ConfigKey 非法") end
                 end)
                 if not ok4 then
                     reportError("AddToggle 异常: " .. tostring(em4))
                     win:Error()
+                    return nil
+                end
+                if topts.ConfigKey ~= nil and not win._configFolder then
+                    reportError("AddToggle 异常: 设置了 ConfigKey 但未在 CreateWindow 设置 Folder")
+                    win:Error("缺少Folder Config保存失败")
                     return nil
                 end
                 local tg = {
@@ -2728,10 +3167,22 @@ function Library.CreateWindow(opts)
                     TrackColor = topts.TrackColor,
                     Value = topts.Default == true,
                     Callback = topts.Callback,
+                    ConfigKey = topts.ConfigKey,
                 }
                 tg.Set = function(self4, v)
                     self4.Value = v and true or false
+                    if self4.ConfigKey and win._configFolder then
+                        saveConfigValue(win._configFolder, self4.ConfigKey, self4.Value)
+                    end
                     if win._rebuildTabs then win._rebuildTabs() end
+                end
+                tg.GetValue = function(self4)
+                    return self4.Value
+                end
+                if tg.ConfigKey then
+                    tg._cfgGet = function(self4) return self4.Value end
+                    tg._cfgSet = function(self4, v) self4:Set(v == true) end
+                    win._cfgIndex[tg.ConfigKey] = tg
                 end
                 table.insert(self3._toggles, tg)
                 if win._rebuildTabs then win._rebuildTabs() end
@@ -2807,10 +3258,16 @@ function Library.CreateWindow(opts)
                     if sopts.MinValue >= sopts.MaxValue then error("AddSlider MinValue 必须小于 MaxValue") end
                     if sopts.FillColor ~= nil and typeof(sopts.FillColor) ~= "Color3" then error("AddSlider FillColor 非法") end
                     if sopts.Value ~= nil and type(sopts.Value) ~= "number" then error("AddSlider Value 非法") end
+                    if sopts.ConfigKey ~= nil and (type(sopts.ConfigKey) ~= "string" or #sopts.ConfigKey == 0) then error("AddSlider ConfigKey 非法") end
                 end)
                 if not ok5 then
                     reportError("AddSlider 异常: " .. tostring(em5))
                     win:Error()
+                    return nil
+                end
+                if sopts.ConfigKey ~= nil and not win._configFolder then
+                    reportError("AddSlider 异常: 设置了 ConfigKey 但未在 CreateWindow 设置 Folder")
+                    win:Error("缺少Folder Config保存失败")
                     return nil
                 end
                 local sl = {
@@ -2821,6 +3278,7 @@ function Library.CreateWindow(opts)
                     FillColor = sopts.FillColor,
                     Value = sopts.Value,
                     OnChanged = sopts.OnChanged,
+                    ConfigKey = sopts.ConfigKey,
                 }
                 sl.GetValue = function(self4)
                     return self4.Value
@@ -2840,6 +3298,9 @@ function Library.CreateWindow(opts)
                         self4.Value = v
                     end
                     if self4._refresh then self4._refresh(animate ~= false) end
+                    if self4.ConfigKey and win._configFolder then
+                        saveConfigValue(win._configFolder, self4.ConfigKey, self4.Value)
+                    end
                     if type(self4.OnChanged) == "function" then
                         local okC, errC = pcall(self4.OnChanged, self4.Value)
                         if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
@@ -2887,9 +3348,101 @@ function Library.CreateWindow(opts)
                 sl.SetOnChanged = function(self4, fn)
                     if type(fn) == "function" then self4.OnChanged = fn end
                 end
+                if sl.ConfigKey then
+                    sl._cfgGet = function(self4) return self4.Value end
+                    sl._cfgSet = function(self4, v) self4:SetValue(v) end
+                    win._cfgIndex[sl.ConfigKey] = sl
+                end
                 table.insert(self3._sliders, sl)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return sl
+            end
+            st.AddDropdown = function(self3, a, b, c, d2, e)
+                local dopts
+                if type(a) == "table" then
+                    dopts = a
+                else
+                    dopts = { Title = a, Multiple = b, Value = c, DefaultValue = d2, ConfigKey = e }
+                end
+                dopts = dopts or {}
+                local okD, emD = pcall(function()
+                    if type(dopts) ~= "table" then error("AddDropdown 入参不是 table") end
+                    if dopts.Title == nil or type(dopts.Title) ~= "string" or #dopts.Title == 0 then error("AddDropdown Title 非法") end
+                    if dopts.Multiple ~= nil and type(dopts.Multiple) ~= "boolean" then error("AddDropdown Multiple 非法") end
+                    if type(dopts.Value) ~= "table" then error("AddDropdown Value 必须是条目数组") end
+                    if dopts.DefaultValue ~= nil and type(dopts.DefaultValue) ~= "string" and type(dopts.DefaultValue) ~= "table" then error("AddDropdown DefaultValue 非法") end
+                    if dopts.ConfigKey ~= nil and (type(dopts.ConfigKey) ~= "string" or #dopts.ConfigKey == 0) then error("AddDropdown ConfigKey 非法") end
+                end)
+                if not okD then
+                    reportError("AddDropdown 异常: " .. tostring(emD))
+                    win:Error()
+                    return nil
+                end
+                if dopts.ConfigKey ~= nil and not win._configFolder then
+                    reportError("AddDropdown 异常: 设置了 ConfigKey 但未在 CreateWindow 设置 Folder")
+                    win:Error("缺少Folder Config保存失败")
+                    return nil
+                end
+                local options = {}
+                for _, v in ipairs(dopts.Value) do
+                    if type(v) == "string" then options[#options + 1] = v end
+                end
+                local dd = {
+                    Title = dopts.Title,
+                    Multiple = dopts.Multiple == true,
+                    Options = options,
+                    Selected = dopts.DefaultValue,
+                    ConfigKey = dopts.ConfigKey,
+                    OnChanged = dopts.OnChanged,
+                }
+                dd.GetSelected = function(self4) return self4.Selected end
+                dd.GetValue = function(self4) return self4.Selected end
+                dd.SetSelected = function(self4, v)
+                    if self4.Multiple then
+                        self4.Selected = (type(v) == "table") and v or {}
+                    else
+                        self4.Selected = (type(v) == "string" and v) or nil
+                    end
+                    if self4._refreshCapsule then self4._refreshCapsule() end
+                    if self4.ConfigKey and win._configFolder then saveConfigValue(win._configFolder, self4.ConfigKey, self4.Selected) end
+                    if self4._menuScroll then
+                        for _, ob in ipairs(self4._menuScroll:GetChildren()) do
+                            if ob:IsA("TextButton") then
+                                local on
+                                if self4.Multiple then
+                                    on = false
+                                    for _, s in ipairs(self4.Selected) do if s == ob:GetAttribute("OptName") then on = true break end end
+                                else
+                                    on = (self4.Selected == ob:GetAttribute("OptName"))
+                                end
+                                ob.BackgroundColor3 = on and Config.DropdownOptionSelected or Config.DropdownMenuFill
+                            end
+                        end
+                    end
+                    if type(self4.OnChanged) == "function" then
+                        local okC, errC = pcall(self4.OnChanged, self4.Selected)
+                        if not okC then reportError("AddDropdown OnChanged 报错: " .. tostring(errC)) end
+                    end
+                end
+                dd.SetOptions = function(self4, list)
+                    if type(list) == "table" then
+                        self4.Options = {}
+                        for _, v in ipairs(list) do if type(v) == "string" then self4.Options[#self4.Options + 1] = v end end
+                        if self4._refreshCapsule then self4._refreshCapsule() end
+                    end
+                end
+                dd.SetTitle = function(self4, v)
+                    self4.Title = v and tostring(v) or ""
+                    if self4._titleLbl and self4._titleLbl.Parent then self4._titleLbl.Text = self4.Title end
+                end
+                if dd.ConfigKey then
+                    dd._cfgGet = function(self4) return self4.Selected end
+                    dd._cfgSet = function(self4, v) self4:SetSelected(v) end
+                    win._cfgIndex[dd.ConfigKey] = dd
+                end
+                table.insert(self3._dropdowns, dd)
+                if win._rebuildTabs then win._rebuildTabs() end
+                return dd
             end
             table.insert(self2._subtitles, st)
             if win._rebuildTabs then win._rebuildTabs() end
@@ -2899,10 +3452,62 @@ function Library.CreateWindow(opts)
         if self._rebuildTabs then self._rebuildTabs() end
         return tab
     end
-    win.Error = function(self)
+    local function normCfgName(name)
+        name = tostring(name or "")
+        name = name:gsub("%.json$", "")
+        return name
+    end
+    win.MakeConfig = function(self, name)
+        name = normCfgName(name)
+        if not self._configFolder or #name == 0 then
+            reportError("MakeConfig 需要先设置 CreateWindow 的 Folder 并传入有效名称")
+            return false
+        end
+        local data = {}
+        for key, ctrl in pairs(self._cfgIndex) do
+            if ctrl._cfgGet then
+                local ok, v = pcall(ctrl._cfgGet, ctrl)
+                if ok then data[key] = v end
+            end
+        end
+        return writeConfigFile(self._configFolder, name, data)
+    end
+    win.LoadConfig = function(self, name)
+        name = normCfgName(name)
+        if not self._configFolder or #name == 0 then
+            reportError("LoadConfig 需要先设置 CreateWindow 的 Folder 并传入有效名称")
+            return false
+        end
+        local data = loadConfigFile(self._configFolder, name)
+        if next(data) == nil then
+            reportError("LoadConfig 未找到配置或配置为空: " .. name)
+            return false
+        end
+        for key, v in pairs(data) do
+            local ctrl = self._cfgIndex[key]
+            if ctrl and ctrl._cfgSet then pcall(ctrl._cfgSet, ctrl, v) end
+        end
+        return true
+    end
+    win.EditConfig = function(self, name, key, value)
+        name = normCfgName(name)
+        if not self._configFolder or #name == 0 then
+            reportError("EditConfig 需要先设置 CreateWindow 的 Folder 并传入有效名称")
+            return false
+        end
+        local data = loadConfigFile(self._configFolder, name)
+        data[key] = value
+        local ok = writeConfigFile(self._configFolder, name, data)
+        if ok then
+            local ctrl = self._cfgIndex[key]
+            if ctrl and ctrl._cfgSet then pcall(ctrl._cfgSet, ctrl, value) end
+        end
+        return ok
+    end
+    win.Error = function(self, customText)
         if not alive then return end
-        reportError("触发错误销毁动画（格式错误 + 红 X + 爆炸）")
-        task.spawn(playErrorSequence)
+        reportError("触发错误销毁动画（" .. (customText or "格式错误") .. " + 红 X + 爆炸）")
+        task.spawn(playErrorSequence, customText)
     end
     win._closeNow = function(self)
         alive = false
@@ -2952,31 +3557,6 @@ function Library.CreateWindow(opts)
         end
 
         if expanded then
-            if islandTextContainer and islandTextContainer.Parent then
-                for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                    if lb then TweenService:Create(lb, TweenInfo.new(0.2), { TextTransparency = 1 }):Play() end
-                end
-            end
-            local myBrand = Instance.new("TextLabel")
-            myBrand.Name = "IslandActionBrand"
-            myBrand.BackgroundTransparency = 1
-            myBrand.AnchorPoint = Vector2.new(0, 0.5)
-            myBrand.Position = UDim2.new(0, win._titleLeftX or (Config.PanelMargin + Config.HeaderPad), 0, win._titleY or (Config.IslandPosition.Y.Offset + Config.HeaderPad + Config.IslandSize.Y.Offset / 2))
-            myBrand.Size = UDim2.new(0, 400, 0, Config.IslandSize.Y.Offset)
-            myBrand.Text = Config.IslandText
-            myBrand.TextColor3 = Config.TitleColor
-            myBrand.TextSize = Config.IslandTextSize
-            myBrand.Font = Enum.Font.FredokaOne
-            myBrand.TextXAlignment = Enum.TextXAlignment.Left
-            myBrand.TextTransparency = 1
-            myBrand.ZIndex = 60
-            myBrand.Parent = screenGui
-            brandLbl = myBrand
-            task.delay(0.2, function()
-                if myGen ~= actionGen then return end
-                if myBrand and myBrand.Parent then TweenService:Create(myBrand, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
-            end)
             local H = Config.IslandSize.Y.Offset
             local cy = Config.IslandPosition.Y.Scale * screenGui.AbsoluteSize.Y + Config.IslandPosition.Y.Offset + H / 2 + Config.NotifyDrop
             local pad = 20
@@ -3030,17 +3610,7 @@ function Library.CreateWindow(opts)
                 TweenService:Create(clbl, TweenInfo.new(et, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
                 TweenService:Create(cap, TweenInfo.new(et, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Size = UDim2.new(0, H, 0, H) }):Play()
                 task.delay(et + 0.03, function() if cap and cap.Parent then cap:Destroy() end end)
-                if myBrand and myBrand.Parent then
-                    TweenService:Create(myBrand, TweenInfo.new(et, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
-                    task.delay(et + 0.03, function() if myBrand and myBrand.Parent then myBrand:Destroy() end end)
-                end
                 if myGen == actionGen then
-                    if islandTextContainer and islandTextContainer.Parent then
-                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                            local lb = cf:FindFirstChildOfClass("TextLabel")
-                            if lb then TweenService:Create(lb, TweenInfo.new(et), { TextTransparency = 0 }):Play() end
-                        end
-                    end
                     actionBusy = false
                 end
             end
