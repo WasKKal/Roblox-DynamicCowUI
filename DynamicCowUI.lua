@@ -86,6 +86,9 @@ local Config = {
     HintExtendPad = 36,
 
     HintHoldTime = 1.5,
+    -- 连点三次触发提示动画后的点击冷却：
+    -- 冷却期内屏蔽「点击类」交互（再次连点触发提示），但长按展开 UI 不受影响。
+    HintClickCooldown = 2,
     HintRevealStep = 0.04,
     HintRevealTime = 0.3,
     HintSlideInDistance = 26,
@@ -1759,11 +1762,27 @@ function Library.CreateWindow(a, ...)
                 local hintBaseSize = nil
                 local hintBaseAnchor = nil
                 local hintBasePos = nil
+                -- 连点触发提示后的点击冷却：hintCooldownUntil 之前不接受点击类交互。
+                -- 只拦 registerIslandTap，不拦 edge.InputBegan 的长按展开分支。
+                local hintCooldownUntil = 0
+                local hintCooldownTmr = nil
                 local islandRest = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
 
                 local function safeCancelTimer(handle)
                     if not handle then return end
                     pcall(task.cancel, handle)
+                end
+
+                local function startHintClickCooldown()
+                    safeCancelTimer(hintCooldownTmr)
+                    hintCooldownUntil = os.clock() + Config.HintClickCooldown
+                    hintCooldownTmr = task.delay(Config.HintClickCooldown, function()
+                        hintCooldownTmr = nil
+                        hintCooldownUntil = 0
+                    end)
+                end
+                local function inHintClickCooldown()
+                    return hintCooldownUntil > 0 and os.clock() < hintCooldownUntil
                 end
                 local function clearHint(skipRestore)
                     safeCancelTimer(tapWindowTmr) tapWindowTmr = nil
@@ -1792,6 +1811,10 @@ function Library.CreateWindow(a, ...)
                                 if basePos then edge.Position = basePos end
                                 -- 还原完成后才解除 hint 占用，避免连点重入时还原补间互相争抢导致灵动岛偏移
                                 hintActive = false
+                                -- 提示动画彻底播完（滑出 + 回位均已结束）后才开始点击冷却，
+                                -- 这样「等 2 秒」是从动画结束点起算，而不是与动画时长互相挤占。
+                                -- 冷却只拦点击类交互（registerIslandTap），长按展开 UI 不受影响。
+                                startHintClickCooldown()
                             end)
                         end)
                     else
@@ -1889,6 +1912,8 @@ function Library.CreateWindow(a, ...)
                 end
                 local function registerIslandTap()
                     if hintActive or expanded or not alive or not ready then return end
+                    -- 点击冷却中：吞掉本次连点，不累加 tapCount，避免提示动画被立刻重新触发
+                    if inHintClickCooldown() then return end
                     tapCount = tapCount + 1
                     if tapWindowTmr then safeCancel(tapWindowTmr) end
                     tapWindowTmr = task.delay(Config.TapWindow, function()
