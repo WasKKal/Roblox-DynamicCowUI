@@ -2884,10 +2884,12 @@ function Library.CreateWindow(a, ...)
                     if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+                    local collapseFinished = false
                     animateEdge(Config.IslandSize, Config.IslandPosition, Config.PanelExpandTime, Config.PanelBounce, function()
                         edge.AnchorPoint = Vector2.new(0.5, 0.5)
                         edge.Position = UDim2.new(0.5, cx, 0, cy)
                         winOpen = false
+                        collapseFinished = true
                     end)
                     TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                         Position = UDim2.new(Config.IslandPosition.X.Scale, cx, Config.IslandPosition.Y.Scale, cy),
@@ -2907,7 +2909,13 @@ function Library.CreateWindow(a, ...)
                     if skipToggleAnim then
                         lastToggleInfo = nil
                     elseif playToggleStateAnimation then
-                        task.delay(0.05, function()
+                        -- 等收起动画播完再播开关状态动画，避免两者重叠打架
+                        task.spawn(function()
+                            local waited = 0
+                            while not collapseFinished and alive and waited < 2 do
+                                task.wait(0.02)
+                                waited = waited + 0.02
+                            end
                             if not alive or shutdown then lastToggleInfo = nil return end
                             playToggleStateAnimation()
                         end)
@@ -3168,6 +3176,20 @@ function Library.CreateWindow(a, ...)
                     local revealList, fadeList = {}, {}
 
                     if iconW > 0 then
+                        local iconImg, iconRectOff, iconRectSize = nil, nil, nil
+                        if iconW > 0 then
+                            task.spawn(function()
+                                local lucide = loadLucide()
+                                if not lucide then return end
+                                local okA, asset = pcall(lucide.GetAsset, info.Icon)
+                                if okA and asset and asset.Url then
+                                    iconImg = asset.Url
+                                    iconRectOff = asset.ImageRectOffset
+                                    iconRectSize = asset.ImageRectSize
+                                end
+                            end)
+                        end
+
                         local ic = Instance.new("ImageLabel")
                         ic.Name = "ToggleStateIcon"
                         ic.BackgroundTransparency = 1
@@ -3178,19 +3200,14 @@ function Library.CreateWindow(a, ...)
                         ic.LayoutOrder = 1
                         ic.ZIndex = 57
                         ic.Parent = hc
+                        if iconImg then
+                            ic.Image = iconImg
+                            if iconRectOff then ic.ImageRectOffset = iconRectOff ic.ImageRectSize = iconRectSize end
+                        end
 
-                        table.insert(revealList, { obj = ic, dist = 99 })
+                        -- 图标资源就绪后才淡入，避免出现空白图标
+                        table.insert(revealList, { obj = ic, dist = 0, waitImg = true })
                         table.insert(fadeList, { obj = ic, dist = 0 })
-                        task.spawn(function()
-                            local lucide = loadLucide()
-                            if not lucide then return end
-                            local okA, asset = pcall(lucide.GetAsset, info.Icon)
-                            if okA and asset and asset.Url then
-                                if not ic or not ic.Parent then return end
-                                ic.Image = asset.Url
-                                if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
-                            end
-                        end)
                     end
 
                     do
@@ -3232,6 +3249,16 @@ function Library.CreateWindow(a, ...)
                         local md = math.max(e.dist, 0.001)
                         task.delay(md * step, function()
                             if not e.obj or not e.obj.Parent then return end
+                            if e.waitImg then
+                                -- 等图标资源就绪再淡入，最多等 0.8 秒
+                                local waited = 0
+                                while e.obj.Parent and e.obj.Image == "" and waited < 0.8 do
+                                    task.wait(0.05)
+                                    waited = waited + 0.05
+                                end
+                                if not e.obj or not e.obj.Parent then return end
+                                if e.obj.Image == "" then return end
+                            end
                             if isText then
                                 TweenService:Create(e.obj, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
                             else
@@ -3263,17 +3290,38 @@ function Library.CreateWindow(a, ...)
                         local totalFade = #fadeList * step + fadeT + 0.1
                         task.delay(totalFade, function()
                             if not alive then return end
-                            if toggleAnimBusy and toggleAnimContainer == hc then
-                                toggleAnimBusy = false
-                                toggleAnimContainer = nil
-                            end
                             if hc and hc.Parent then hc:Destroy() end
 
                             setIslandText(islandTextOverride or title, Config.TitleColor)
                             if islandTextContainer and islandTextContainer.Parent then
+                                -- 标题渐显：先全透明，再由中心向两侧逐字浮现
+                                local restoreChars = {}
                                 for _, cf in ipairs(islandTextContainer:GetChildren()) do
                                     local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then TweenService:Create(lb, TweenInfo.new(Config.ToggleIslandRestoreTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                                    if lb then
+                                        lb.TextTransparency = 1
+                                        restoreChars[#restoreChars + 1] = lb
+                                    end
+                                end
+                                local rc = #restoreChars
+                                for i, lb in ipairs(restoreChars) do
+                                    local dist = math.abs(i - (rc + 1) / 2)
+                                    task.delay(dist * step, function()
+                                        if not lb or not lb.Parent then return end
+                                        TweenService:Create(lb, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                                    end)
+                                end
+                                -- 标题渐显完成后再释放忙碌锁，避免下一次交互被吞
+                                task.delay(rc * step + revealT, function()
+                                    if toggleAnimBusy and toggleAnimContainer == hc then
+                                        toggleAnimBusy = false
+                                        toggleAnimContainer = nil
+                                    end
+                                end)
+                            else
+                                if toggleAnimBusy and toggleAnimContainer == hc then
+                                    toggleAnimBusy = false
+                                    toggleAnimContainer = nil
                                 end
                             end
                         end)
