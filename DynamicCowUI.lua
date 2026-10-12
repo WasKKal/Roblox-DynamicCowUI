@@ -1694,11 +1694,15 @@ function Library.CreateWindow(a, ...)
                     safeCancelTimer(hintTmr) hintTmr = nil
                     if hintContainer and hintContainer.Parent then hintContainer:Destroy() end
                     hintContainer = nil
-                    if not skipRestore and hintActive and edge and edge.Parent and hintBaseSize and not expanded then
+                    -- 捕获本轮还原所需的基准值到局部，避免被后续重入的 clearHint 置空后误用
+                    local baseSize = hintBaseSize
+                    local baseAnchor = hintBaseAnchor
+                    local basePos = hintBasePos
+                    if not skipRestore and hintActive and edge and edge.Parent and baseSize and not expanded then
                         local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                         local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
                         edgeTween(TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                            Size = hintBaseSize,
+                            Size = baseSize,
                             Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideOutDistance),
                         })
                         task.delay(Config.HintSlideTime, function()
@@ -1708,15 +1712,18 @@ function Library.CreateWindow(a, ...)
                             })
                             task.delay(0.16, function()
                                 if not edge or not edge.Parent then return end
-                                if hintBaseAnchor then edge.AnchorPoint = hintBaseAnchor end
-                                if hintBasePos then edge.Position = hintBasePos end
+                                if baseAnchor then edge.AnchorPoint = baseAnchor end
+                                if basePos then edge.Position = basePos end
+                                -- 还原完成后才解除 hint 占用，避免连点重入时还原补间互相争抢导致灵动岛偏移
+                                hintActive = false
                             end)
                         end)
+                    else
+                        hintActive = false
                     end
                     hintBaseSize = nil
                     hintBaseAnchor = nil
                     hintBasePos = nil
-                    hintActive = false
                     if not skipRestore and islandTextContainer and islandTextContainer.Parent then
                         for _, cf in ipairs(islandTextContainer:GetChildren()) do
                             local lb = cf:FindFirstChildOfClass("TextLabel")
@@ -2957,6 +2964,378 @@ function Library.CreateWindow(a, ...)
                     end
                 end
 
+                local lastPanelLayout = nil
+
+                local function buildTabUI(layout)
+                                local titlePad = layout.titlePad
+                                local blockH = layout.blockH
+                                local m = layout.m
+                                local top = layout.top
+                                local sh = layout.sh
+                                destroyTabUI()
+                                local divY = titlePad + blockH + Config.HeaderDividerGap
+                                local div = Instance.new("Frame")
+                                div.Name = "HeaderDivider"
+                                div.Size = UDim2.new(1, -(titlePad * 2), 0, 1)
+                                div.Position = UDim2.new(0, titlePad, 0, divY)
+                                div.BackgroundColor3 = Config.DividerColor
+                                div.BorderSizePixel = 0
+                                div.ZIndex = 2
+                                div.Parent = contentRoot
+                                headerDivider = div
+                                local listTop = divY + Config.HeaderDividerGap
+                                local listW = Config.TabWidth
+                                if #win._tabs > 0 then
+                                    local listFrame = Instance.new("Frame")
+                                    listFrame.Name = "TabList"
+                                    listFrame.BackgroundTransparency = 1
+                                    listFrame.Position = UDim2.new(0, titlePad, 0, listTop)
+                                    listFrame.Size = UDim2.new(0, listW, 1, -(listTop + m))
+                                    listFrame.ZIndex = 2
+                                    listFrame.Parent = contentRoot
+                                    tabListContainer = listFrame
+                                    local sep = Instance.new("Frame")
+                                    sep.Name = "TabSeparator"
+                                    sep.Size = UDim2.new(0, 1, 1, -(listTop + m))
+                                    sep.Position = UDim2.new(0, titlePad + listW + Config.TabAreaGap / 2, 0, listTop)
+                                    sep.BackgroundColor3 = Config.DividerColor
+                                    sep.BorderSizePixel = 0
+                                    sep.ZIndex = 2
+                                    sep.Parent = contentRoot
+                                    tabSeparator = sep
+                                    local contentX = titlePad + listW + Config.TabAreaGap
+                                    local contentFrame = Instance.new("CanvasGroup")
+                                    contentFrame.Name = "TabContent"
+                                    contentFrame.BackgroundTransparency = 1
+                                    contentFrame.Position = UDim2.new(0, contentX, 0, listTop)
+
+                                    contentFrame.Size = UDim2.new(1, -(contentX + titlePad), 1, -listTop)
+                                    contentFrame.ClipsDescendants = true
+                                    contentFrame.ZIndex = 2
+                                    contentFrame.Parent = contentRoot
+                                    tabContentContainer = contentFrame
+                                    tabContentBase = contentFrame.Position
+                                    local function makeStateGroup(iconName, text)
+                                        local g = Instance.new("Frame")
+                                        g.Name = "StateGroup"
+                                        g.BackgroundTransparency = 1
+                                        g.AnchorPoint = Vector2.new(0.5, 0.5)
+                                        g.Position = UDim2.new(0.5, 0, 0.5, 0)
+                                        g.Size = UDim2.fromOffset(220, 130)
+                                        g.ZIndex = 3
+                                        g.Parent = contentFrame
+                                        local ic = Instance.new("ImageLabel")
+                                        ic.Name = "StateIcon"
+                                        ic.Size = UDim2.fromOffset(Config.ContentEmptyIconSize, Config.ContentEmptyIconSize)
+                                        ic.AnchorPoint = Vector2.new(0.5, 0)
+                                        ic.Position = UDim2.new(0.5, 0, 0, 0)
+                                        ic.BackgroundTransparency = 1
+                                        ic.ImageColor3 = Config.TabInactiveColor
+                                        ic.ScaleType = Enum.ScaleType.Fit
+                                        ic.ZIndex = 3
+                                        ic.Parent = g
+                                        local tx = Instance.new("TextLabel")
+                                        tx.Name = "StateText"
+                                        tx.AnchorPoint = Vector2.new(0.5, 0)
+                                        tx.Position = UDim2.new(0.5, 0, 0, Config.ContentEmptyIconSize + 14)
+                                        tx.Size = UDim2.new(1, 0, 0, 24)
+                                        tx.BackgroundTransparency = 1
+                                        tx.Text = text
+                                        tx.TextColor3 = Config.TabInactiveColor
+                                        tx.TextSize = Config.TabTextSize
+                                        tx.Font = Enum.Font.Gotham
+                                        tx.TextXAlignment = Enum.TextXAlignment.Center
+                                        tx.TextYAlignment = Enum.TextYAlignment.Center
+                                        tx.ZIndex = 3
+                                        tx.Parent = g
+                                        task.spawn(function()
+                                            local lucide = loadLucide()
+                                            if lucide then
+                                                local okE, asset = pcall(lucide.GetAsset, iconName)
+                                                if okE and asset and asset.Url then
+                                                    ic.Image = asset.Url
+                                                    if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                                end
+                                            end
+                                        end)
+                                        return g
+                                    end
+                                    tabContentEmpty = makeStateGroup(Config.ContentEmptyIcon, Config.ContentEmptyText)
+                                    tabContentNoCtrl = makeStateGroup(Config.ContentNoCtrlIcon, Config.ContentNoCtrlText)
+                                    local scroll = Instance.new("ScrollingFrame")
+                                    scroll.Name = "TabScroll"
+                                    scroll.BackgroundTransparency = 1
+                                    scroll.BorderSizePixel = 0
+                                    scroll.Size = UDim2.new(1, 0, 1, 0)
+                                    scroll.Position = UDim2.new(0, 0, 0, 0)
+                                    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+                                    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+                                    scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+                                    scroll.ScrollingEnabled = true
+                                    scroll.ScrollBarThickness = Config.ContentScrollBarThickness
+                                    scroll.ScrollBarImageTransparency = Config.ContentScrollBarTransparency
+                                    scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+                                    scroll.ClipsDescendants = true
+                                    scroll.ZIndex = 2
+                                    scroll.Parent = contentFrame
+                                    local subList = Instance.new("Frame")
+                                    subList.Name = "TabSubtitleList"
+                                    subList.BackgroundTransparency = 1
+                                    subList.Size = UDim2.new(1, 0, 0, 0)
+                                    subList.AutomaticSize = Enum.AutomaticSize.Y
+                                    subList.ZIndex = 2
+                                    subList.Parent = scroll
+                                    local subListLayout = Instance.new("UIListLayout")
+                                    subListLayout.FillDirection = Enum.FillDirection.Vertical
+                                    subListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+                                    subListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+                                    subListLayout.Padding = UDim.new(0, Config.SubTitleBlockGap)
+                                    subListLayout.Parent = subList
+                                    local subListPad = Instance.new("UIPadding")
+                                    subListPad.PaddingRight = UDim.new(0, Config.ContentScrollBarThickness + 2)
+                                    subListPad.Parent = subList
+                                    tabSubtitleList = subList
+                                    for i, tab in ipairs(win._tabs) do
+                                        local row = Instance.new("TextButton")
+                                        row.Name = "TabRow"
+                                        row.Size = UDim2.new(1, 0, 0, Config.TabRowHeight)
+                                        row.Position = UDim2.new(0, 0, 0, (i - 1) * (Config.TabRowHeight + Config.TabRowGap))
+                                        row.BackgroundTransparency = 1
+                                        row.Text = ""
+                                        row.AutoButtonColor = false
+                                        row.LayoutOrder = i
+                                        row.ZIndex = 3
+                                        row.Parent = listFrame
+                                        local sel = Instance.new("Frame")
+                                        sel.Name = "TabSel"
+                                        sel.Size = UDim2.new(1, 0, 1, 0)
+                                        sel.Position = UDim2.new(0, 0, 0, 0)
+                                        sel.BackgroundColor3 = Config.TabSelFill
+                                        sel.BackgroundTransparency = Config.TabSelFillTransparency
+                                        sel.BorderSizePixel = 0
+                                        sel.Visible = false
+                                        sel.ZIndex = 2
+                                        sel.Parent = row
+                                        local selCorner = Instance.new("UICorner")
+                                        selCorner.CornerRadius = Config.TabSelCorner
+                                        selCorner.Parent = sel
+                                        local selStroke = Instance.new("UIStroke")
+                                        selStroke.Color = Config.TabSelStroke
+                                        selStroke.Thickness = Config.TabSelStrokeThickness
+                                        selStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                                        selStroke.Parent = sel
+                                        local selGrad = Instance.new("UIGradient")
+                                        selGrad.Rotation = 135
+                                        selGrad.Color = ColorSequence.new({
+                                            ColorSequenceKeypoint.new(0, Color3.fromRGB(104, 106, 118)),
+                                            ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 28, 34)),
+                                        })
+                                        selGrad.Parent = sel
+                                        local hasIcon = (tab.Icon ~= nil and tab.Icon ~= "")
+                                        local ticon = nil
+                                        if hasIcon then
+                                            ticon = Instance.new("ImageLabel")
+                                            ticon.Name = "TabIcon"
+                                            ticon.Size = UDim2.fromOffset(Config.TabIconSize, Config.TabIconSize)
+                                            ticon.Position = UDim2.new(0, Config.TabRowPadX, 0.5, 0)
+                                            ticon.AnchorPoint = Vector2.new(0, 0.5)
+                                            ticon.BackgroundTransparency = 1
+                                            ticon.ImageColor3 = tab.IconColor or Config.TabInactiveColor
+                                            ticon.ImageTransparency = 1
+                                            ticon.ZIndex = 3
+                                            ticon.Parent = row
+                                        end
+                                        local tname = Instance.new("TextLabel")
+                                        tname.Name = "TabName"
+                                        tname.BackgroundTransparency = 1
+                                        tname.Text = tab.Title
+                                        tname.TextColor3 = Config.TabInactiveColor
+                                        tname.TextSize = Config.TabTextSize
+                                        tname.Font = Enum.Font.Gotham
+                                        tname.TextYAlignment = Enum.TextYAlignment.Center
+                                        tname.TextTransparency = 1
+                                        tname.ZIndex = 3
+                                        if hasIcon then
+                                            tname.Size = UDim2.new(1, -(Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap), 1, 0)
+                                            tname.Position = UDim2.new(0, Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap, 0, 0)
+                                            tname.TextXAlignment = Enum.TextXAlignment.Left
+                                        else
+                                            tname.Size = UDim2.new(1, -(Config.TabRowPadX * 2), 1, 0)
+                                            tname.Position = UDim2.new(0, Config.TabRowPadX, 0, 0)
+                                            tname.TextXAlignment = Enum.TextXAlignment.Left
+                                        end
+                                        tname.Parent = row
+                                        task.delay(Config.PanelExpandTime + (i - 1) * Config.TabStagger, function()
+                                            if not expanded then return end
+                                            if ticon and ticon.Parent then TweenService:Create(ticon, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play() end
+                                            if tname and tname.Parent then TweenService:Create(tname, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                                        end)
+                                        row.MouseButton1Click:Connect(function()
+                                            if shutdown then return end
+                                            win._activeTab = i
+                                            updateTabsHighlight()
+                                            updateContentArea()
+                                            animateContentIn()
+                                        end)
+                                        if hasIcon then
+                                            task.spawn(function()
+                                                local lucide = loadLucide()
+                                                if lucide then
+                                                    local okA, asset = pcall(lucide.GetAsset, tab.Icon)
+                                                    if okA and asset and asset.Url then
+                                                        ticon.Image = asset.Url
+                                                        if asset.ImageRectOffset then ticon.ImageRectOffset = asset.ImageRectOffset ticon.ImageRectSize = asset.ImageRectSize end
+                                                    end
+                                                end
+                                            end)
+                                        end
+                                    end
+                                    updateTabsHighlight()
+                                    updateContentArea()
+                                else
+                                    local msg = "还没有任何选项卡"
+                                    local parts = {}
+                                    for _, cp in utf8.codes(msg) do parts[#parts + 1] = utf8.char(cp) end
+                                    local lbl = Instance.new("TextLabel")
+                                    lbl.Name = "TabEmpty"
+                                    lbl.BackgroundTransparency = 1
+                                    lbl.AnchorPoint = Vector2.new(0.5, 0.5)
+                                    lbl.Size = UDim2.fromOffset(listW, 0)
+                                    lbl.AutomaticSize = Enum.AutomaticSize.Y
+                                    lbl.Position = UDim2.new(0, titlePad + listW / 2, 0, (listTop + (sh - top - m)) / 2)
+                                    lbl.Text = table.concat(parts, "\n")
+                                    lbl.TextColor3 = Config.TabInactiveColor
+                                    lbl.TextSize = Config.TabTextSize
+                                    lbl.Font = Enum.Font.Gotham
+                                    lbl.TextXAlignment = Enum.TextXAlignment.Center
+                                    lbl.TextYAlignment = Enum.TextYAlignment.Center
+                                    lbl.ZIndex = 2
+                                    lbl.Parent = contentRoot
+                                    tabEmptyLabel = lbl
+                                end
+                end
+
+                local function buildCloseButton(onHoldConfirm)
+                            local btn = Instance.new("ImageButton")
+                            btn.Name = "PanelClose"
+                            btn.Size = UDim2.new(0, 20, 0, 20)
+                            btn.Position = UDim2.new(1, -26, 0, 6)
+                            btn.BackgroundTransparency = 1
+                            btn.ScaleType = Enum.ScaleType.Fit
+                            btn.ImageColor3 = Color3.new(1, 1, 1)
+                            btn.Parent = contentRoot
+                            local closeHold = nil
+                            btn.InputBegan:Connect(function(bi)
+                                if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
+                                    if shutdown then return end
+                                    TweenService:Create(btn, TweenInfo.new(Config.CloseHoldTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Config.RedXColor }):Play()
+                                    if closeHold then safeCancel(closeHold) end
+                                    closeHold = task.delay(Config.CloseHoldTime, function()
+                                        closeHold = nil
+                                        if onHoldConfirm then onHoldConfirm() end
+                                    end)
+                                end
+                            end)
+                            btn.InputEnded:Connect(function(bi)
+                                if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
+                                    TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Color3.new(1, 1, 1) }):Play()
+                                    if closeHold then
+                                        safeCancel(closeHold)
+                                        closeHold = nil
+                                        collapsePanel()
+                                    end
+                                end
+                            end)
+                            task.spawn(function()
+                                local lucide = loadLucide()
+                                if lucide then
+                                    local ok, icon = pcall(lucide.GetAsset, "circle-x")
+                                    if ok and icon and icon.Url then
+                                        btn.Image = icon.Url
+                                        if icon.ImageRectOffset then btn.ImageRectOffset = icon.ImageRectOffset btn.ImageRectSize = icon.ImageRectSize end
+                                    end
+                                end
+                            end)
+                            closeBtn = btn
+                end
+
+                local function buildHeaderDecor()
+                    if not lastPanelLayout then return end
+                    if titleIcon then titleIcon:Destroy() end
+                    local iconS = Config.TitleIconSize
+                    local iconGap = Config.TitleIconGap
+                    local titleH = (islandTextContainer and islandTextContainer.Parent) and islandTextContainer.AbsoluteSize.Y or Config.TitleIconSize
+                    local infoH = Config.InfoBoxHeight
+                    local vGap = Config.InfoTopGap
+                    local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
+                    local top = lastPanelLayout.top
+                    local titlePad = lastPanelLayout.titlePad
+                    local m = lastPanelLayout.m
+                    local blockTop = top + titlePad
+                    local blockCY = blockTop + blockH / 2
+                    local iconLeft = m + titlePad + Config.TitleIconNudgeX
+                    local contentLeftX = iconLeft + iconS + iconGap
+                    local infoTop = blockTop + titleH + vGap - Config.InfoRise
+                    local ic = Instance.new("ImageLabel")
+                    ic.Name = "TitleIcon"
+                    ic.Size = UDim2.fromOffset(iconS, iconS)
+                    ic.AnchorPoint = Vector2.new(0.5, 0.5)
+                    ic.BackgroundTransparency = 1
+                    ic.ImageTransparency = 1
+                    ic.ImageColor3 = iconColor
+                    ic.ScaleType = Enum.ScaleType.Fit
+                    ic.Position = UDim2.new(0, iconLeft + iconS / 2, 0, blockCY)
+                    ic.Parent = screenGui
+                    titleIcon = ic
+                    if iconFromURL then
+                        ic.ScaleType = Enum.ScaleType.Crop
+                        if not iconColorSet then ic.ImageColor3 = Color3.new(1, 1, 1) end
+                    end
+                    task.spawn(function()
+                        local applied = false
+                        if iconFromURL then
+                            local assetId = loadIconFromURL(iconFromURL)
+                            if assetId then ic.Image = assetId applied = true end
+                        end
+                        if not applied then
+                            local lucide = loadLucide()
+                            if lucide then
+                                local ok, asset = pcall(lucide.GetAsset, iconName)
+                                if ok and asset and asset.Url then
+                                    ic.Image = asset.Url
+                                    if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                end
+                            end
+                        end
+                        task.delay(Config.PanelExpandTime, function()
+                            if ic and ic.Parent then
+                                TweenService:Create(ic, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+                            end
+                        end)
+                    end)
+                    if info ~= "" then
+                        if infoLabel then infoLabel:Destroy() end
+                        local il = Instance.new("TextLabel")
+                        il.Name = "InfoLabel"
+                        il.Size = UDim2.new(1, -(contentLeftX + titlePad), 0, infoH)
+                        il.AutomaticSize = Enum.AutomaticSize.Y
+                        il.AnchorPoint = Vector2.new(0, 0)
+                        il.BackgroundTransparency = 1
+                        il.BorderSizePixel = 0
+                        il.Text = info
+                        il.TextColor3 = Config.InfoColor
+                        il.TextTransparency = 1
+                        il.TextSize = Config.InfoTextSize
+                        il.Font = Enum.Font.Gotham
+                        il.TextWrapped = true
+                        il.TextXAlignment = Enum.TextXAlignment.Left
+                        il.TextYAlignment = Enum.TextYAlignment.Top
+                        il.Position = UDim2.new(0, contentLeftX + 40, 0, infoTop)
+                        il.Parent = screenGui
+                        infoLabel = il
+                    end
+                end
+
                 local iconTextBusy = false
                 local function playIconTextAnimation(text, iconName, iconColor)
                     if not alive or not ready or shutdown then return end
@@ -3106,6 +3485,11 @@ function Library.CreateWindow(a, ...)
                                     Config.PanelExpandTime
                                 )
                                 playBorderSweep()
+                                if lastPanelLayout then
+                                    buildTabUI(lastPanelLayout)
+                                    buildCloseButton()
+                                    buildHeaderDecor()
+                                end
                                 task.delay(Config.PanelExpandTime, function() winOpen = true end)
                                 local rcList = islandTextContainer:FindFirstChildOfClass("UIListLayout")
                                 if rcList then rcList.HorizontalAlignment = Enum.HorizontalAlignment.Left end
@@ -3499,352 +3883,11 @@ if hintActive then clearHint(true) end
                                     end
                                 end)
                             end)
-                            if titleIcon then titleIcon:Destroy() end
-                            local ic = Instance.new("ImageLabel")
-                            ic.Name = "TitleIcon"
-                            ic.Size = UDim2.fromOffset(iconS, iconS)
-                            ic.AnchorPoint = Vector2.new(0.5, 0.5)
-                            ic.BackgroundTransparency = 1
-                            ic.ImageTransparency = 1
-                            ic.ImageColor3 = iconColor
-                            ic.ScaleType = Enum.ScaleType.Fit
-                            ic.Position = UDim2.new(0, iconLeft + iconS / 2, 0, blockCY)
-                            ic.Parent = screenGui
-                            titleIcon = ic
-                            if iconFromURL then
-                                ic.ScaleType = Enum.ScaleType.Crop
-                                if not iconColorSet then ic.ImageColor3 = Color3.new(1, 1, 1) end
-                            end
-                            task.spawn(function()
-                                local applied = false
-                                if iconFromURL then
-                                    local assetId = loadIconFromURL(iconFromURL)
-                                    if assetId then ic.Image = assetId applied = true end
-                                end
-                                if not applied then
-                                    local lucide = loadLucide()
-                                    if lucide then
-                                        local ok, asset = pcall(lucide.GetAsset, iconName)
-                                        if ok and asset and asset.Url then
-                                            ic.Image = asset.Url
-                                            if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
-                                        end
-                                    end
-                                end
-                                task.delay(Config.PanelExpandTime, function()
-                                    if ic and ic.Parent then
-                                        TweenService:Create(ic, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
-                                    end
-                                end)
-                            end)
-                            if info ~= "" then
-                                if infoLabel then infoLabel:Destroy() end
-                                local il = Instance.new("TextLabel")
-                                il.Name = "InfoLabel"
-                                il.Size = UDim2.new(1, -(contentLeftX + titlePad), 0, infoH)
-                                il.AutomaticSize = Enum.AutomaticSize.Y
-                                il.AnchorPoint = Vector2.new(0, 0)
-                                il.BackgroundTransparency = 1
-                                il.BorderSizePixel = 0
-                                il.Text = info
-                                il.TextColor3 = Config.InfoColor
-                                il.TextTransparency = 1
-                                il.TextSize = Config.InfoTextSize
-                                il.Font = Enum.Font.Gotham
-                                il.TextWrapped = true
-                                il.TextXAlignment = Enum.TextXAlignment.Left
-                                il.TextYAlignment = Enum.TextYAlignment.Top
-                                il.Position = UDim2.new(0, contentLeftX + 40, 0, infoTop)
-                                il.Parent = screenGui
-                                infoLabel = il
-                            end
-                            local function buildTabUI()
-                                destroyTabUI()
-                                local divY = titlePad + blockH + Config.HeaderDividerGap
-                                local div = Instance.new("Frame")
-                                div.Name = "HeaderDivider"
-                                div.Size = UDim2.new(1, -(titlePad * 2), 0, 1)
-                                div.Position = UDim2.new(0, titlePad, 0, divY)
-                                div.BackgroundColor3 = Config.DividerColor
-                                div.BorderSizePixel = 0
-                                div.ZIndex = 2
-                                div.Parent = contentRoot
-                                headerDivider = div
-                                local listTop = divY + Config.HeaderDividerGap
-                                local listW = Config.TabWidth
-                                if #win._tabs > 0 then
-                                    local listFrame = Instance.new("Frame")
-                                    listFrame.Name = "TabList"
-                                    listFrame.BackgroundTransparency = 1
-                                    listFrame.Position = UDim2.new(0, titlePad, 0, listTop)
-                                    listFrame.Size = UDim2.new(0, listW, 1, -(listTop + m))
-                                    listFrame.ZIndex = 2
-                                    listFrame.Parent = contentRoot
-                                    tabListContainer = listFrame
-                                    local sep = Instance.new("Frame")
-                                    sep.Name = "TabSeparator"
-                                    sep.Size = UDim2.new(0, 1, 1, -(listTop + m))
-                                    sep.Position = UDim2.new(0, titlePad + listW + Config.TabAreaGap / 2, 0, listTop)
-                                    sep.BackgroundColor3 = Config.DividerColor
-                                    sep.BorderSizePixel = 0
-                                    sep.ZIndex = 2
-                                    sep.Parent = contentRoot
-                                    tabSeparator = sep
-                                    local contentX = titlePad + listW + Config.TabAreaGap
-                                    local contentFrame = Instance.new("CanvasGroup")
-                                    contentFrame.Name = "TabContent"
-                                    contentFrame.BackgroundTransparency = 1
-                                    contentFrame.Position = UDim2.new(0, contentX, 0, listTop)
-
-                                    contentFrame.Size = UDim2.new(1, -(contentX + titlePad), 1, -listTop)
-                                    contentFrame.ClipsDescendants = true
-                                    contentFrame.ZIndex = 2
-                                    contentFrame.Parent = contentRoot
-                                    tabContentContainer = contentFrame
-                                    tabContentBase = contentFrame.Position
-                                    local function makeStateGroup(iconName, text)
-                                        local g = Instance.new("Frame")
-                                        g.Name = "StateGroup"
-                                        g.BackgroundTransparency = 1
-                                        g.AnchorPoint = Vector2.new(0.5, 0.5)
-                                        g.Position = UDim2.new(0.5, 0, 0.5, 0)
-                                        g.Size = UDim2.fromOffset(220, 130)
-                                        g.ZIndex = 3
-                                        g.Parent = contentFrame
-                                        local ic = Instance.new("ImageLabel")
-                                        ic.Name = "StateIcon"
-                                        ic.Size = UDim2.fromOffset(Config.ContentEmptyIconSize, Config.ContentEmptyIconSize)
-                                        ic.AnchorPoint = Vector2.new(0.5, 0)
-                                        ic.Position = UDim2.new(0.5, 0, 0, 0)
-                                        ic.BackgroundTransparency = 1
-                                        ic.ImageColor3 = Config.TabInactiveColor
-                                        ic.ScaleType = Enum.ScaleType.Fit
-                                        ic.ZIndex = 3
-                                        ic.Parent = g
-                                        local tx = Instance.new("TextLabel")
-                                        tx.Name = "StateText"
-                                        tx.AnchorPoint = Vector2.new(0.5, 0)
-                                        tx.Position = UDim2.new(0.5, 0, 0, Config.ContentEmptyIconSize + 14)
-                                        tx.Size = UDim2.new(1, 0, 0, 24)
-                                        tx.BackgroundTransparency = 1
-                                        tx.Text = text
-                                        tx.TextColor3 = Config.TabInactiveColor
-                                        tx.TextSize = Config.TabTextSize
-                                        tx.Font = Enum.Font.Gotham
-                                        tx.TextXAlignment = Enum.TextXAlignment.Center
-                                        tx.TextYAlignment = Enum.TextYAlignment.Center
-                                        tx.ZIndex = 3
-                                        tx.Parent = g
-                                        task.spawn(function()
-                                            local lucide = loadLucide()
-                                            if lucide then
-                                                local okE, asset = pcall(lucide.GetAsset, iconName)
-                                                if okE and asset and asset.Url then
-                                                    ic.Image = asset.Url
-                                                    if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
-                                                end
-                                            end
-                                        end)
-                                        return g
-                                    end
-                                    tabContentEmpty = makeStateGroup(Config.ContentEmptyIcon, Config.ContentEmptyText)
-                                    tabContentNoCtrl = makeStateGroup(Config.ContentNoCtrlIcon, Config.ContentNoCtrlText)
-                                    local scroll = Instance.new("ScrollingFrame")
-                                    scroll.Name = "TabScroll"
-                                    scroll.BackgroundTransparency = 1
-                                    scroll.BorderSizePixel = 0
-                                    scroll.Size = UDim2.new(1, 0, 1, 0)
-                                    scroll.Position = UDim2.new(0, 0, 0, 0)
-                                    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-                                    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-                                    scroll.ScrollingDirection = Enum.ScrollingDirection.Y
-                                    scroll.ScrollingEnabled = true
-                                    scroll.ScrollBarThickness = Config.ContentScrollBarThickness
-                                    scroll.ScrollBarImageTransparency = Config.ContentScrollBarTransparency
-                                    scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
-                                    scroll.ClipsDescendants = true
-                                    scroll.ZIndex = 2
-                                    scroll.Parent = contentFrame
-                                    local subList = Instance.new("Frame")
-                                    subList.Name = "TabSubtitleList"
-                                    subList.BackgroundTransparency = 1
-                                    subList.Size = UDim2.new(1, 0, 0, 0)
-                                    subList.AutomaticSize = Enum.AutomaticSize.Y
-                                    subList.ZIndex = 2
-                                    subList.Parent = scroll
-                                    local subListLayout = Instance.new("UIListLayout")
-                                    subListLayout.FillDirection = Enum.FillDirection.Vertical
-                                    subListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-                                    subListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-                                    subListLayout.Padding = UDim.new(0, Config.SubTitleBlockGap)
-                                    subListLayout.Parent = subList
-                                    local subListPad = Instance.new("UIPadding")
-                                    subListPad.PaddingRight = UDim.new(0, Config.ContentScrollBarThickness + 2)
-                                    subListPad.Parent = subList
-                                    tabSubtitleList = subList
-                                    for i, tab in ipairs(win._tabs) do
-                                        local row = Instance.new("TextButton")
-                                        row.Name = "TabRow"
-                                        row.Size = UDim2.new(1, 0, 0, Config.TabRowHeight)
-                                        row.Position = UDim2.new(0, 0, 0, (i - 1) * (Config.TabRowHeight + Config.TabRowGap))
-                                        row.BackgroundTransparency = 1
-                                        row.Text = ""
-                                        row.AutoButtonColor = false
-                                        row.LayoutOrder = i
-                                        row.ZIndex = 3
-                                        row.Parent = listFrame
-                                        local sel = Instance.new("Frame")
-                                        sel.Name = "TabSel"
-                                        sel.Size = UDim2.new(1, 0, 1, 0)
-                                        sel.Position = UDim2.new(0, 0, 0, 0)
-                                        sel.BackgroundColor3 = Config.TabSelFill
-                                        sel.BackgroundTransparency = Config.TabSelFillTransparency
-                                        sel.BorderSizePixel = 0
-                                        sel.Visible = false
-                                        sel.ZIndex = 2
-                                        sel.Parent = row
-                                        local selCorner = Instance.new("UICorner")
-                                        selCorner.CornerRadius = Config.TabSelCorner
-                                        selCorner.Parent = sel
-                                        local selStroke = Instance.new("UIStroke")
-                                        selStroke.Color = Config.TabSelStroke
-                                        selStroke.Thickness = Config.TabSelStrokeThickness
-                                        selStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                                        selStroke.Parent = sel
-                                        local selGrad = Instance.new("UIGradient")
-                                        selGrad.Rotation = 135
-                                        selGrad.Color = ColorSequence.new({
-                                            ColorSequenceKeypoint.new(0, Color3.fromRGB(104, 106, 118)),
-                                            ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 28, 34)),
-                                        })
-                                        selGrad.Parent = sel
-                                        local hasIcon = (tab.Icon ~= nil and tab.Icon ~= "")
-                                        local ticon = nil
-                                        if hasIcon then
-                                            ticon = Instance.new("ImageLabel")
-                                            ticon.Name = "TabIcon"
-                                            ticon.Size = UDim2.fromOffset(Config.TabIconSize, Config.TabIconSize)
-                                            ticon.Position = UDim2.new(0, Config.TabRowPadX, 0.5, 0)
-                                            ticon.AnchorPoint = Vector2.new(0, 0.5)
-                                            ticon.BackgroundTransparency = 1
-                                            ticon.ImageColor3 = tab.IconColor or Config.TabInactiveColor
-                                            ticon.ImageTransparency = 1
-                                            ticon.ZIndex = 3
-                                            ticon.Parent = row
-                                        end
-                                        local tname = Instance.new("TextLabel")
-                                        tname.Name = "TabName"
-                                        tname.BackgroundTransparency = 1
-                                        tname.Text = tab.Title
-                                        tname.TextColor3 = Config.TabInactiveColor
-                                        tname.TextSize = Config.TabTextSize
-                                        tname.Font = Enum.Font.Gotham
-                                        tname.TextYAlignment = Enum.TextYAlignment.Center
-                                        tname.TextTransparency = 1
-                                        tname.ZIndex = 3
-                                        if hasIcon then
-                                            tname.Size = UDim2.new(1, -(Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap), 1, 0)
-                                            tname.Position = UDim2.new(0, Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap, 0, 0)
-                                            tname.TextXAlignment = Enum.TextXAlignment.Left
-                                        else
-                                            tname.Size = UDim2.new(1, -(Config.TabRowPadX * 2), 1, 0)
-                                            tname.Position = UDim2.new(0, Config.TabRowPadX, 0, 0)
-                                            tname.TextXAlignment = Enum.TextXAlignment.Left
-                                        end
-                                        tname.Parent = row
-                                        task.delay(Config.PanelExpandTime + (i - 1) * Config.TabStagger, function()
-                                            if not expanded then return end
-                                            if ticon and ticon.Parent then TweenService:Create(ticon, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play() end
-                                            if tname and tname.Parent then TweenService:Create(tname, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
-                                        end)
-                                        row.MouseButton1Click:Connect(function()
-                                            if shutdown then return end
-                                            win._activeTab = i
-                                            updateTabsHighlight()
-                                            updateContentArea()
-                                            animateContentIn()
-                                        end)
-                                        if hasIcon then
-                                            task.spawn(function()
-                                                local lucide = loadLucide()
-                                                if lucide then
-                                                    local okA, asset = pcall(lucide.GetAsset, tab.Icon)
-                                                    if okA and asset and asset.Url then
-                                                        ticon.Image = asset.Url
-                                                        if asset.ImageRectOffset then ticon.ImageRectOffset = asset.ImageRectOffset ticon.ImageRectSize = asset.ImageRectSize end
-                                                    end
-                                                end
-                                            end)
-                                        end
-                                    end
-                                    updateTabsHighlight()
-                                    updateContentArea()
-                                else
-                                    local msg = "还没有任何选项卡"
-                                    local parts = {}
-                                    for _, cp in utf8.codes(msg) do parts[#parts + 1] = utf8.char(cp) end
-                                    local lbl = Instance.new("TextLabel")
-                                    lbl.Name = "TabEmpty"
-                                    lbl.BackgroundTransparency = 1
-                                    lbl.AnchorPoint = Vector2.new(0.5, 0.5)
-                                    lbl.Size = UDim2.fromOffset(listW, 0)
-                                    lbl.AutomaticSize = Enum.AutomaticSize.Y
-                                    lbl.Position = UDim2.new(0, titlePad + listW / 2, 0, (listTop + (sh - top - m)) / 2)
-                                    lbl.Text = table.concat(parts, "\n")
-                                    lbl.TextColor3 = Config.TabInactiveColor
-                                    lbl.TextSize = Config.TabTextSize
-                                    lbl.Font = Enum.Font.Gotham
-                                    lbl.TextXAlignment = Enum.TextXAlignment.Center
-                                    lbl.TextYAlignment = Enum.TextYAlignment.Center
-                                    lbl.ZIndex = 2
-                                    lbl.Parent = contentRoot
-                                    tabEmptyLabel = lbl
-                                end
-                            end
-                            win._rebuildTabs = buildTabUI
-                            buildTabUI()
-                            local btn = Instance.new("ImageButton")
-                            btn.Name = "PanelClose"
-                            btn.Size = UDim2.new(0, 20, 0, 20)
-                            btn.Position = UDim2.new(1, -26, 0, 6)
-                            btn.BackgroundTransparency = 1
-                            btn.ScaleType = Enum.ScaleType.Fit
-                            btn.ImageColor3 = Color3.new(1, 1, 1)
-                            btn.Parent = contentRoot
-                            local closeHold = nil
-                            local showCloseConfirm = nil
-                            btn.InputBegan:Connect(function(bi)
-                                if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
-                                    if shutdown then return end
-                                    TweenService:Create(btn, TweenInfo.new(Config.CloseHoldTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Config.RedXColor }):Play()
-                                    if closeHold then safeCancel(closeHold) end
-                                    closeHold = task.delay(Config.CloseHoldTime, function()
-                                        closeHold = nil
-                                        if showCloseConfirm then showCloseConfirm() end
-                                    end)
-                                end
-                            end)
-                            btn.InputEnded:Connect(function(bi)
-                                if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
-                                    TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Color3.new(1, 1, 1) }):Play()
-                                    if closeHold then
-                                        safeCancel(closeHold)
-                                        closeHold = nil
-                                        collapsePanel()
-                                    end
-                                end
-                            end)
-                            task.spawn(function()
-                                local lucide = loadLucide()
-                                if lucide then
-                                    local ok, icon = pcall(lucide.GetAsset, "circle-x")
-                                    if ok and icon and icon.Url then
-                                        btn.Image = icon.Url
-                                        if icon.ImageRectOffset then btn.ImageRectOffset = icon.ImageRectOffset btn.ImageRectSize = icon.ImageRectSize end
-                                    end
-                                end
-                            end)
-                            closeBtn = btn
+                            lastPanelLayout = { titlePad = titlePad, blockH = blockH, m = m, top = top, sh = sh }
+                            win._rebuildTabs = function() buildTabUI(lastPanelLayout) end
+                            buildHeaderDecor()
+                            buildTabUI(lastPanelLayout)
+                            buildCloseButton(function() showCloseConfirm() end)
 
                             local closeDialog = nil
                             local function setHeaderVisible(vis)
@@ -3974,7 +4017,7 @@ if hintActive then clearHint(true) end
                                     closeDialog = nil
                                     dlg:Destroy()
                                     setHeaderVisible(true)
-                                    buildTabUI()
+                                    buildTabUI(lastPanelLayout)
                                     animateEdge(UDim2.new(0, sw - m * 2, 0, sh - top - m), UDim2.new(0, m, 0, top), Config.PanelExpandTime)
                                 end)
                                 local okBtn = makePill("确认", Config.CloseConfirmColor)
