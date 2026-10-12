@@ -70,7 +70,7 @@ local Config = {
     BallHoldTime = 1.5,
     IslandText = "DynamicCow",
     IslandTextColor = Color3.fromRGB(0, 255, 120),
-    -- 灵动岛文字变化动画：仅变化的字符先渐绿，切换为新文字后恢复原色
+
     IslandTextChangeColor = Color3.fromRGB(0, 255, 120),
     IslandTextChangeTintTime = 0.18,
     IslandTextChangeRestoreTime = 0.45,
@@ -84,39 +84,39 @@ local Config = {
     HintText = "长按灵动岛以展开面板",
     HintTextSize = 17,
     HintExtendPad = 36,
-    -- 连点三次提示：显示后 1.5 秒自动结束并恢复灵动岛
+
     HintHoldTime = 1.5,
     HintRevealStep = 0.04,
     HintRevealTime = 0.3,
-    -- ChangeIconText：大图标 + 文字的胖岛展示
-    IconTextHoldTime = 2,-- 持续时长（秒）
-    IconTextIconSize = 26,                -- 左侧大图标尺寸
-    IconTextTextSize = 17,                -- 右侧文字尺寸
-    IconTextGap = 12,                     -- 图标与文字间距
-    IconTextPadX = 22,                    -- 左右内边距
-    IconTextMinW = 220,                   -- 胖岛最小宽度
-    IconTextGrowTime = 0.35,              -- 展开/复原时长
-    IconTextRestoreTime = 0.35,           -- 复原后回归Title 的淡入时长
-    -- 收起面板后的 Toggle 状态展示：图标 | Toggle名称 | 已开启/已关闭
-    ToggleIslandHoldTime = 2,             -- 持续时长（秒）
-    ToggleIslandGrowTime = 0.35,          -- 灵动岛左右变长 / 复原时长
-    ToggleIslandRestoreTime = 0.35,       -- 复原后回归Title 的淡入时长
-    ToggleIslandIconSize = 22,            -- 左侧图标尺寸
-    ToggleIslandTextSize = 16,            -- 名称与状态文字尺寸
-    ToggleIslandGap = 14,                 -- 三段内容之间的间距
-    ToggleIslandPadX = 20,                -- 左右内边距
-    ToggleIslandMinW = 280,               -- 加长后的最小宽度
-    ToggleIslandRevealTime = 0.26,        -- 单字符渐显时长
-    ToggleIslandFadeTime = 0.24,          -- 单字符渐隐时长
-    ToggleIslandStepTime = 0.055,         -- 相邻字符的渐显/渐隐间隔（决定扩散速度）
-    ToggleIslandOnColor = Color3.fromRGB(70, 160, 255),   -- 开启态（蓝）
-    ToggleIslandOffColor = Color3.fromRGB(255, 96, 96),   -- 关闭态（红）
+
+    IconTextHoldTime = 2,
+    IconTextIconSize = 26,
+    IconTextTextSize = 17,
+    IconTextGap = 12,
+    IconTextPadX = 22,
+    IconTextMinW = 220,
+    IconTextGrowTime = 0.35,
+    IconTextRestoreTime = 0.35,
+
+    ToggleIslandHoldTime = 2,
+    ToggleIslandGrowTime = 0.35,
+    ToggleIslandRestoreTime = 0.35,
+    ToggleIslandIconSize = 22,
+    ToggleIslandTextSize = 16,
+    ToggleIslandGap = 14,
+    ToggleIslandPadX = 20,
+    ToggleIslandMinW = 280,
+    ToggleIslandRevealTime = 0.26,
+    ToggleIslandFadeTime = 0.24,
+    ToggleIslandStepTime = 0.055,
+    ToggleIslandOnColor = Color3.fromRGB(70, 160, 255),
+    ToggleIslandOffColor = Color3.fromRGB(255, 96, 96),
     LongPressThreshold = 0.5,
     IslandDragThreshold = 8,
     IslandDragDamp = 0.55,
     IslandDragMax = 70,
     IslandDragFixed = 54,
-    -- 拖停判定与保持时间：过短会让拉扯动画在手指停顿瞬间就被判定为停止并回弹
+
     IslandDragStopDelay = 0.7,
     IslandDragHold = 4,
     PanelExpandTime = 0.55,
@@ -126,15 +126,15 @@ local Config = {
     ErrorText = "格式错误",
     ErrorTextColor = Color3.fromRGB(255, 80, 80),
     RedXColor = Color3.fromRGB(255, 60, 60),
-    -- 爆炸粒子：数量在 [Min, Max] 之间每次随机；方向为随机角度 + 随机初速
+
     ParticleCount = 26,
     ParticleCountMin = 16,
     ParticleCountMax = 42,
     ParticleSize = 5,
-    ParticleSizeVar = 3,      -- 粒子尺寸随机浮动上限（0 表示不随机）
+    ParticleSizeVar = 3,
     ParticleSpeedMin = 150,
     ParticleSpeedMax = 420,
-    ParticleUpBias = 90,       -- 向上偏置，让爆散更有抛射感
+    ParticleUpBias = 90,
     ParticleGravity = 700,
     InfoTextSize = 16,
     InfoColor = Color3.fromRGB(200, 205, 210),
@@ -263,16 +263,16 @@ local Config = {
     SliderTrackTransparency = 0.35,
     SliderTrackCorner = UDim.new(0, 8),
     SliderFillColor = Color3.fromRGB(120, 160, 255),
-    -- 滑块已改为仅用填充条表示进度，不再绘制白色圆球手柄（以下两项保留仅为兼容旧脚本引用）
+
     SliderThumbColor = Color3.fromRGB(245, 245, 248),
     SliderThumbSize = 16,
     SliderAnimTime = 0.3,
     DropdownRowHeight = 36,
-    -- AddLine 横向分隔线
-    LineRowHeight = 14,-- 分隔线所在行的总高度（上下留白）
-    LineThickness = 1,                -- 线的粗细
+
+    LineRowHeight = 14,
+    LineThickness = 1,
     LineColor = Color3.fromRGB(88, 88, 98),
-    LineInset = 0,                    -- 左右缩进（0 = 铺满，与 SubTitle 分隔线一致）
+    LineInset = 0,
     DropdownTitleSize = 14,
     DropdownTitleColor = Color3.new(1, 1, 1),
     DropdownTitlePadX = 10,
@@ -287,7 +287,7 @@ local Config = {
     DropdownCapsulePlaceholder = "未选择",
     DropdownMenuW = 200,
     DropdownMenuMaxH = 220,
-    -- 展开后圆角（胶囊原本是 0.5 全圆，展开时收直为固定圆角，避免大面板变椭圆）
+
     DropdownMenuCorner = 12,
     DropdownOptionH = 30,
     DropdownMenuPad = 6,
@@ -302,15 +302,13 @@ local Config = {
     DropdownRevealTime = 0.22,
     DropdownOptionStagger = 0.05,
     DropdownCollapseTime = 0.2,
-    -- 展开时胶囊被提到 screenGui 顶层使用该层级，需高于所有面板元素（滚动容器/灵动岛/提示/通知/确认弹窗）
+
     DropdownMenuZ = 300,
     DropdownArrowSize = 12,
 }
 
 local Library = {}
 
--- 统一错误上报通道：所有错误都经由此处，默认用 warn() 打印到控制台。
--- 若已存在等价通道可忽略；外部可挂接 Library.OnError(msg) 订阅全部错误上报。
 local function reportError(msg)
     msg = tostring(msg)
     warn("[DynamicCowUI] " .. msg)
@@ -402,7 +400,7 @@ function Library.CreateWindow(opts)
         pcall(function() Library._demoWin:_closeNow() end)
         Library._demoWin = nil
     end
-    -- 异常值检测：避免直接抛出报错，非法输入统一改为播放错误动画
+
     local isError = opts._error == true
     local errReason = isError and "CreateWindow 异常触发（缺失或未正常调用）" or nil
     local title = Config.TitleText
@@ -669,13 +667,9 @@ function Library.CreateWindow(opts)
         TextTransparency = 0,
     }):Play()
 
-    -- 注意：alive/errText 必须在使用它们的闭包定义之前声明。
-    -- 早期版本的局部声明位于下方（原 897 行附近），导致上方的闭包词法上只能捕获全局同名变量（恒为 nil），
-    -- 造成 alive 恒为 nil（渐变流光动画被直接 return 冻结）与 errText 为 nil（错误动画显示默认文字）。
     local alive = true
     local errText = Config.ErrorText
-    -- 灵动岛自定义文字（仅对「收起状态」的灵动岛生效）
-    -- ChangeText 只写这里，绝不覆盖窗口 title：面板标题 / 关闭确认弹窗 / 通知结束后的还原都仍读取 title
+
     local islandTextOverride = nil
 
     local flowSpeed = Config.FlowSpeedFast
@@ -839,8 +833,62 @@ function Library.CreateWindow(opts)
         return w
     end
 
-    -- 视口高度（用于判断下拉菜单向下还是向上展开）：
-    -- 优先取相机视口，其次 ScreenGui.AbsoluteSize，最后兜底 720，避免取到 0 导致方向判断失效
+    local function measureTextHeight(text, size, maxW)
+        if type(text) ~= "string" or #text == 0 then return size end
+        local lineH = size * 1.4
+        local w = maxW or 200
+        if w < 40 then w = 200 end
+        local total = 0
+        for line in (text .. "\n"):gmatch("(.-)\n") do
+            local h = size
+            local ok, sz = pcall(function()
+                return game:GetService("TextService"):GetTextSize(line, size, Enum.Font.Gotham, Vector2.new(w, 100000))
+            end)
+            if ok and sz and sz.Y and sz.Y > 0 then h = sz.Y end
+            local lines = math.max(1, math.floor(h / (size * 1.2) + 0.5))
+            total = total + lines
+        end
+        if total < 1 then total = 1 end
+        return total * lineH
+    end
+
+    local function paragraphHeight(p, availW)
+        local titleH = Config.ParagraphTitleSize + Config.ParagraphTitlePad
+        local infoW = availW
+        if p.Icon ~= nil and p.Icon ~= "" then
+            infoW = infoW - (Config.ParagraphIconSize + Config.ParagraphIconGap)
+        end
+        local infoH = measureTextHeight(p.Info or "", Config.ParagraphInfoSize, infoW)
+        local h = math.ceil(Config.ParagraphTitleDrop + titleH + Config.ParagraphTextGap + infoH + 8)
+        if h < Config.ParagraphRowHeight then h = Config.ParagraphRowHeight end
+        return h
+    end
+
+    local function refreshParagraphHeight(pg)
+        if not pg then return end
+        if not (pg._frame and pg._frame.Parent) then return end
+        local paraW = pg._paraW or 240
+        local newH = paragraphHeight(pg, paraW)
+        local oldH = pg._rowH or Config.ParagraphRowHeight
+        pg._rowH = newH
+        pg._frame.Size = UDim2.new(1, 0, 0, newH)
+        if pg._infoLbl and pg._infoLbl.Parent then
+            local iw = paraW
+            if pg.Icon ~= nil and pg.Icon ~= "" then
+                iw = iw - (Config.ParagraphIconSize + Config.ParagraphIconGap)
+            end
+            pg._infoLbl.Size = UDim2.new(1, 0, 0, measureTextHeight(pg.Info or "", Config.ParagraphInfoSize, iw))
+        end
+        if pg._bodyH and pg._body and pg._body.Parent then
+            local bh = pg._bodyH + (newH - oldH)
+            pg._bodyH = bh
+            pg._body.Size = UDim2.new(1, 0, 0, bh)
+            if pg._block and pg._block.Parent and not pg._collapsed then
+                pg._block.Size = UDim2.new(1, 0, 0, (pg._headH or 0) + (pg._divGap or 0) + bh)
+            end
+        end
+    end
+
     local function getViewportHeight()
         local ok, cam = pcall(function() return workspace and workspace.CurrentCamera end)
         if ok and cam and cam.ViewportSize and cam.ViewportSize.Y and cam.ViewportSize.Y > 0 then
@@ -958,7 +1006,6 @@ function Library.CreateWindow(opts)
         end
     end
 
-    -- 读取当前灵动岛容器内「按显示顺序排列」的字符（跳过空格），供文字变化动画做逐字比对
     local function currentIslandChars()
         local arr = {}
         if not (islandTextContainer and islandTextContainer.Parent) then return arr end
@@ -971,8 +1018,6 @@ function Library.CreateWindow(opts)
         return arr
     end
 
-    -- 灵动岛文字变化动画：只对「发生变化的那一段字符」生效
-    --   旧字符先渐绿 → 切换为新文字（新变化字符同样以绿色出现）→ 恢复原色
     local function setIslandTextAnimated(newText, color)
         color = color or Config.TitleColor
         local oldChars = currentIslandChars()
@@ -980,29 +1025,29 @@ function Library.CreateWindow(opts)
         for _, item in ipairs(parseColoredChars(newText, color)) do
             if item.ch ~= " " then newItems[#newItems + 1] = item end
         end
-        -- 容器还没建立 / 字符数量不一致时直接重建
+
         if #oldChars == 0 or #newItems == 0 then
             setIslandText(newText, color)
             return
         end
-        -- 求公共前后缀，定位变化区间 [p+1, len-s]
+
         local on, nn = #oldChars, #newItems
         local p = 0
         while p < on and p < nn and oldChars[p + 1].ch == newItems[p + 1].ch do p = p + 1 end
         local s = 0
         while s < (on - p) and s < (nn - p) and oldChars[on - s].ch == newItems[nn - s].ch do s = s + 1 end
-        if p == on and p == nn then return end   -- 文字没有变化
+        if p == on and p == nn then return end
         local green = Config.IslandTextChangeColor
         local tint = Config.IslandTextChangeTintTime
         local restore = Config.IslandTextChangeRestoreTime
-        -- 1) 旧的差异字符渐绿
+
         for i = p + 1, on - s do
             local lb = oldChars[i] and oldChars[i].label
             if lb and lb.Parent then
                 TweenService:Create(lb, TweenInfo.new(tint, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextColor3 = green }):Play()
             end
         end
-        -- 2) 切换为新文字，让新的差异字符以绿色出现后恢复原色
+
         task.delay(tint, function()
             if not alive then return end
             if not (islandTextContainer and islandTextContainer.Parent) then return end
@@ -1024,15 +1069,14 @@ function Library.CreateWindow(opts)
     local shutdown = false
     local ready = false
     local actionEnd = nil
-    -- ChangeIconText 的动画播放器，在补间/长按闭包内定义，此处桥接给 win.DynamicIslandAction
+
     local iconTextPlayer = nil
-    -- 收起面板后展示「上一次操作的 Toggle」状态：最后一次点击的 Toggle 快照
+
     local lastToggleInfo = nil
-    -- 该动画进行中的容器句柄与忙标记（供长按展开、ChangeIconText 打断时清理）
+
     local toggleAnimContainer = nil
     local toggleAnimBusy = false
-    -- actionBusy 需在使用处（playHintAnimation，位于 runIslandAction 之前）之前声明，
-    -- 否则该闭包读取的是全局同名变量（恒为 nil），提示动画无法打断进行中的通知。
+
     local actionBusy = false
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
     win._configFolder = configFolder
@@ -1059,8 +1103,6 @@ function Library.CreateWindow(opts)
         brandLbl = nil
     end
 
-    -- 记录当前生效的 animateEdge 连接：新动画启动时先断开旧的，
-    -- 否则上一段逐帧补间会在其时长内持续覆写 edge.Size/Position，把新动画"压回去"
     local edgeAnimConn = nil
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
         if edgeAnimConn then pcall(function() edgeAnimConn:Disconnect() end) edgeAnimConn = nil end
@@ -1138,14 +1180,14 @@ function Library.CreateWindow(opts)
         local iw = aSize.X
         local ih = aSize.Y
         local parts = {}
-        -- 粒子数量：每次爆炸在 [ParticleCountMin, ParticleCountMax] 内随机（ParticleCount 作为缺省基准）
+
         local pMin = math.max(1, Config.ParticleCountMin or Config.ParticleCount)
         local pMax = math.max(pMin, Config.ParticleCountMax or Config.ParticleCount)
         local count = math.random(pMin, pMax)
         for _ = 1, count do
             local p = Instance.new("Frame")
             p.Name = "IslandParticle"
-            -- 粒子尺寸也可随机，避免整齐划一
+
             local psize = Config.ParticleSize
             if Config.ParticleSizeVar and Config.ParticleSizeVar > 0 then
                 psize = Config.ParticleSize + math.random(-Config.ParticleSizeVar, Config.ParticleSizeVar)
@@ -1159,7 +1201,7 @@ function Library.CreateWindow(opts)
             local py = cy + (math.random() * 2 - 1) * ih / 2
             p.Position = UDim2.new(0, px, 0, py)
             p.Parent = screenGui
-            -- 方向：360° 随机角度 + 随机初速区间
+
             local ang = math.random() * math.pi * 2
             local smin = Config.ParticleSpeedMin or 140
             local smax = Config.ParticleSpeedMax or 360
@@ -1393,7 +1435,7 @@ function Library.CreateWindow(opts)
         winOpen = false
         flowSpeed = 0
         if backdrop and backdrop.Parent then backdrop:Destroy() end
-        -- 1) 渐隐：面板内所有控件（选项卡/按钮/开关等）与标题图标/副标题先淡出，避免被压缩进灵动岛
+
         local fadeDur = 0.35
         if contentRoot and contentRoot.Parent then
             TweenService:Create(contentRoot, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { GroupTransparency = 1, BackgroundTransparency = 1 }):Play()
@@ -1405,7 +1447,7 @@ function Library.CreateWindow(opts)
         if infoLabel and infoLabel.Parent then
             TweenService:Create(infoLabel, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
         end
-        -- 2) 收起：内容淡出后再把灵动岛胶囊复位（避免控件被压缩）
+
         task.delay(fadeDur, function()
             if not alive then return end
             edge.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1513,8 +1555,7 @@ function Library.CreateWindow(opts)
                 local dragStopTmr = nil
                 local dragRestoreTmr = nil
                 local dragSizeTween = nil
-                -- 灵动岛自身尺寸的补间统一走这里：新动画开始前先取消上一条，
-                -- 避免「松开后回弹还没播完就再次按下」时基础尺寸取到补间中间值而拉扯异常
+
                 local function tweenEdgeSize(size, dur)
                     if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
                     dragSizeTween = TweenService:Create(edge, TweenInfo.new(dur, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = size })
@@ -1530,9 +1571,7 @@ function Library.CreateWindow(opts)
                 local hintBaseAnchor = nil
                 local hintBasePos = nil
                 local islandRest = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
-                -- skipRestore=true 表示调用方即将自行接管灵动岛几何（例如长按展开面板），
-                -- 此时不能再把 AnchorPoint/Position/Size 拉回提示前的状态，否则会与展开动画互相打架
-                -- 安全取消计时器：句柄可能指向「正在运行的自己」（回调里取消自己会抛 cannot cancel thread）
+
                 local function safeCancelTimer(handle)
                     if not handle then return end
                     pcall(task.cancel, handle)
@@ -1631,7 +1670,7 @@ function Library.CreateWindow(opts)
                     hintContainer = hc
                     safeCancelTimer(hintTmr)
                     hintTmr = task.delay(Config.HintHoldTime, function()
-                        hintTmr = nil   -- 先置空：否则 clearHint 会尝试取消正在运行的自己
+                        hintTmr = nil
                         if hintActive then clearHint() end
                     end)
                 end
@@ -1895,7 +1934,7 @@ function Library.CreateWindow(opts)
                             if shutdown then return end
                             tg.Value = not tg.Value
                             apply()
-                            -- 记录最后一次操作的 Toggle，供收起面板后的灵动岛状态展示使用
+
                             lastToggleInfo = {
                                 Title = tg.Title or "Toggle",
                                 Icon = tg.Icon,
@@ -1912,12 +1951,12 @@ function Library.CreateWindow(opts)
                         end)
                         return row
                     end
-                    local function makeParagraph(p, order)
+                    local function makeParagraph(p, order, rowH)
                         local frame = Instance.new("Frame")
                         frame.Name = "SubParagraph"
                         frame.BackgroundColor3 = p.BackColor or Config.ParagraphBackColor
                         frame.BackgroundTransparency = Config.ParagraphBackTransparency
-                        frame.Size = UDim2.new(1, 0, 0, Config.ParagraphRowHeight)
+                        frame.Size = UDim2.new(1, 0, 0, rowH or Config.ParagraphRowHeight)
                         frame.LayoutOrder = order
                         frame.ZIndex = 3
                         local corner = Instance.new("UICorner")
@@ -1993,10 +2032,12 @@ function Library.CreateWindow(opts)
                         titleLbl.LayoutOrder = 1
                         titleLbl.ZIndex = 3
                         titleLbl.Parent = txt
+                        local infoH = measureTextHeight(p.Info or "", Config.ParagraphInfoSize,
+                            math.max(40, (rowH or Config.ParagraphRowHeight)))
                         local infoLbl = Instance.new("TextLabel")
                         infoLbl.Name = "ParaInfo"
                         infoLbl.BackgroundTransparency = 1
-                        infoLbl.Size = UDim2.new(1, 0, 1, -(Config.ParagraphTitleSize + Config.ParagraphTitlePad + Config.ParagraphTextGap))
+                        infoLbl.Size = UDim2.new(1, 0, 0, infoH)
                         infoLbl.Text = p.Info or ""
                         infoLbl.TextColor3 = Config.ParagraphInfoColor
                         infoLbl.TextSize = Config.ParagraphInfoSize
@@ -2015,8 +2056,7 @@ function Library.CreateWindow(opts)
                         p._stroke = stroke
                         return frame
                     end
-                    -- AddLine：横向细分隔线。行高 LineRowHeight，线本体垂直居中、厚度 LineThickness。
-                    -- 通过 p.Color / p.Thickness / p.Inset 运行时可改（SetColor/SetThickness/SetInset）。
+
                     local function makeLine(ln, order)
                         local rowH = Config.LineRowHeight
                         local frame = Instance.new("Frame")
@@ -2035,7 +2075,7 @@ function Library.CreateWindow(opts)
                         bar.AnchorPoint = Vector2.new(0, 0.5)
                         bar.ZIndex = 3
                         bar.Parent = frame
-                        -- 半透明细线不需要圆角
+
                         ln._bar = bar
                         ln._row = frame
                         return frame
@@ -2127,8 +2167,7 @@ function Library.CreateWindow(opts)
                                 saveConfigValue(win._configFolder, sl.ConfigKey, sl.Value)
                             end
                             if type(sl.OnChanged) == "function" then
-                                -- 第 2 个参数回传控件句柄：推荐写 OnChanged = function(v, self) self:SetTitle(...) end
-                                -- （直接写 local x = AddSlider{OnChanged=function() x:... end} 时 x 会被解析为全局 nil 而报错）
+
                                 local okC, errC = pcall(sl.OnChanged, sl.Value, sl)
                                 if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
                             end
@@ -2316,9 +2355,7 @@ function Library.CreateWindow(opts)
                                 end
                             end
                         end)
-                        -- 展开：直接让右侧胶囊自身变形为选项面板
-                        -- （不创建任何额外的菜单框架/全屏蒙版；展开时把胶囊搬到 screenGui 顶层并抬高 ZIndex，
-                        --   这样既能盖住滚动容器，也能自然溢出滚动区域，不会被祖先 ClipsDescendants 裁剪）
+
                         local menuState = nil
                         local outsideConn = nil
                         local function openMenu()
@@ -2330,9 +2367,7 @@ function Library.CreateWindow(opts)
                             local ap = capsule.AbsolutePosition
                             local as = capsule.AbsoluteSize
                             local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
-                            -- 按剩余空间动态决定展开方向：
-                            --   下方放得下 → 顶边对齐，向左下方展开
-                            --   下方放不下且上方更宽裕 → 底边对齐，向左上方展开（避免溢出屏幕底部）
+
                             local scrH = getViewportHeight()
                             local edgeGap = Config.DropdownMenuPad + 4
                             local capTop = ap.Y
@@ -2346,7 +2381,7 @@ function Library.CreateWindow(opts)
                             local targetH = math.min(contentH, Config.DropdownMenuMaxH, avail)
                             local needScroll = contentH > targetH
                             local expandW = math.max(Config.DropdownMenuW, as.X)
-                            -- 展开目标：右边缘始终与胶囊右边缘对齐；向下展开固定顶边，向上展开固定底边
+
                             local endX = ap.X + as.X - expandW
                             local endY = openUp and (ap.Y + as.Y - targetH) or ap.Y
                             menuState = {
@@ -2358,15 +2393,13 @@ function Library.CreateWindow(opts)
                                 clips = capsule.ClipsDescendants,
                                 corner = capCorner.CornerRadius,
                                 bgColor = capsule.BackgroundColor3,
-                                -- 记录迁移到 screenGui 后的「绝对左上角 + 原始宽高」，收起时按此还原动画
+
                                 baseX = ap.X,
                                 baseY = ap.Y,
                                 baseW = as.X,
                                 baseH = as.Y,
                             }
-                            -- 迁移到顶层并提升层级：
-                            -- 用「绝对左上角 + AnchorPoint(0,0)」精确对齐（起始位置只依赖 ap，不受重设锚点影响），
-                            -- 随后位置与尺寸一起补间，从根本上避免展开瞬间的位置瞬移。
+
                             capsule.AnchorPoint = Vector2.new(0, 0)
                             capsule.Position = UDim2.fromOffset(ap.X, ap.Y)
                             capsule.Size = UDim2.new(0, as.X, 0, as.Y)
@@ -2374,10 +2407,10 @@ function Library.CreateWindow(opts)
                             capsule.ZIndex = Config.DropdownMenuZ
                             capsule.BackgroundColor3 = Config.DropdownMenuFill
                             capsule.Parent = screenGui
-                            -- 胶囊内的文字/箭头让位给选项列表（Visible=false 的控件不参与 UIListLayout 布局）
+
                             label.Visible = false
                             arrow.Visible = false
-                            -- 选项容器：默认就是胶囊本身；仅当条目超出最大高度时才需要一个不可见的滚动容器
+
                             local container
                             if needScroll then
                                 local sc = Instance.new("ScrollingFrame")
@@ -2446,7 +2479,7 @@ function Library.CreateWindow(opts)
                                 d._closeMenu = nil
                                 local st = menuState
                                 menuState = nil
-                                -- 选项面板直接由胶囊承载时，选项本身就是胶囊的子控件，必须显式清理，避免下次展开时累积
+
                                 for _, ob in ipairs(container:GetChildren()) do
                                     if ob:IsA("TextButton") and ob.Name == "DdOption" then ob:Destroy() end
                                 end
@@ -2465,7 +2498,7 @@ function Library.CreateWindow(opts)
                                     label.Visible = true
                                     arrow.Visible = true
                                 elseif capsule and capsule.Parent then
-                                    -- 原位父级已被销毁（切换选项卡 / 收起面板 / 关闭窗口），直接销毁胶囊避免残留在屏幕上
+
                                     capsule:Destroy()
                                 end
                             end
@@ -2489,7 +2522,7 @@ function Library.CreateWindow(opts)
                             end
                             d._closeMenu = closeMenu
                             openDropdownClose = closeMenu
-                            -- 展开动画：位置与尺寸一起补间（胶囊从原位置平滑长大）+ 填充渐显 + 圆角收直
+
                             TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                                 Position = UDim2.fromOffset(endX, endY),
                                 Size = UDim2.new(0, expandW, 0, targetH),
@@ -2504,7 +2537,7 @@ function Library.CreateWindow(opts)
                                     end)
                                 end
                             end
-                            -- 点击面板外任意位置收起（改用 UserInputService 监听，不再创建全屏蒙版框架）
+
                             outsideConn = UserInputService.InputBegan:Connect(function(input)
                                 if closed then return end
                                 if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
@@ -2535,10 +2568,12 @@ function Library.CreateWindow(opts)
                         local slds = st._sliders or {}
                         local ddns = st._dropdowns or {}
                         local lns = st._lines or {}
+                        local paraW = math.max(60, (tabContentContainer and tabContentContainer.AbsoluteSize.X or 0)
+                            - Config.SubTitleBodyPadX * 2 - Config.ParagraphBackPad * 2)
                         local itemH = {}
                         for _ in ipairs(btns) do itemH[#itemH + 1] = Config.ButtonHeight end
                         for _ in ipairs(tgts) do itemH[#itemH + 1] = Config.ButtonHeight end
-                        for _ in ipairs(pgrs) do itemH[#itemH + 1] = Config.ParagraphRowHeight end
+                        for _, pg in ipairs(pgrs) do itemH[#itemH + 1] = paragraphHeight(pg, paraW) end
                         for _ in ipairs(slds) do itemH[#itemH + 1] = Config.SliderRowHeight end
                         for _ in ipairs(ddns) do itemH[#itemH + 1] = Config.DropdownRowHeight end
                         for _ in ipairs(lns) do itemH[#itemH + 1] = Config.LineRowHeight end
@@ -2598,7 +2633,16 @@ function Library.CreateWindow(opts)
                                 makeToggle(tg, #btns + ti).Parent = body
                             end
                             for pi, pg in ipairs(pgrs) do
-                                makeParagraph(pg, #btns + #tgts + pi).Parent = body
+                                local pIdx = #btns + #tgts + pi
+                                pg._rowH = itemH[pIdx]
+                                pg._paraW = paraW
+                                pg._block = block
+                                pg._body = body
+                                pg._bodyH = contentH
+                                pg._headH = headH
+                                pg._divGap = divGap
+                                pg._collapsed = st.collapsed
+                                makeParagraph(pg, pIdx, itemH[pIdx]).Parent = body
                             end
                             for si, sl in ipairs(slds) do
                                 makeSlider(sl, #btns + #tgts + #pgrs + si).Parent = body
@@ -2726,7 +2770,6 @@ function Library.CreateWindow(opts)
                     end
                 end
 
-                -- 前向声明：collapsePanel 收起后需要触发「上一次 Toggle」的灵动岛状态展示
                 local playToggleStateAnimation = nil
 
                 local function collapsePanel(skipToggleAnim)
@@ -2754,19 +2797,15 @@ function Library.CreateWindow(opts)
                     destroyTabUI()
                     win._rebuildTabs = nil
                     expanded = false
-                    -- 收起态显示：自定义文字优先，否则窗口 Title
+
                     setIslandText(islandTextOverride or title, Config.TitleColor)
                     interacting = false
-                    -- 收起面板后展示上一次操作的 Toggle 状态（ChangeIconText 内部收起时跳过）
+
                     if not skipToggleAnim and playToggleStateAnimation then
                         task.delay(0.05, function() playToggleStateAnimation() end)
                     end
                 end
 
-                -- ChangeIconText：大图标 + 文字的胖岛展示。
-                -- 展开态：先把面板收起，再把岛撑成胖岛；
-                -- 收起态：直接向下展开成胖岛。
-                -- 两者后续一致：持续 IconTextHoldTime 秒后复原到展开前的状态。
                 local iconTextBusy = false
                 local function playIconTextAnimation(text, iconName, iconColor)
                     if not alive or not ready or shutdown then return end
@@ -2775,10 +2814,10 @@ function Library.CreateWindow(opts)
                     if iconName ~= nil and type(iconName) ~= "string" then return end
                     iconTextBusy = true
                     local wasExpanded = expanded
-                    -- 进行中的通知/提示先打断，避免与胖岛动画抢灵动岛
+
                     if hintActive then clearHint(true) end
                     if actionBusy and actionEnd then actionEnd(true) end
-                    -- Toggle 状态动画进行中：清掉它的内容，由本动画接管
+
                     if toggleAnimBusy then
                         if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
                         toggleAnimContainer = nil
@@ -2787,7 +2826,7 @@ function Library.CreateWindow(opts)
 
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                    -- 展开态先收起面板（collapsePanel 内部已把文字重建为 Title）
+
                     if wasExpanded then
                         collapsePanel(true)
                         task.wait(Config.PanelExpandTime * 0.5)
@@ -2796,7 +2835,6 @@ function Library.CreateWindow(opts)
                     winOpen = false
                     interacting = false
 
-                    -- 胖岛内容：左侧大图标 + 右侧文字
                     local iconSize = Config.IconTextIconSize
                     local textSize = Config.IconTextTextSize
                     local tw = measureTextWidth(text, textSize)
@@ -2819,7 +2857,7 @@ function Library.CreateWindow(opts)
                     hl.SortOrder = Enum.SortOrder.LayoutOrder
                     hl.Padding = UDim.new(0, iconW > 0 and Config.IconTextGap or 0)
                     hl.Parent = hc
-                    -- 原文字淡出（胖岛期间不与图标文字并存）
+
                     if islandTextContainer and islandTextContainer.Parent then
                         for _, cf in ipairs(islandTextContainer:GetChildren()) do
                             local lb = cf:FindFirstChildOfClass("TextLabel")
@@ -2869,9 +2907,6 @@ function Library.CreateWindow(opts)
                         end
                     end)
 
-                    -- 撑成胖岛（收起态是"向下展开"：顶边下移 + 变宽；展开态已收起，仅变宽）
-                    -- 用 animateEdge 而非 TweenService：它与 collapsePanel/展开动画共用互斥通道，
-                    -- 不会互相逐帧覆写尺寸
                     edge.AnchorPoint = Vector2.new(0.5, 0.5)
                     edge.Position = islandRest
                     animateEdge(
@@ -2881,20 +2916,19 @@ function Library.CreateWindow(opts)
                         0
                     )
 
-                    -- 持续 IconTextHoldTime 秒后复原
                     task.delay(Config.IconTextHoldTime, function()
                         if not alive then return end
                         if hc and hc.Parent then hc:Destroy() end
                         iconTextBusy = false
-                        -- 复原为正常灵动岛，并让标题重新淡入
+
                         animateEdge(Config.IslandSize, islandRest, Config.IconTextRestoreTime, 0)
-                        -- 恢复文字：ChangeText 的自定义文字优先，否则 Title
+
                         setIslandText(islandTextOverride or title, Config.TitleColor)
                         for _, cf in ipairs(islandTextContainer:GetChildren()) do
                             local lb = cf:FindFirstChildOfClass("TextLabel")
                             if lb then TweenService:Create(lb, TweenInfo.new(Config.IconTextRestoreTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
                         end
-                        -- 回到展开态时把面板重新展开，恢复调用前的样子
+
                         if wasExpanded then
                             task.delay(Config.IconTextGrowTime, function()
                                 if not alive or expanded then return end
@@ -2935,14 +2969,9 @@ function Library.CreateWindow(opts)
                         end
                     end)
                 end
-                -- 暴露到外层，供 win.DynamicIslandAction.ChangeIconText 调用
+
                 iconTextPlayer = playIconTextAnimation
 
-                -- ============ 收起面板后的 Toggle 状态展示 ============
-                -- UI 结构：图标 | Toggle名称 | 已开启/已关闭
-                -- 动画：灵动岛左右变长 + 原 Title 渐隐 → 文字从中心向两边渐显
-                --       持续 ToggleIslandHoldTime 秒 → 文字从两边向中心渐隐 + 灵动岛复原长度
-                --       最后恢复 Title 文字（或被 ChangeText 设置过的自定义文字）
                 local function buildCharLabel(ch, color, size)
                     local frame = Instance.new("Frame")
                     frame.Size = UDim2.new(0, 0, 1, 0)
@@ -2974,12 +3003,12 @@ function Library.CreateWindow(opts)
                     local titleText = info.Title or "Toggle"
 
                     toggleAnimBusy = true
-                    -- 进行中的通知先打断，避免与状态展示抢灵动岛
+
                     if actionBusy and actionEnd then actionEnd(true) end
 
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                    -- 收起态下把灵动岛左右变长（仍保持岛心居中）
+
                     local iconSize = Config.ToggleIslandIconSize
                     local textSize = Config.ToggleIslandTextSize
                     local iconW = (info.Icon and info.Icon ~= "") and iconSize or 0
@@ -2997,7 +3026,7 @@ function Library.CreateWindow(opts)
                         Config.ToggleIslandGrowTime,
                         0
                     )
-                    -- 原 Title 文字渐隐，让位给三段式状态文字
+
                     if islandTextContainer and islandTextContainer.Parent then
                         for _, cf in ipairs(islandTextContainer:GetChildren()) do
                             local lb = cf:FindFirstChildOfClass("TextLabel")
@@ -3025,11 +3054,9 @@ function Library.CreateWindow(opts)
                     local step = Config.ToggleIslandStepTime
                     local revealT = Config.ToggleIslandRevealTime
                     local fadeT = Config.ToggleIslandFadeTime
-                    -- revealList/fadeList：每个元素 = { obj = TextLabel/ImageLabel, dist = 距中心距离 }
-                    -- dist 由各段内部按「字符序号相对中心」计算得出，图标按最外侧处理
+
                     local revealList, fadeList = {}, {}
 
-                    -- 1) 最左侧图标（开启蓝 / 关闭红）
                     if iconW > 0 then
                         local ic = Instance.new("ImageLabel")
                         ic.Name = "ToggleStateIcon"
@@ -3041,7 +3068,7 @@ function Library.CreateWindow(opts)
                         ic.LayoutOrder = 1
                         ic.ZIndex = 57
                         ic.Parent = hc
-                        -- 图标位于最外侧：渐显时最后出现，渐隐时最先消失
+
                         table.insert(revealList, { obj = ic, dist = 99 })
                         table.insert(fadeList, { obj = ic, dist = 0 })
                         task.spawn(function()
@@ -3056,7 +3083,6 @@ function Library.CreateWindow(opts)
                         end)
                     end
 
-                    -- 2) 中心：Toggle 名称（逐字，从中心向两边渐显）
                     do
                         local titleItems = {}
                         for _, item in ipairs(parseColoredChars(titleText, Config.TitleColor)) do
@@ -3074,7 +3100,6 @@ function Library.CreateWindow(opts)
                         end
                     end
 
-                    -- 3) 右侧：已开启 / 已关闭（逐字，颜色随开关状态）
                     do
                         local stateItems = {}
                         for _, item in ipairs(parseColoredChars(stateText, stateColor)) do
@@ -3092,7 +3117,6 @@ function Library.CreateWindow(opts)
                         end
                     end
 
-                    -- 展开动画：从中心向两边渐显（距中心越远的字符越晚出现）
                     for _, e in ipairs(revealList) do
                         local isText = e.obj:IsA("TextLabel")
                         local md = math.max(e.dist, 0.001)
@@ -3106,7 +3130,6 @@ function Library.CreateWindow(opts)
                         end)
                     end
 
-                    -- 持续 ToggleIslandHoldTime 秒后：从两边向中心渐隐 + 灵动岛复原长度
                     task.delay(Config.ToggleIslandHoldTime, function()
                         if not alive then return end
                         if hc and hc.Parent then
@@ -3124,9 +3147,9 @@ function Library.CreateWindow(opts)
                                 end)
                             end
                         end
-                        -- 灵动岛恢复长度
+
                         animateEdge(Config.IslandSize, islandRest, Config.ToggleIslandRestoreTime, 0)
-                        -- 渐隐完成后销毁容器，并恢复 Title（或被 ChangeText 设置过的文字）
+
                         local totalFade = #fadeList * step + fadeT + 0.1
                         task.delay(totalFade, function()
                             if not alive then return end
@@ -3135,7 +3158,7 @@ function Library.CreateWindow(opts)
                                 toggleAnimContainer = nil
                             end
                             if hc and hc.Parent then hc:Destroy() end
-                            -- 恢复文字：ChangeText 的自定义文字优先，否则 Title
+
                             setIslandText(islandTextOverride or title, Config.TitleColor)
                             if islandTextContainer and islandTextContainer.Parent then
                                 for _, cf in ipairs(islandTextContainer:GetChildren()) do
@@ -3155,17 +3178,16 @@ function Library.CreateWindow(opts)
                     interacting = true
                     holding = true
                     dragStartX = input.Position.X
-                    -- 基础尺寸取静止态尺寸（提示展开中则取当前尺寸），并取消尚未播完的回弹补间，
-                    -- 保证紧接着的拉扯动画有一个干净、稳定的起点
+
                     if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
                     dragBaseSize = hintActive and edge.Size or Config.IslandSize
                     dragging = false
                     TweenService:Create(islandScale, TweenInfo.new(Config.TapExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = Config.IslandTapScale }):Play()
                     longPress = task.delay(Config.LongPressThreshold, function()
                             if holding then
-                                -- 展开会立即接管 AnchorPoint/Position/Size，这里只清除提示状态，不做几何还原
+
                                 if hintActive then clearHint(true) end
-                                -- Toggle 状态展示进行中：同样只清内容，几何交给展开动画接管
+
                                 if toggleAnimBusy then
                                     if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
                                     toggleAnimContainer = nil
@@ -3175,9 +3197,7 @@ function Library.CreateWindow(opts)
                                 titleGen = titleGen + 1
                                 local myTitleGen = titleGen
                                 islandScale.Scale = 1
-                            -- 面板标题始终读取窗口 Title：自定义灵动岛文字只在收起态生效。
-                            -- 展开前先把容器文字重建为 Title（新字先置全透明，交给下面的渐隐/渐显接管），
-                            -- 这样下方标题宽度测量也基于 Title，而不是残留的自定义文字。
+
                             if islandTextContainer and islandTextContainer.Parent then
                                 setIslandText(title, Config.TitleColor)
                                 for _, cf in ipairs(islandTextContainer:GetChildren()) do
@@ -3229,7 +3249,7 @@ function Library.CreateWindow(opts)
                             task.delay(Config.FadeInTime, function()
                                 if not expanded or myTitleGen ~= titleGen then return end
                                 if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
-                                -- 文字重建为 Title 后容器宽度可能与测量时不同（自动尺寸下一帧才刷新），此处按实际宽度重算居中点
+
                                 local tipX = contentLeftX + islandTextContainer.AbsoluteSize.X / 2
                                 local slide = 40
                                 islandTextContainer.Position = UDim2.new(0, tipX + slide, 0, titleTargetY)
@@ -3332,7 +3352,7 @@ function Library.CreateWindow(opts)
                                     contentFrame.Name = "TabContent"
                                     contentFrame.BackgroundTransparency = 1
                                     contentFrame.Position = UDim2.new(0, contentX, 0, listTop)
-                                    -- 控件区域向下延长到面板底边框：原先额外减去 PanelMargin 会在滑动容器底部留出空隙
+
                                     contentFrame.Size = UDim2.new(1, -(contentX + titlePad), 1, -listTop)
                                     contentFrame.ClipsDescendants = true
                                     contentFrame.ZIndex = 2
@@ -3620,15 +3640,13 @@ function Library.CreateWindow(opts)
                                 destroyTabUI()
                                 local cx2 = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                                 local cy2 = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                                -- 岛内文字与灵动岛同步回到岛心：否则复位过程中文字会停在面板标题处，
-                                -- 直到动画结束被销毁重建的瞬间才突然跳到岛心，形成一次明显抖动
-                                -- （此处不改HorizontalAlignment：展开态标题是左对齐，起手改居中会先跳一次）
+
                                 if islandTextContainer and islandTextContainer.Parent then
                                     TweenService:Create(islandTextContainer, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                                         Position = UDim2.new(Config.IslandPosition.X.Scale, cx2, Config.IslandPosition.Y.Scale, cy2),
                                     }):Play()
                                 end
-                                -- over 传 0：复位末段不再有overshoot 回摆，动画收在精确静止值上
+
                                 animateEdge(Config.IslandSize, Config.IslandPosition, 0.45, 0, function()
                                     edge.AnchorPoint = Vector2.new(0.5, 0.5)
                                     edge.Position = UDim2.new(0.5, cx2, 0, cy2)
@@ -3745,7 +3763,7 @@ function Library.CreateWindow(opts)
                         if hintActive then
                             clearHint()
                         elseif not wasDragging then
-                            -- 拉扯过的不算点击，避免拖动误触发连点三次提示
+
                             registerIslandTap()
                         end
                         interacting = false
@@ -3918,6 +3936,7 @@ function Library.CreateWindow(opts)
                 pg.SetInfo = function(self4, v)
                     self4.Info = v and tostring(v) or ""
                     if self4._infoLbl and self4._infoLbl.Parent then self4._infoLbl.Text = self4.Info end
+                    refreshParagraphHeight(self4)
                 end
                 pg.SetIcon = function(self4, v)
                     self4.Icon = (type(v) == "string" and v ~= "") and v or nil
@@ -3942,15 +3961,10 @@ function Library.CreateWindow(opts)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return pg
             end
-            -- AddLine：添加一根横向细分隔线，用于分隔功能
-            -- 用法：
-            --   sub:AddLine()                              -- 用默认颜色
-            --   sub:AddLine(Color3.fromRGB(255,80,80))     -- 指定颜色（也支持传table）
-            --   sub:AddLine({ Color = c, Thickness = 2, Inset = 12 })
-            -- 返回句柄支持 SetColor / SetThickness / SetInset / Destroy，修改即时生效。
+
             st.AddLine = function(self3, a, b)
                 local lopts = {}
-                if typeof(a) == "Color3" then         -- 位置参数：直接传颜色
+                if typeof(a) == "Color3" then
                     lopts.Color = a
                 elseif type(a) == "table" then
                     lopts = a
@@ -3975,7 +3989,7 @@ function Library.CreateWindow(opts)
                     Thickness = lopts.Thickness,
                     Inset = lopts.Inset,
                 }
-                -- 运行时改色：无需重建，直接作用到已渲染的线本体
+
                 ln.SetColor = function(self5, v)
                     if typeof(v) == "Color3" then
                         self5.Color = v
@@ -3999,7 +4013,7 @@ function Library.CreateWindow(opts)
                         end
                     end
                 end
-                -- 移除该线（立即从列表删除并重建面板）
+
                 ln.Destroy = function(self5)
                     if self5._bar and self5._bar.Parent then self5._bar:Destroy() end
                     if self5._row and self5._row.Parent then self5._row:Destroy() end
@@ -4454,8 +4468,7 @@ function Library.CreateWindow(opts)
     win.GetWindowAction = function()
         return winOpen and "WindowOpen" or "WindowClose"
     end
-    -- 说明：以下入口同时兼容 obj.Method(text) 与 obj:Method(text) 两种调用方式
-    -- （冒号调用会多传一个 self，若函数签名未接收 self 就会把 self 当成 text 而静默 return）
+
     local function resolveTextArg(a, b)
         if type(a) == "string" then return a end
         if type(b) == "string" then return b end
@@ -4464,22 +4477,20 @@ function Library.CreateWindow(opts)
     win.DynamicIslandAction = setmetatable({
         ChangeText = function(a, b)
             local text = resolveTextArg(a, b)
-            -- 传空串 / nil 表示清除自定义文字，收起态还原为窗口 Title
+
             if text == nil or #text == 0 then
                 islandTextOverride = nil
             else
                 islandTextOverride = text
             end
             if not alive or expanded then return end
-            -- 变化的那段字符带「渐绿 → 切换 → 恢复原色」动画
+
             setIslandTextAnimated(islandTextOverride or title, Config.TitleColor)
         end,
         ShowNotify = function(a, b)
             runIslandAction(resolveTextArg(a, b))
         end,
-        -- 签名 ChangeIconText(Text, Icon, IconColor)
-        -- 同时兼容 obj.ChangeIconText(...) 与 obj:ChangeIconText(...)
-        -- Icon 为 Lucide 图标名，IconColor 为图标染色（缺省用副标题色）
+
         ChangeIconText = function(a, b, c, d)
             local text, icon, iconColor
             if type(a) == "string" then
