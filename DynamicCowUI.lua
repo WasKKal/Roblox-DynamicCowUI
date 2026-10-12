@@ -97,6 +97,20 @@ local Config = {
     IconTextMinW = 220,                   -- 胖岛最小宽度
     IconTextGrowTime = 0.35,              -- 展开/复原时长
     IconTextRestoreTime = 0.35,           -- 复原后回归Title 的淡入时长
+    -- 收起面板后的 Toggle 状态展示：图标 | Toggle名称 | 已开启/已关闭
+    ToggleIslandHoldTime = 2,             -- 持续时长（秒）
+    ToggleIslandGrowTime = 0.35,          -- 灵动岛左右变长 / 复原时长
+    ToggleIslandRestoreTime = 0.35,       -- 复原后回归Title 的淡入时长
+    ToggleIslandIconSize = 22,            -- 左侧图标尺寸
+    ToggleIslandTextSize = 16,            -- 名称与状态文字尺寸
+    ToggleIslandGap = 14,                 -- 三段内容之间的间距
+    ToggleIslandPadX = 20,                -- 左右内边距
+    ToggleIslandMinW = 280,               -- 加长后的最小宽度
+    ToggleIslandRevealTime = 0.26,        -- 单字符渐显时长
+    ToggleIslandFadeTime = 0.24,          -- 单字符渐隐时长
+    ToggleIslandStepTime = 0.055,         -- 相邻字符的渐显/渐隐间隔（决定扩散速度）
+    ToggleIslandOnColor = Color3.fromRGB(70, 160, 255),   -- 开启态（蓝）
+    ToggleIslandOffColor = Color3.fromRGB(255, 96, 96),   -- 关闭态（红）
     LongPressThreshold = 0.5,
     IslandDragThreshold = 8,
     IslandDragDamp = 0.55,
@@ -1012,6 +1026,11 @@ function Library.CreateWindow(opts)
     local actionEnd = nil
     -- ChangeIconText 的动画播放器，在补间/长按闭包内定义，此处桥接给 win.DynamicIslandAction
     local iconTextPlayer = nil
+    -- 收起面板后展示「上一次操作的 Toggle」状态：最后一次点击的 Toggle 快照
+    local lastToggleInfo = nil
+    -- 该动画进行中的容器句柄与忙标记（供长按展开、ChangeIconText 打断时清理）
+    local toggleAnimContainer = nil
+    local toggleAnimBusy = false
     -- actionBusy 需在使用处（playHintAnimation，位于 runIslandAction 之前）之前声明，
     -- 否则该闭包读取的是全局同名变量（恒为 nil），提示动画无法打断进行中的通知。
     local actionBusy = false
@@ -1876,6 +1895,13 @@ function Library.CreateWindow(opts)
                             if shutdown then return end
                             tg.Value = not tg.Value
                             apply()
+                            -- 记录最后一次操作的 Toggle，供收起面板后的灵动岛状态展示使用
+                            lastToggleInfo = {
+                                Title = tg.Title or "Toggle",
+                                Icon = tg.Icon,
+                                IconColor = tg.IconColor,
+                                Value = tg.Value,
+                            }
                             if tg.ConfigKey and win._configFolder then
                                 saveConfigValue(win._configFolder, tg.ConfigKey, tg.Value)
                             end
@@ -2700,7 +2726,10 @@ function Library.CreateWindow(opts)
                     end
                 end
 
-                local function collapsePanel()
+                -- 前向声明：collapsePanel 收起后需要触发「上一次 Toggle」的灵动岛状态展示
+                local playToggleStateAnimation = nil
+
+                local function collapsePanel(skipToggleAnim)
                     if not expanded then return end
                     titleGen = titleGen + 1
                     cancelTitleTweens()
@@ -2728,6 +2757,10 @@ function Library.CreateWindow(opts)
                     -- 收起态显示：自定义文字优先，否则窗口 Title
                     setIslandText(islandTextOverride or title, Config.TitleColor)
                     interacting = false
+                    -- 收起面板后展示上一次操作的 Toggle 状态（ChangeIconText 内部收起时跳过）
+                    if not skipToggleAnim and playToggleStateAnimation then
+                        task.delay(0.05, function() playToggleStateAnimation() end)
+                    end
                 end
 
                 -- ChangeIconText：大图标 + 文字的胖岛展示。
@@ -2745,12 +2778,18 @@ function Library.CreateWindow(opts)
                     -- 进行中的通知/提示先打断，避免与胖岛动画抢灵动岛
                     if hintActive then clearHint(true) end
                     if actionBusy and actionEnd then actionEnd(true) end
+                    -- Toggle 状态动画进行中：清掉它的内容，由本动画接管
+                    if toggleAnimBusy then
+                        if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
+                        toggleAnimContainer = nil
+                        toggleAnimBusy = false
+                    end
 
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
                     -- 展开态先收起面板（collapsePanel 内部已把文字重建为 Title）
                     if wasExpanded then
-                        collapsePanel()
+                        collapsePanel(true)
                         task.wait(Config.PanelExpandTime * 0.5)
                     end
                     expanded = false
@@ -2899,6 +2938,215 @@ function Library.CreateWindow(opts)
                 -- 暴露到外层，供 win.DynamicIslandAction.ChangeIconText 调用
                 iconTextPlayer = playIconTextAnimation
 
+                -- ============ 收起面板后的 Toggle 状态展示 ============
+                -- UI 结构：图标 | Toggle名称 | 已开启/已关闭
+                -- 动画：灵动岛左右变长 + 原 Title 渐隐 → 文字从中心向两边渐显
+                --       持续 ToggleIslandHoldTime 秒 → 文字从两边向中心渐隐 + 灵动岛复原长度
+                --       最后恢复 Title 文字（或被 ChangeText 设置过的自定义文字）
+                local function buildCharLabel(ch, color, size)
+                    local frame = Instance.new("Frame")
+                    frame.Size = UDim2.new(0, 0, 1, 0)
+                    frame.AutomaticSize = Enum.AutomaticSize.X
+                    frame.BackgroundTransparency = 1
+                    frame.BorderSizePixel = 0
+                    local lb = Instance.new("TextLabel")
+                    lb.Size = UDim2.new(1, 0, 1, 0)
+                    lb.BackgroundTransparency = 1
+                    lb.Text = ch
+                    lb.TextColor3 = color
+                    lb.TextTransparency = 1
+                    lb.TextSize = size
+                    lb.Font = charFont(ch)
+                    lb.TextXAlignment = Enum.TextXAlignment.Center
+                    lb.TextYAlignment = Enum.TextYAlignment.Center
+                    lb.Parent = frame
+                    return frame, lb
+                end
+
+                playToggleStateAnimation = function()
+                    if not alive or not ready or shutdown then return end
+                    if toggleAnimBusy or iconTextBusy or hintActive then return end
+                    local info = lastToggleInfo
+                    if not info then return end
+                    local on = info.Value == true
+                    local stateColor = on and Config.ToggleIslandOnColor or Config.ToggleIslandOffColor
+                    local stateText = on and "已开启" or "已关闭"
+                    local titleText = info.Title or "Toggle"
+
+                    toggleAnimBusy = true
+                    -- 进行中的通知先打断，避免与状态展示抢灵动岛
+                    if actionBusy and actionEnd then actionEnd(true) end
+
+                    local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                    local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+                    -- 收起态下把灵动岛左右变长（仍保持岛心居中）
+                    local iconSize = Config.ToggleIslandIconSize
+                    local textSize = Config.ToggleIslandTextSize
+                    local iconW = (info.Icon and info.Icon ~= "") and iconSize or 0
+                    local gap = Config.ToggleIslandGap
+                    local titleW = measureTextWidth(titleText, textSize)
+                    local stateW = measureTextWidth(stateText, textSize)
+                    local inner = iconW + (iconW > 0 and gap or 0) + titleW + gap + stateW
+                    local targetW = math.max(Config.ToggleIslandMinW, inner + Config.ToggleIslandPadX * 2)
+
+                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                    edge.Position = islandRest
+                    animateEdge(
+                        UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
+                        UDim2.new(0.5, cx, 0, cy),
+                        Config.ToggleIslandGrowTime,
+                        0
+                    )
+                    -- 原 Title 文字渐隐，让位给三段式状态文字
+                    if islandTextContainer and islandTextContainer.Parent then
+                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                            local lb = cf:FindFirstChildOfClass("TextLabel")
+                            if lb then TweenService:Create(lb, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                        end
+                    end
+
+                    local hc = Instance.new("Frame")
+                    hc.Name = "IslandToggleContainer"
+                    hc.Size = UDim2.new(1, 0, 1, 0)
+                    hc.BackgroundTransparency = 1
+                    hc.BorderSizePixel = 0
+                    hc.ClipsDescendants = true
+                    hc.ZIndex = 56
+                    hc.Parent = edge
+                    toggleAnimContainer = hc
+                    local hl = Instance.new("UIListLayout")
+                    hl.FillDirection = Enum.FillDirection.Horizontal
+                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                    hl.VerticalAlignment = Enum.VerticalAlignment.Center
+                    hl.SortOrder = Enum.SortOrder.LayoutOrder
+                    hl.Padding = UDim.new(0, gap)
+                    hl.Parent = hc
+
+                    local step = Config.ToggleIslandStepTime
+                    local revealT = Config.ToggleIslandRevealTime
+                    local fadeT = Config.ToggleIslandFadeTime
+                    -- revealList/fadeList：每个元素 = { obj = TextLabel/ImageLabel, dist = 距中心距离 }
+                    -- dist 由各段内部按「字符序号相对中心」计算得出，图标按最外侧处理
+                    local revealList, fadeList = {}, {}
+
+                    -- 1) 最左侧图标（开启蓝 / 关闭红）
+                    if iconW > 0 then
+                        local ic = Instance.new("ImageLabel")
+                        ic.Name = "ToggleStateIcon"
+                        ic.BackgroundTransparency = 1
+                        ic.Size = UDim2.fromOffset(iconSize, iconSize)
+                        ic.ImageColor3 = stateColor
+                        ic.ImageTransparency = 1
+                        ic.ScaleType = Enum.ScaleType.Fit
+                        ic.LayoutOrder = 1
+                        ic.ZIndex = 57
+                        ic.Parent = hc
+                        -- 图标位于最外侧：渐显时最后出现，渐隐时最先消失
+                        table.insert(revealList, { obj = ic, dist = 99 })
+                        table.insert(fadeList, { obj = ic, dist = 0 })
+                        task.spawn(function()
+                            local lucide = loadLucide()
+                            if not lucide then return end
+                            local okA, asset = pcall(lucide.GetAsset, info.Icon)
+                            if okA and asset and asset.Url then
+                                if not ic or not ic.Parent then return end
+                                ic.Image = asset.Url
+                                if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                            end
+                        end)
+                    end
+
+                    -- 2) 中心：Toggle 名称（逐字，从中心向两边渐显）
+                    do
+                        local titleItems = {}
+                        for _, item in ipairs(parseColoredChars(titleText, Config.TitleColor)) do
+                            if item.ch ~= " " then titleItems[#titleItems + 1] = item end
+                        end
+                        local n = #titleItems
+                        for i, item in ipairs(titleItems) do
+                            local frame, lb = buildCharLabel(item.ch, Config.TitleColor, textSize)
+                            frame.LayoutOrder = 2
+                            frame.ZIndex = 57
+                            frame.Parent = hc
+                            local dist = math.abs(i - (n + 1) / 2)
+                            table.insert(revealList, { obj = lb, dist = dist })
+                            table.insert(fadeList, { obj = lb, dist = dist })
+                        end
+                    end
+
+                    -- 3) 右侧：已开启 / 已关闭（逐字，颜色随开关状态）
+                    do
+                        local stateItems = {}
+                        for _, item in ipairs(parseColoredChars(stateText, stateColor)) do
+                            if item.ch ~= " " then stateItems[#stateItems + 1] = item end
+                        end
+                        local n = #stateItems
+                        for i, item in ipairs(stateItems) do
+                            local frame, lb = buildCharLabel(item.ch, stateColor, textSize)
+                            frame.LayoutOrder = 3
+                            frame.ZIndex = 57
+                            frame.Parent = hc
+                            local dist = math.abs(i - (n + 1) / 2)
+                            table.insert(revealList, { obj = lb, dist = dist })
+                            table.insert(fadeList, { obj = lb, dist = dist })
+                        end
+                    end
+
+                    -- 展开动画：从中心向两边渐显（距中心越远的字符越晚出现）
+                    for _, e in ipairs(revealList) do
+                        local isText = e.obj:IsA("TextLabel")
+                        local md = math.max(e.dist, 0.001)
+                        task.delay(md * step, function()
+                            if not e.obj or not e.obj.Parent then return end
+                            if isText then
+                                TweenService:Create(e.obj, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                            else
+                                TweenService:Create(e.obj, TweenInfo.new(0.26, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+                            end
+                        end)
+                    end
+
+                    -- 持续 ToggleIslandHoldTime 秒后：从两边向中心渐隐 + 灵动岛复原长度
+                    task.delay(Config.ToggleIslandHoldTime, function()
+                        if not alive then return end
+                        if hc and hc.Parent then
+                            for _, e in ipairs(fadeList) do
+                                if not e.obj or not e.obj.Parent then return end
+                                local isText = e.obj:IsA("TextLabel")
+                                local md = math.max(e.dist, 0.001)
+                                task.delay(md * step, function()
+                                    if not e.obj or not e.obj.Parent then return end
+                                    if isText then
+                                        TweenService:Create(e.obj, TweenInfo.new(fadeT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
+                                    else
+                                        TweenService:Create(e.obj, TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
+                                    end
+                                end)
+                            end
+                        end
+                        -- 灵动岛恢复长度
+                        animateEdge(Config.IslandSize, islandRest, Config.ToggleIslandRestoreTime, 0)
+                        -- 渐隐完成后销毁容器，并恢复 Title（或被 ChangeText 设置过的文字）
+                        local totalFade = #fadeList * step + fadeT + 0.1
+                        task.delay(totalFade, function()
+                            if not alive then return end
+                            if toggleAnimBusy and toggleAnimContainer == hc then
+                                toggleAnimBusy = false
+                                toggleAnimContainer = nil
+                            end
+                            if hc and hc.Parent then hc:Destroy() end
+                            -- 恢复文字：ChangeText 的自定义文字优先，否则 Title
+                            setIslandText(islandTextOverride or title, Config.TitleColor)
+                            if islandTextContainer and islandTextContainer.Parent then
+                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                                    if lb then TweenService:Create(lb, TweenInfo.new(Config.ToggleIslandRestoreTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                                end
+                            end
+                        end)
+                    end)
+                end
+
                 edge.InputBegan:Connect(function(input)
                     if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
                     if not ready then return end
@@ -2917,6 +3165,12 @@ function Library.CreateWindow(opts)
                             if holding then
                                 -- 展开会立即接管 AnchorPoint/Position/Size，这里只清除提示状态，不做几何还原
                                 if hintActive then clearHint(true) end
+                                -- Toggle 状态展示进行中：同样只清内容，几何交给展开动画接管
+                                if toggleAnimBusy then
+                                    if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
+                                    toggleAnimContainer = nil
+                                    toggleAnimBusy = false
+                                end
                                 expanded = true
                                 titleGen = titleGen + 1
                                 local myTitleGen = titleGen
