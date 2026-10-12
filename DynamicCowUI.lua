@@ -245,6 +245,11 @@ local Config = {
     SliderThumbSize = 16,
     SliderAnimTime = 0.3,
     DropdownRowHeight = 36,
+    -- AddLine 横向分隔线
+    LineRowHeight = 14,-- 分隔线所在行的总高度（上下留白）
+    LineThickness = 1,                -- 线的粗细
+    LineColor = Color3.fromRGB(88, 88, 98),
+    LineInset = 0,                    -- 左右缩进（0 = 铺满，与 SubTitle 分隔线一致）
     DropdownTitleSize = 14,
     DropdownTitleColor = Color3.new(1, 1, 1),
     DropdownTitlePadX = 10,
@@ -1967,6 +1972,31 @@ function Library.CreateWindow(opts)
                         p._stroke = stroke
                         return frame
                     end
+                    -- AddLine：横向细分隔线。行高 LineRowHeight，线本体垂直居中、厚度 LineThickness。
+                    -- 通过 p.Color / p.Thickness / p.Inset 运行时可改（SetColor/SetThickness/SetInset）。
+                    local function makeLine(ln, order)
+                        local rowH = Config.LineRowHeight
+                        local frame = Instance.new("Frame")
+                        frame.Name = "SubLine"
+                        frame.BackgroundTransparency = 1
+                        frame.Size = UDim2.new(1, 0, 0, rowH)
+                        frame.LayoutOrder = order
+                        frame.ZIndex = 3
+                        local inset = ln.Inset or Config.LineInset
+                        local bar = Instance.new("Frame")
+                        bar.Name = "LineBar"
+                        bar.BackgroundColor3 = ln.Color or Config.LineColor
+                        bar.BorderSizePixel = 0
+                        bar.Size = UDim2.new(1, -(inset * 2), 0, ln.Thickness or Config.LineThickness)
+                        bar.Position = UDim2.new(0, inset, 0.5, 0)
+                        bar.AnchorPoint = Vector2.new(0, 0.5)
+                        bar.ZIndex = 3
+                        bar.Parent = frame
+                        -- 半透明细线不需要圆角
+                        ln._bar = bar
+                        ln._row = frame
+                        return frame
+                    end
                     local function makeSlider(sl, order)
                         if win._autoLoadConfig and sl.ConfigKey and win._configFolder then
                             local sv = loadConfigValue(win._configFolder, sl.ConfigKey)
@@ -2461,12 +2491,14 @@ function Library.CreateWindow(opts)
                         local pgrs = st._paragraphs or {}
                         local slds = st._sliders or {}
                         local ddns = st._dropdowns or {}
+                        local lns = st._lines or {}
                         local itemH = {}
                         for _ in ipairs(btns) do itemH[#itemH + 1] = Config.ButtonHeight end
                         for _ in ipairs(tgts) do itemH[#itemH + 1] = Config.ButtonHeight end
                         for _ in ipairs(pgrs) do itemH[#itemH + 1] = Config.ParagraphRowHeight end
                         for _ in ipairs(slds) do itemH[#itemH + 1] = Config.SliderRowHeight end
                         for _ in ipairs(ddns) do itemH[#itemH + 1] = Config.DropdownRowHeight end
+                        for _ in ipairs(lns) do itemH[#itemH + 1] = Config.LineRowHeight end
                         local ccount = #itemH
                         local sumH = 0
                         for _, h in ipairs(itemH) do sumH = sumH + h end
@@ -2530,6 +2562,9 @@ function Library.CreateWindow(opts)
                             end
                             for di, dd in ipairs(ddns) do
                                 makeDropdown(dd, #btns + #tgts + #pgrs + #slds + di).Parent = body
+                            end
+                            for li, ln in ipairs(lns) do
+                                makeLine(ln, #btns + #tgts + #pgrs + #slds + #ddns + li).Parent = body
                             end
                         end
                         local hasIco = (st.Icon ~= nil and st.Icon ~= "")
@@ -3339,6 +3374,7 @@ function Library.CreateWindow(opts)
                 _paragraphs = {},
                 _sliders = {},
                 _dropdowns = {},
+                _lines = {},
             }
             st.AddButton = function(self3, bopts)
                 bopts = bopts or {}
@@ -3465,6 +3501,81 @@ function Library.CreateWindow(opts)
                 table.insert(self3._paragraphs, pg)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return pg
+            end
+            -- AddLine：添加一根横向细分隔线，用于分隔功能
+            -- 用法：
+            --   sub:AddLine()                              -- 用默认颜色
+            --   sub:AddLine(Color3.fromRGB(255,80,80))     -- 指定颜色（也支持传table）
+            --   sub:AddLine({ Color = c, Thickness = 2, Inset = 12 })
+            -- 返回句柄支持 SetColor / SetThickness / SetInset / Destroy，修改即时生效。
+            st.AddLine = function(self3, a, b)
+                local lopts = {}
+                if typeof(a) == "Color3" then         -- 位置参数：直接传颜色
+                    lopts.Color = a
+                elseif type(a) == "table" then
+                    lopts = a
+                elseif a ~= nil then
+                    reportError("AddLine 异常:第一个参数应为 Color3 或 table")
+                    win:Error()
+                    return nil
+                end
+                local okL, emL = pcall(function()
+                    if type(lopts) ~= "table" then error("AddLine 入参不是 table") end
+                    if lopts.Color ~= nil and typeof(lopts.Color) ~= "Color3" then error("AddLine Color 非法") end
+                    if lopts.Thickness ~= nil and type(lopts.Thickness) ~= "number" then error("AddLine Thickness 非法") end
+                    if lopts.Inset ~= nil and type(lopts.Inset) ~= "number" then error("AddLine Inset 非法") end
+                end)
+                if not okL then
+                    reportError("AddLine 异常: " .. tostring(emL))
+                    win:Error()
+                    return nil
+                end
+                local ln = {
+                    Color = lopts.Color,
+                    Thickness = lopts.Thickness,
+                    Inset = lopts.Inset,
+                }
+                -- 运行时改色：无需重建，直接作用到已渲染的线本体
+                ln.SetColor = function(self5, v)
+                    if typeof(v) == "Color3" then
+                        self5.Color = v
+                        if self5._bar and self5._bar.Parent then self5._bar.BackgroundColor3 = v end
+                    end
+                end
+                ln.SetThickness = function(self5, v)
+                    if type(v) == "number" and v >= 0 then
+                        self5.Thickness = v
+                        if self5._bar and self5._bar.Parent then
+                            self5._bar.Size = UDim2.new(1, -((self5.Inset or Config.LineInset) * 2), 0, v)
+                        end
+                    end
+                end
+                ln.SetInset = function(self5, v)
+                    if type(v) == "number" and v >= 0 then
+                        self5.Inset = v
+                        if self5._bar and self5._bar.Parent then
+                            self5._bar.Size = UDim2.new(1, -(v * 2), 0, self5.Thickness or Config.LineThickness)
+                            self5._bar.Position = UDim2.new(0, v, 0.5, 0)
+                        end
+                    end
+                end
+                -- 移除该线（立即从列表删除并重建面板）
+                ln.Destroy = function(self5)
+                    if self5._bar and self5._bar.Parent then self5._bar:Destroy() end
+                    if self5._row and self5._row.Parent then self5._row:Destroy() end
+                    if self3._lines then
+                        for i, v in ipairs(self3._lines) do
+                            if v == self5 then
+                                table.remove(self3._lines, i)
+                                break
+                            end
+                        end
+                    end
+                    if win._rebuildTabs then win._rebuildTabs() end
+                end
+                table.insert(self3._lines, ln)
+                if win._rebuildTabs then win._rebuildTabs() end
+                return ln
             end
             st.AddSlider = function(self3, a, b, c, d, e)
                 local sopts
