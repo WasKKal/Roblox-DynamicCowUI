@@ -61,6 +61,12 @@ local Config = {
     LucideColor = Color3.fromRGB(0, 255, 120),
     LucideIconSize = 22,
     DefaultTitleIcon = "carton",
+    -- IconFromURL 加载期间显示的旋转 loader 图标（Lucide 名）
+    TitleLoaderIcon = "loader-circle",
+    -- URL 图标下载失败时的兜底图标（Lucide 名）
+    TitleIconFailIcon = "carton",
+    TitleLoaderSpinTime = 0.9,   -- loader 每圈旋转时长
+    TitleIconHandoffTime = 0.28, -- loader 与真实图标的交接时长
     DefaultTitleIconColor = Color3.new(1, 1, 1),
     RingThickness = 3,
     RingColor = Color3.fromRGB(0, 255, 120),
@@ -650,6 +656,16 @@ function Library.CreateWindow(a, ...)
         end
         urlAssetCache[url] = result or false
         return result
+    end
+
+    -- 取 Lucide 图标的 Image/ImageRect 信息，失败返回 nil
+    local function getLucideIcon(name)
+        if type(name) ~= "string" or #name == 0 then return nil end
+        local lucide = loadLucide()
+        if not lucide then return nil end
+        local ok, asset = pcall(lucide.GetAsset, name)
+        if ok and asset and asset.Url then return asset end
+        return nil
     end
 
     if not loadLucide() then
@@ -1243,6 +1259,7 @@ function Library.CreateWindow(a, ...)
     win._cfgIndex = {}
     if win._configFolder then ensureConfigFolder(win._configFolder) end
     local titleIcon = nil
+    local loaderSpinTween = nil
     local infoLabel = nil
     local brandLbl = nil
     local openDropdownClose = nil
@@ -3074,6 +3091,7 @@ function Library.CreateWindow(a, ...)
                     }):Play()
                     for _, cf in ipairs(islandTextContainer:GetChildren()) do local lb = cf:FindFirstChildOfClass("TextLabel") if lb then lb.TextTransparency = 0 end end
                     if closeBtn then closeBtn:Destroy() closeBtn = nil end
+                    if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
                     if titleIcon then titleIcon:Destroy() titleIcon = nil end
                     if infoLabel then infoLabel:Destroy() infoLabel = nil end
                     clearBrand()
@@ -3412,6 +3430,7 @@ function Library.CreateWindow(a, ...)
                     local iconLeft = m + titlePad + Config.TitleIconNudgeX
                     local contentLeftX = iconLeft + iconS + iconGap
                     local infoTop = blockTop + titleH + vGap - Config.InfoRise
+                    if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
                     local ic = Instance.new("ImageLabel")
                     ic.Name = "TitleIcon"
                     ic.Size = UDim2.fromOffset(iconS, iconS)
@@ -3428,26 +3447,89 @@ function Library.CreateWindow(a, ...)
                         if not iconColorSet then ic.ImageColor3 = Color3.new(1, 1, 1) end
                     end
                     task.spawn(function()
-                        local applied = false
-                        if iconFromURL then
-                            local assetId = loadIconFromURL(iconFromURL)
-                            if assetId then ic.Image = assetId applied = true end
+                        -- 图标来源优先级：IconFromURL > Icon。
+                        -- 有 URL 时先显示持续旋转的 loader，下载完成后做交接动画；
+                        -- 下载失败则回退到 carton（不再回退到 Icon，符合“失败即 carton”）。
+                        local handoff = Config.TitleIconHandoffTime
+
+                        local function setFinal(img, rectOff, rectSize, tintWithIconColor)
+                            if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
+                            if not (ic and ic.Parent) then return end
+                            -- 交接：先把旋转归零再淡入真实图标，避免残留旋转角度
+                            ic.Rotation = 0
+                            ic.Image = img
+                            if rectOff then ic.ImageRectOffset = rectOff ic.ImageRectSize = rectSize end
+                            -- Lucide 系图标（Icon / carton 兜底）走 iconColor 染色，
+                            -- 避免继承 IconFromURL 分支为真实图片设置的纯白
+                            if tintWithIconColor then ic.ImageColor3 = iconColor end
+                            TweenService:Create(ic, TweenInfo.new(handoff, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                ImageTransparency = 0,
+                            }):Play()
                         end
-                        if not applied then
-                            local lucide = loadLucide()
-                            if lucide then
-                                local ok, asset = pcall(lucide.GetAsset, iconName)
-                                if ok and asset and asset.Url then
-                                    ic.Image = asset.Url
-                                    if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                        -- 真实图标需等面板展开完成再交接，避免下载快时图标先于面板出现
+                        local function setFinalAfterExpand(img, rectOff, rectSize, tintWithIconColor)
+                            task.delay(Config.PanelExpandTime, function()
+                                setFinal(img, rectOff, rectSize, tintWithIconColor)
+                            end)
+                        end
+
+                        if iconFromURL then
+                            -- loader：立即可见并持续旋转，下载期间作为占位
+                            if not (ic and ic.Parent) then return end
+                            local loaderAsset = getLucideIcon(Config.TitleLoaderIcon)
+                            if loaderAsset then
+                                ic.Image = loaderAsset.Url
+                                if loaderAsset.ImageRectOffset then
+                                    ic.ImageRectOffset = loaderAsset.ImageRectOffset
+                                    ic.ImageRectSize = loaderAsset.ImageRectSize
                                 end
                             end
-                        end
-                        task.delay(Config.PanelExpandTime, function()
-                            if ic and ic.Parent then
-                                TweenService:Create(ic, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+                            ic.ImageTransparency = 0
+                            -- 持续旋转：用 RepeatCount=-1 循环补间驱动，无需轮询；
+                            -- 补间持有引用，图标销毁时由外层 nil 判断收尾
+                            if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) end
+                            loaderSpinTween = TweenService:Create(ic, TweenInfo.new(
+                                Config.TitleLoaderSpinTime, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut,
+                                -1, false
+                            ), { Rotation = 360 })
+                            loaderSpinTween:Play()
+
+                            local assetId = loadIconFromURL(iconFromURL)
+                            if not (ic and ic.Parent) then return end
+                            if assetId then
+                                -- 成功：先淡出 loader，再淡入真实图标
+                                ic.Rotation = 0
+                                TweenService:Create(ic, TweenInfo.new(handoff * 0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                    ImageTransparency = 1,
+                                }):Play()
+                                task.delay(handoff * 0.5, function() setFinalAfterExpand(assetId) end)
+                            else
+                                -- 失败：回退 carton
+                                local failAsset = getLucideIcon(Config.TitleIconFailIcon)
+                                if failAsset then
+                                    ic.Rotation = 0
+                                    TweenService:Create(ic, TweenInfo.new(handoff * 0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                        ImageTransparency = 1,
+                                    }):Play()
+                                    task.delay(handoff * 0.5, function()
+                                        setFinalAfterExpand(failAsset.Url, failAsset.ImageRectOffset, failAsset.ImageRectSize, true)
+                                    end)
+                                else
+                                    ic.Rotation = 0
+                                    ic.ImageColor3 = iconColor
+                                    ic.ImageTransparency = 0
+                                end
                             end
-                        end)
+                            return
+                        end
+
+                        -- 无 URL：直接用 Icon（Lucide）
+                        local asset = getLucideIcon(iconName)
+                        if asset then
+                            setFinalAfterExpand(asset.Url, asset.ImageRectOffset, asset.ImageRectSize, true)
+                        else
+                            ic.ImageTransparency = 0
+                        end
                     end)
                     if info ~= "" then
                         if infoLabel then infoLabel:Destroy() end
@@ -4060,7 +4142,8 @@ if hintActive then clearHint(true) end
                             local function runCloseSequence()
                                 shutdown = true
                                 if closeBtn then closeBtn:Destroy() closeBtn = nil end
-                                if titleIcon then titleIcon:Destroy() titleIcon = nil end
+                                if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
+                    if titleIcon then titleIcon:Destroy() titleIcon = nil end
                                 if infoLabel then infoLabel:Destroy() infoLabel = nil end
                                 clearBrand()
                                 destroyTabUI()
