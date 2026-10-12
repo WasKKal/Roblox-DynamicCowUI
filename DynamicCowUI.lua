@@ -3686,27 +3686,35 @@ function Library.CreateWindow(opts)
     win.GetWindowAction = function()
         return winOpen and "WindowOpen" or "WindowClose"
     end
+    -- 说明：以下入口同时兼容 obj.Method(text) 与 obj:Method(text) 两种调用方式
+    -- （冒号调用会多传一个 self，若函数签名未接收 self 就会把 self 当成 text 而静默 return）
+    local function resolveTextArg(a, b)
+        if type(a) == "string" then return a end
+        if type(b) == "string" then return b end
+        return nil
+    end
     win.DynamicIslandAction = setmetatable({
-        ChangeText = function(text)
+        ChangeText = function(a, b)
+            local text = resolveTextArg(a, b)
             if type(text) ~= "string" or #text == 0 then return end
             title = text
             if not alive or expanded then return end
             setIslandText(text, Config.TitleColor)
         end,
-        ShowNotify = function(t)
-            runIslandAction(t)
+        ShowNotify = function(a, b)
+            runIslandAction(resolveTextArg(a, b))
         end,
     }, { __call = function(self) return self end })
-    win.ShowNotify = function(self, t)
-        runIslandAction(t)
+    win.ShowNotify = function(a, b)
+        runIslandAction(resolveTextArg(a, b))
     end
     Library._lastWin = win
     Library.DynamicIslandAction = win.DynamicIslandAction
     Library.GetWindowAction = function()
         return win:GetWindowAction()
     end
-    Library.ShowNotify = function(t)
-        runIslandAction(t)
+    Library.ShowNotify = function(a, b)
+        runIslandAction(resolveTextArg(a, b))
     end
     return win
 end
