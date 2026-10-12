@@ -673,6 +673,10 @@ function Library.CreateWindow(opts)
     local alive = true
     local errText = Config.ErrorText
 
+    local function safeCancel(handle)
+        if handle then pcall(task.cancel, handle) end
+    end
+
     local islandTextOverride = nil
 
     local flowSpeed = Config.FlowSpeedFast
@@ -1432,7 +1436,13 @@ function Library.CreateWindow(opts)
         return ball
     end
 
+    local errorSeqBusy = false
     local function playErrorSequence(customText)
+        if errorSeqBusy then
+            if type(customText) == "string" and #customText > 0 then errText = customText end
+            return
+        end
+        errorSeqBusy = true
         errText = (type(customText) == "string" and #customText > 0) and customText or Config.ErrorText
         expanded = false
         winOpen = false
@@ -1697,20 +1707,20 @@ function Library.CreateWindow(opts)
                 local function registerIslandTap()
                     if hintActive or expanded or not alive or not ready then return end
                     tapCount = tapCount + 1
-                    if tapWindowTmr then task.cancel(tapWindowTmr) end
+                    if tapWindowTmr then safeCancel(tapWindowTmr) end
                     tapWindowTmr = task.delay(Config.TapWindow, function()
                         tapCount = 0
                         tapWindowTmr = nil
                     end)
                     if tapCount >= 3 then
                         tapCount = 0
-                        if tapWindowTmr then task.cancel(tapWindowTmr) tapWindowTmr = nil end
+                        if tapWindowTmr then safeCancel(tapWindowTmr) tapWindowTmr = nil end
                         playHintAnimation()
                     end
                 end
                 local function resetIslandDrag()
-                    if dragStopTmr then task.cancel(dragStopTmr) dragStopTmr = nil end
-                    if dragRestoreTmr then task.cancel(dragRestoreTmr) dragRestoreTmr = nil end
+                    if dragStopTmr then safeCancel(dragStopTmr) dragStopTmr = nil end
+                    if dragRestoreTmr then safeCancel(dragRestoreTmr) dragRestoreTmr = nil end
                     if dragging and dragBaseSize and not expanded then
                         tweenEdgeSize(dragBaseSize, 0.3)
                     end
@@ -1726,23 +1736,23 @@ function Library.CreateWindow(opts)
                     if not dragging then
                         if dx > Config.IslandDragThreshold then
                             dragging = true
-                            if longPress then task.cancel(longPress) longPress = nil end
+                            if longPress then safeCancel(longPress) longPress = nil end
                         else
                             return
                         end
                     end
                     if dx < 0 then dx = 0 end
-                    if dragging and dragRestoreTmr then task.cancel(dragRestoreTmr) dragRestoreTmr = nil end
+                    if dragging and dragRestoreTmr then safeCancel(dragRestoreTmr) dragRestoreTmr = nil end
                     local extra = math.min(dx * Config.IslandDragDamp, Config.IslandDragMax)
                     if dragBaseSize then
                         edge.Size = UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + extra, dragBaseSize.Y.Scale, dragBaseSize.Y.Offset)
                     end
-                    if dragStopTmr then task.cancel(dragStopTmr) end
+                    if dragStopTmr then safeCancel(dragStopTmr) end
                     dragStopTmr = task.delay(Config.IslandDragStopDelay, function()
                         dragStopTmr = nil
                         if dragging and holding and not expanded and dragBaseSize then
                             tweenEdgeSize(UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + math.min(Config.IslandDragFixed, Config.IslandDragMax), dragBaseSize.Y.Scale, dragBaseSize.Y.Offset), 0.18)
-                            if dragRestoreTmr then task.cancel(dragRestoreTmr) end
+                            if dragRestoreTmr then safeCancel(dragRestoreTmr) end
                             dragRestoreTmr = task.delay(Config.IslandDragHold, function()
                                 dragRestoreTmr = nil
                                 resetIslandDrag()
@@ -3594,7 +3604,7 @@ function Library.CreateWindow(opts)
                                 if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
                                     if shutdown then return end
                                     TweenService:Create(btn, TweenInfo.new(Config.CloseHoldTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Config.RedXColor }):Play()
-                                    if closeHold then task.cancel(closeHold) end
+                                    if closeHold then safeCancel(closeHold) end
                                     closeHold = task.delay(Config.CloseHoldTime, function()
                                         closeHold = nil
                                         if showCloseConfirm then showCloseConfirm() end
@@ -3605,7 +3615,7 @@ function Library.CreateWindow(opts)
                                 if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
                                     TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Color3.new(1, 1, 1) }):Play()
                                     if closeHold then
-                                        task.cancel(closeHold)
+                                        safeCancel(closeHold)
                                         closeHold = nil
                                         collapsePanel()
                                     end
@@ -3774,7 +3784,7 @@ function Library.CreateWindow(opts)
                     if not interacting then return end
                     holding = false
                     local wasDragging = dragging
-                    if longPress then task.cancel(longPress) longPress = nil end
+                    if longPress then safeCancel(longPress) longPress = nil end
                     resetIslandDrag()
                     if expanded then
                         interacting = false
