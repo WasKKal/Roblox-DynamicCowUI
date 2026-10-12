@@ -216,6 +216,20 @@ local Config = {
     ParagraphBorderThickness = 1,
     ParagraphBackPad = 8,
     ParagraphDarken = 0.1,
+    SliderRowHeight = 34,
+    SliderTitleSize = 14,
+    SliderTitleColor = Color3.new(1, 1, 1),
+    SliderTitlePadX = 10,
+    SliderTitleMinW = 40,
+    SliderTitleGap = 10,
+    SliderTrackVPad = 9,
+    SliderTrackColor = Color3.fromRGB(58, 58, 70),
+    SliderTrackTransparency = 0.35,
+    SliderTrackCorner = UDim.new(0, 8),
+    SliderFillColor = Color3.fromRGB(120, 160, 255),
+    SliderThumbColor = Color3.fromRGB(245, 245, 248),
+    SliderThumbSize = 16,
+    SliderAnimTime = 0.3,
 }
 
 local Library = {}
@@ -1682,14 +1696,146 @@ function Library.CreateWindow(opts)
                         p._stroke = stroke
                         return frame
                     end
+                    local function makeSlider(sl, order)
+                        local rowH = Config.SliderRowHeight
+                        local frame = Instance.new("Frame")
+                        frame.Name = "SubSlider"
+                        frame.BackgroundTransparency = 1
+                        frame.Size = UDim2.new(1, 0, 0, rowH)
+                        frame.LayoutOrder = order
+                        frame.ZIndex = 3
+                        local titleW = measureTextWidth(sl.Title or "", Config.SliderTitleSize) + Config.SliderTitlePadX
+                        if titleW < Config.SliderTitleMinW then titleW = Config.SliderTitleMinW end
+                        local titleLbl = Instance.new("TextLabel")
+                        titleLbl.Name = "SliderTitle"
+                        titleLbl.BackgroundTransparency = 1
+                        titleLbl.Size = UDim2.new(0, titleW, 1, 0)
+                        titleLbl.Position = UDim2.new(0, 0, 0, 0)
+                        titleLbl.Text = sl.Title or ""
+                        titleLbl.TextColor3 = Config.SliderTitleColor
+                        titleLbl.TextSize = Config.SliderTitleSize
+                        titleLbl.Font = Enum.Font.GothamBold
+                        titleLbl.RichText = true
+                        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+                        titleLbl.TextYAlignment = Enum.TextYAlignment.Center
+                        titleLbl.ZIndex = 3
+                        titleLbl.Parent = frame
+                        local track = Instance.new("Frame")
+                        track.Name = "SliderTrack"
+                        track.BackgroundColor3 = Config.SliderTrackColor
+                        track.BackgroundTransparency = Config.SliderTrackTransparency
+                        track.Size = UDim2.new(1, -(titleW + Config.SliderTitleGap), 1, -Config.SliderTrackVPad * 2)
+                        track.Position = UDim2.new(0, titleW + Config.SliderTitleGap, 0, Config.SliderTrackVPad)
+                        track.ZIndex = 3
+                        local trackCorner = Instance.new("UICorner")
+                        trackCorner.CornerRadius = Config.SliderTrackCorner
+                        trackCorner.Parent = track
+                        track.Parent = frame
+                        local fill = Instance.new("Frame")
+                        fill.Name = "SliderFill"
+                        fill.BackgroundColor3 = sl.FillColor or Config.SliderFillColor
+                        fill.BackgroundTransparency = 0
+                        fill.Size = UDim2.new(0, 0, 1, 0)
+                        fill.ZIndex = 4
+                        local fillCorner = Instance.new("UICorner")
+                        fillCorner.CornerRadius = Config.SliderTrackCorner
+                        fillCorner.Parent = fill
+                        fill.Parent = track
+                        local thumb = Instance.new("Frame")
+                        thumb.Name = "SliderThumb"
+                        thumb.BackgroundColor3 = Config.SliderThumbColor
+                        thumb.Size = UDim2.fromOffset(Config.SliderThumbSize, Config.SliderThumbSize)
+                        thumb.AnchorPoint = Vector2.new(0.5, 0.5)
+                        thumb.Position = UDim2.new(0, 0, 0.5, 0)
+                        thumb.ZIndex = 5
+                        local thumbCorner = Instance.new("UICorner")
+                        thumbCorner.CornerRadius = UDim.new(1, 0)
+                        thumbCorner.Parent = thumb
+                        thumb.Parent = track
+                        local function clampFrac(f)
+                            if f < 0 then f = 0 elseif f > 1 then f = 1 end
+                            return f
+                        end
+                        local function getRange() return sl.MaxValue - sl.MinValue end
+                        local function snapVal(v)
+                            local r = getRange()
+                            if r <= 0 then return sl.MinValue end
+                            if sl.Degree and sl.Degree > 0 then
+                                v = sl.MinValue + math.floor((v - sl.MinValue) / sl.Degree + 0.5) * sl.Degree
+                            end
+                            if v < sl.MinValue then v = sl.MinValue end
+                            if v > sl.MaxValue then v = sl.MaxValue end
+                            return v
+                        end
+                        local function valToFrac(v)
+                            local r = getRange()
+                            if r <= 0 then return 0 end
+                            return clampFrac((v - sl.MinValue) / r)
+                        end
+                        sl._refresh = function(animate)
+                            local f2 = valToFrac(sl.Value)
+                            if sl._tween then sl._tween:Cancel() end
+                            if animate then
+                                sl._tween = TweenService:Create(sl._fill, TweenInfo.new(Config.SliderAnimTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(f2, 0, 1, 0) })
+                                sl._tween:Play()
+                            else
+                                sl._fill.Size = UDim2.new(f2, 0, 1, 0)
+                            end
+                            if sl._thumb then sl._thumb.Position = UDim2.new(f2, 0, 0.5, 0) end
+                        end
+                        sl._applyFrac = function(f, animate)
+                            f = clampFrac(f)
+                            sl.Value = snapVal(sl.MinValue + f * getRange())
+                            sl._refresh(animate)
+                            if type(sl.OnChanged) == "function" then
+                                local okC, errC = pcall(sl.OnChanged, sl.Value)
+                                if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
+                            end
+                        end
+                        sl.Value = sl.Value or sl.MinValue
+                        sl._refresh(false)
+                        local dragging = false
+                        local function pointFrac(input)
+                            local aw = sl._track.AbsoluteSize.X
+                            if aw <= 0 then return 0 end
+                            local x = (input.Position.X - sl._track.AbsolutePosition.X) / aw
+                            return clampFrac(x)
+                        end
+                        track.Active = true
+                        fill.Active = false
+                        thumb.Active = false
+                        track.InputBegan:Connect(function(input)
+                            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                                dragging = true
+                                sl._applyFrac(pointFrac(input), true)
+                                local moveConn
+                                moveConn = input.Changed:Connect(function()
+                                    if input.UserInputState == Enum.UserInputState.End then
+                                        dragging = false
+                                        if moveConn then moveConn:Disconnect() end
+                                    elseif input.Position then
+                                        sl._applyFrac(pointFrac(input), false)
+                                    end
+                                end)
+                            end
+                        end)
+                        sl._frame = frame
+                        sl._track = track
+                        sl._fill = fill
+                        sl._thumb = thumb
+                        sl._titleLbl = titleLbl
+                        return frame
+                    end
                     for _, st in ipairs(tab._subtitles) do
                         local btns = st._buttons or {}
                         local tgts = st._toggles or {}
                         local pgrs = st._paragraphs or {}
+                        local slds = st._sliders or {}
                         local itemH = {}
                         for _ in ipairs(btns) do itemH[#itemH + 1] = Config.ButtonHeight end
                         for _ in ipairs(tgts) do itemH[#itemH + 1] = Config.ButtonHeight end
                         for _ in ipairs(pgrs) do itemH[#itemH + 1] = Config.ParagraphRowHeight end
+                        for _ in ipairs(slds) do itemH[#itemH + 1] = Config.SliderRowHeight end
                         local ccount = #itemH
                         local sumH = 0
                         for _, h in ipairs(itemH) do sumH = sumH + h end
@@ -1747,6 +1893,9 @@ function Library.CreateWindow(opts)
                             end
                             for pi, pg in ipairs(pgrs) do
                                 makeParagraph(pg, #btns + #tgts + pi).Parent = body
+                            end
+                            for si, sl in ipairs(slds) do
+                                makeSlider(sl, #btns + #tgts + #pgrs + si).Parent = body
                             end
                         end
                         local hasIco = (st.Icon ~= nil and st.Icon ~= "")
@@ -2531,6 +2680,7 @@ function Library.CreateWindow(opts)
                 _buttons = {},
                 _toggles = {},
                 _paragraphs = {},
+                _sliders = {},
             }
             st.AddButton = function(self3, bopts)
                 bopts = bopts or {}
@@ -2639,6 +2789,107 @@ function Library.CreateWindow(opts)
                 table.insert(self3._paragraphs, pg)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return pg
+            end
+            st.AddSlider = function(self3, a, b, c, d, e)
+                local sopts
+                if type(a) == "table" then
+                    sopts = a
+                else
+                    sopts = { Title = a, Degree = b, MinValue = c, MaxValue = d, FillColor = e }
+                end
+                sopts = sopts or {}
+                local ok5, em5 = pcall(function()
+                    if type(sopts) ~= "table" then error("AddSlider 入参不是 table") end
+                    if sopts.Title == nil or type(sopts.Title) ~= "string" or #sopts.Title == 0 then error("AddSlider Title 非法") end
+                    if sopts.Degree == nil or type(sopts.Degree) ~= "number" then error("AddSlider Degree 非法") end
+                    if sopts.MinValue == nil or type(sopts.MinValue) ~= "number" then error("AddSlider MinValue 非法") end
+                    if sopts.MaxValue == nil or type(sopts.MaxValue) ~= "number" then error("AddSlider MaxValue 非法") end
+                    if sopts.MinValue >= sopts.MaxValue then error("AddSlider MinValue 必须小于 MaxValue") end
+                    if sopts.FillColor ~= nil and typeof(sopts.FillColor) ~= "Color3" then error("AddSlider FillColor 非法") end
+                    if sopts.Value ~= nil and type(sopts.Value) ~= "number" then error("AddSlider Value 非法") end
+                end)
+                if not ok5 then
+                    reportError("AddSlider 异常: " .. tostring(em5))
+                    win:Error()
+                    return nil
+                end
+                local sl = {
+                    Title = sopts.Title,
+                    Degree = sopts.Degree,
+                    MinValue = sopts.MinValue,
+                    MaxValue = sopts.MaxValue,
+                    FillColor = sopts.FillColor,
+                    Value = sopts.Value,
+                    OnChanged = sopts.OnChanged,
+                }
+                sl.GetValue = function(self4)
+                    return self4.Value
+                end
+                sl.SetValue = function(self4, v, animate)
+                    v = tonumber(v)
+                    if v == nil then return end
+                    local r = self4.MaxValue - self4.MinValue
+                    if r <= 0 then
+                        self4.Value = self4.MinValue
+                    else
+                        if self4.Degree and self4.Degree > 0 then
+                            v = self4.MinValue + math.floor((v - self4.MinValue) / self4.Degree + 0.5) * self4.Degree
+                        end
+                        if v < self4.MinValue then v = self4.MinValue end
+                        if v > self4.MaxValue then v = self4.MaxValue end
+                        self4.Value = v
+                    end
+                    if self4._refresh then self4._refresh(animate ~= false) end
+                    if type(self4.OnChanged) == "function" then
+                        local okC, errC = pcall(self4.OnChanged, self4.Value)
+                        if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
+                    end
+                end
+                sl.SetTitle = function(self4, v)
+                    self4.Title = v and tostring(v) or ""
+                    if self4._titleLbl and self4._titleLbl.Parent then
+                        self4._titleLbl.Text = self4.Title
+                        local tw = measureTextWidth(self4.Title, Config.SliderTitleSize) + Config.SliderTitlePadX
+                        if tw < Config.SliderTitleMinW then tw = Config.SliderTitleMinW end
+                        self4._titleLbl.Size = UDim2.new(0, tw, 1, 0)
+                        if self4._track and self4._track.Parent then
+                            self4._track.Position = UDim2.new(0, tw + Config.SliderTitleGap, 0, Config.SliderTrackVPad)
+                            self4._track.Size = UDim2.new(1, -(tw + Config.SliderTitleGap), 1, -Config.SliderTrackVPad * 2)
+                        end
+                    end
+                end
+                sl.SetFillColor = function(self4, v)
+                    if typeof(v) == "Color3" then
+                        self4.FillColor = v
+                        if self4._fill and self4._fill.Parent then self4._fill.BackgroundColor3 = v end
+                    end
+                end
+                sl.SetDegree = function(self4, v)
+                    if type(v) == "number" then
+                        self4.Degree = v
+                        self4.SetValue(self4.Value, false)
+                    end
+                end
+                sl.SetMin = function(self4, v)
+                    if type(v) == "number" then
+                        self4.MinValue = v
+                        if self4.MinValue >= self4.MaxValue then self4.MinValue = self4.MaxValue - 1 end
+                        self4.SetValue(self4.Value, false)
+                    end
+                end
+                sl.SetMax = function(self4, v)
+                    if type(v) == "number" then
+                        self4.MaxValue = v
+                        if self4.MaxValue <= self4.MinValue then self4.MaxValue = self4.MinValue + 1 end
+                        self4.SetValue(self4.Value, false)
+                    end
+                end
+                sl.SetOnChanged = function(self4, fn)
+                    if type(fn) == "function" then self4.OnChanged = fn end
+                end
+                table.insert(self3._sliders, sl)
+                if win._rebuildTabs then win._rebuildTabs() end
+                return sl
             end
             table.insert(self2._subtitles, st)
             if win._rebuildTabs then win._rebuildTabs() end
