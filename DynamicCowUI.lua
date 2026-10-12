@@ -88,6 +88,9 @@ local Config = {
     HintHoldTime = 1.5,
     HintRevealStep = 0.04,
     HintRevealTime = 0.3,
+    HintSlideInDistance = 26,
+    HintSlideOutDistance = 18,
+    HintSlideTime = 0.35,
 
     IconTextHoldTime = 2,
     IconTextIconSize = 26,
@@ -1582,9 +1585,23 @@ function Library.CreateWindow(opts)
                     if hintContainer and hintContainer.Parent then hintContainer:Destroy() end
                     hintContainer = nil
                     if not skipRestore and hintActive and edge and edge.Parent and hintBaseSize and not expanded then
-                        if hintBaseAnchor then edge.AnchorPoint = hintBaseAnchor end
-                        if hintBasePos then edge.Position = hintBasePos end
-                        TweenService:Create(edge, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = hintBaseSize }):Play()
+                        local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                        local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+                        TweenService:Create(edge, TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                            Size = hintBaseSize,
+                            Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideOutDistance),
+                        }):Play()
+                        task.delay(Config.HintSlideTime, function()
+                            if not edge or not edge.Parent then return end
+                            TweenService:Create(edge, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                Position = UDim2.new(0.5, cx, 0, cy),
+                            }):Play()
+                            task.delay(0.16, function()
+                                if not edge or not edge.Parent then return end
+                                if hintBaseAnchor then edge.AnchorPoint = hintBaseAnchor end
+                                if hintBasePos then edge.Position = hintBasePos end
+                            end)
+                        end)
                     end
                     hintBaseSize = nil
                     hintBaseAnchor = nil
@@ -1610,15 +1627,18 @@ function Library.CreateWindow(opts)
                     hintBaseSize = edge.Size
                     hintBaseAnchor = edge.AnchorPoint
                     hintBasePos = edge.Position
+                    local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                    local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
                     edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                    edge.Position = islandRest
+                    edge.Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideInDistance)
                     local txt = Config.HintText
                     local tsize = Config.HintTextSize
                     local tw = measureTextWidth(txt, tsize) + Config.HintExtendPad
                     local baseW = Config.IslandSize.X.Offset
                     local targetW = math.max(baseW + 80, tw)
-                    TweenService:Create(edge, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    TweenService:Create(edge, TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                         Size = UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
+                        Position = UDim2.new(0.5, cx, 0, cy),
                     }):Play()
                     local hc = Instance.new("Frame")
                     hc.Name = "IslandHintContainer"
