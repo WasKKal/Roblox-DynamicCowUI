@@ -3133,7 +3133,7 @@ function Library.CreateWindow(a, ...)
                     local gap = Config.ToggleIslandGap
                     local titleW = measureTextWidth(titleText, textSize)
                     local stateW = measureTextWidth(stateText, textSize)
-                    local inner = iconW + (iconW > 0 and gap or 0) + titleW + gap + stateW
+                    local inner = iconW + (iconW > 0 and gap or 0) + titleW + stateW
                     local targetW = math.max(Config.ToggleIslandMinW, inner + Config.ToggleIslandPadX * 2)
 
                     edge.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -3163,12 +3163,18 @@ function Library.CreateWindow(a, ...)
                     toggleAnimContainer = hc
                     local hl = Instance.new("UIListLayout")
                     hl.FillDirection = Enum.FillDirection.Horizontal
-                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                    -- 图标固定在最左侧，内容整体左对齐
+                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Left
                     hl.VerticalAlignment = Enum.VerticalAlignment.Center
                     hl.SortOrder = Enum.SortOrder.LayoutOrder
-                    -- 字符之间不加间距（保持词组紧凑），仅在图标/名称/状态词之间留 gap
+                    -- 字符之间不加间距，「已开启」与名称之间也不分隔
                     hl.Padding = UDim.new(0, 0)
                     hl.Parent = hc
+
+                    -- 左侧内边距，让图标不贴灵动岛边缘
+                    local leftPad = Instance.new("UIPadding")
+                    leftPad.PaddingLeft = Instance.new("UDim", 0, Config.ToggleIslandPadX)
+                    leftPad.Parent = hc
 
                     local step = Config.ToggleIslandStepTime
                     local revealT = Config.ToggleIslandRevealTime
@@ -3238,17 +3244,6 @@ function Library.CreateWindow(a, ...)
                             local frame, lb = buildCharLabel(item.ch, stateColor, textSize)
                             frame.LayoutOrder = 3
                             frame.ZIndex = 57
-                            -- 状态词整体左移一个 gap，与 Toggle 名称形成视觉分组
-                            if i == 1 then
-                                local spacer = Instance.new("Frame")
-                                spacer.Name = "StateSpacer"
-                                spacer.Size = UDim2.new(0, gap, 1, 0)
-                                spacer.BackgroundTransparency = 1
-                                spacer.BorderSizePixel = 0
-                                spacer.LayoutOrder = 2.5
-                                spacer.ZIndex = 57
-                                spacer.Parent = hc
-                            end
                             frame.Parent = hc
                             local dist = math.abs(i - (n + 1) / 2)
                             table.insert(revealList, { obj = lb, dist = dist })
