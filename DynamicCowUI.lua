@@ -415,74 +415,83 @@ function Library.CreateWindow(opts)
     local iconColorSet = false
     local configFolder = nil
     local autoLoadConfig = true
+    local lenient = false
+    local function rejectSignature(reason)
+        if lenient then
+            reportError(reason .. "（宽容模式：已忽略该项并使用默认值）")
+        else
+            isError = true
+            errReason = reason
+        end
+    end
     if not isError then
         if type(opts) ~= "table" then
             isError = true
             errReason = "CreateWindow 入参不是 table（收到 " .. type(opts) .. "）"
-        elseif opts.Title == nil then
-            isError = true
-            errReason = "CreateWindow 缺少必填签名 Title"
-        elseif type(opts.Title) ~= "string" or #opts.Title == 0 then
-            isError = true
-            errReason = "CreateWindow Title 非法（收到 " .. type(opts.Title) .. "）"
         else
-            title = opts.Title
-        end
-        if not isError then
+            if opts.Lenient ~= nil then
+                if type(opts.Lenient) ~= "boolean" then
+                    reportError("CreateWindow Lenient 非法（收到 " .. type(opts.Lenient) .. "），已忽略")
+                else
+                    lenient = opts.Lenient
+                end
+            end
+            if opts.Title == nil then
+                rejectSignature("CreateWindow 缺少签名 Title")
+            elseif type(opts.Title) ~= "string" or #opts.Title == 0 then
+                rejectSignature("CreateWindow Title 非法（收到 " .. type(opts.Title) .. "）")
+            else
+                title = opts.Title
+            end
             if opts.Info == nil then
-                isError = true
-                errReason = "CreateWindow 缺少必填签名 Info"
+                rejectSignature("CreateWindow 缺少签名 Info")
             elseif type(opts.Info) ~= "string" then
-                isError = true
-                errReason = "CreateWindow Info 非法（收到 " .. type(opts.Info) .. "）"
+                rejectSignature("CreateWindow Info 非法（收到 " .. type(opts.Info) .. "）")
             else
                 info = opts.Info
             end
-        end
-        if not isError and opts.IconFromURL ~= nil then
-            if type(opts.IconFromURL) ~= "string" or #opts.IconFromURL == 0 then
-                isError = true
-                errReason = "CreateWindow IconFromURL 非法（收到 " .. type(opts.IconFromURL) .. "）"
-            elseif opts.Folder == nil or type(opts.Folder) ~= "string" or #opts.Folder == 0 then
-                isError = true
-                errReason = "CreateWindow 设置 IconFromURL 时必须包含 Folder（图标将下载到该 Folder 下）"
-            else
-                iconFromURL = opts.IconFromURL
+            if opts.IconFromURL ~= nil then
+                if type(opts.IconFromURL) ~= "string" or #opts.IconFromURL == 0 then
+                    rejectSignature("CreateWindow IconFromURL 非法（收到 " .. type(opts.IconFromURL) .. "）")
+                    iconFromURL = nil
+                elseif opts.Folder == nil or type(opts.Folder) ~= "string" or #opts.Folder == 0 then
+                    rejectSignature("CreateWindow 设置 IconFromURL 时必须包含 Folder（图标将下载到该 Folder 下）")
+                    iconFromURL = nil
+                else
+                    iconFromURL = opts.IconFromURL
+                end
             end
-        end
-        if not isError and opts.Icon ~= nil then
-            if type(opts.Icon) ~= "string" then
-                isError = true
-                errReason = "CreateWindow Icon 非法（收到 " .. type(opts.Icon) .. "）"
-            else
-                iconName = opts.Icon
+            if opts.Icon ~= nil then
+                if type(opts.Icon) ~= "string" then
+                    rejectSignature("CreateWindow Icon 非法（收到 " .. type(opts.Icon) .. "）")
+                else
+                    iconName = opts.Icon
+                end
             end
-        end
-        if not isError and not iconFromURL and opts.Icon == nil then
-            isError = true
-            errReason = "CreateWindow 缺少必填签名 Icon 或 IconFromURL（任意包含一个即可）"
-        end
-        if not isError and opts.IconColor ~= nil then
-            if typeof(opts.IconColor) ~= "Color3" then
-                isError = true
-                errReason = "CreateWindow IconColor 非法（收到 " .. (typeof(opts.IconColor) or type(opts.IconColor)) .. "）"
-            else
-                iconColor = opts.IconColor
-                iconColorSet = true
+            if not iconFromURL and opts.IconFromURL == nil and opts.Icon == nil then
+                rejectSignature("CreateWindow 缺少签名 Icon 或 IconFromURL（任意包含一个即可）")
             end
-        end
-        if not isError and opts.Folder ~= nil then
-            if type(opts.Folder) ~= "string" or #opts.Folder == 0 then
-                reportError("CreateWindow Folder 非法（收到 " .. type(opts.Folder) .. "），已忽略")
-            else
-                configFolder = opts.Folder
+            if opts.IconColor ~= nil then
+                if typeof(opts.IconColor) ~= "Color3" then
+                    rejectSignature("CreateWindow IconColor 非法（收到 " .. (typeof(opts.IconColor) or type(opts.IconColor)) .. "）")
+                else
+                    iconColor = opts.IconColor
+                    iconColorSet = true
+                end
             end
-        end
-        if not isError and opts.AutoLoadConfig ~= nil then
-            if type(opts.AutoLoadConfig) ~= "boolean" then
-                reportError("CreateWindow AutoLoadConfig 非法（收到 " .. type(opts.AutoLoadConfig) .. "），已忽略")
-            else
-                autoLoadConfig = opts.AutoLoadConfig
+            if opts.Folder ~= nil then
+                if type(opts.Folder) ~= "string" or #opts.Folder == 0 then
+                    reportError("CreateWindow Folder 非法（收到 " .. type(opts.Folder) .. "），已忽略")
+                else
+                    configFolder = opts.Folder
+                end
+            end
+            if opts.AutoLoadConfig ~= nil then
+                if type(opts.AutoLoadConfig) ~= "boolean" then
+                    reportError("CreateWindow AutoLoadConfig 非法（收到 " .. type(opts.AutoLoadConfig) .. "），已忽略")
+                else
+                    autoLoadConfig = opts.AutoLoadConfig
+                end
             end
         end
     end
