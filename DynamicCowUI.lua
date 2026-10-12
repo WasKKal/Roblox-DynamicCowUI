@@ -1184,8 +1184,37 @@ function Library.CreateWindow(a, ...)
     end
 
     local edgeAnimConn = nil
+    --统一登记所有作用在 edge 上的 TweenService 补间。
+    --长按展开走的是 Heartbeat 驱动的 animateEdge，会直接逐帧写 edge.Size/Position；
+    --若此时还有 hint / 复位补间在跑，两者会每帧互相覆盖，导致展开动画偏移（表现为概率性）。
+    local edgeTweens = {}
+    local function trackEdgeTween(tw)
+        edgeTweens[#edgeTweens + 1] = tw
+        tw.Completed:Connect(function()
+            for i = #edgeTweens, 1, -1 do
+                if edgeTweens[i] == tw then table.remove(edgeTweens, i) break end
+            end
+        end)
+        return tw
+    end
+    -- 创建 → 登记 → 播放，一步到位，避免出现未登记的裸补间
+    local function edgeTween(info, props)
+        local tw = TweenService:Create(edge, info, props)
+        trackEdgeTween(tw)
+        tw:Play()
+        return tw
+    end
+    local function cancelEdgeTweens()
+        for i = #edgeTweens, 1, -1 do
+            local tw = edgeTweens[i]
+            edgeTweens[i] = nil
+            if tw then pcall(function() tw:Cancel() end) end
+        end
+    end
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
         if edgeAnimConn then pcall(function() edgeAnimConn:Disconnect() end) edgeAnimConn = nil end
+        --抢占式启动：先掐掉任何还在跑的 edge 补间，避免与本动画逐帧争抢 Size/Position
+        cancelEdgeTweens()
         local s0 = edge.Size
         local p0 = edge.Position
         local c1 = over or Config.PanelBounce
@@ -1537,7 +1566,7 @@ function Library.CreateWindow(a, ...)
         task.delay(fadeDur, function()
             if not alive then return end
             edge.AnchorPoint = Vector2.new(0.5, 0.5)
-            TweenService:Create(edge, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Config.IslandSize, Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2) }):Play()
+            edgeTween(TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Config.IslandSize, Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2) })
             TweenService:Create(stroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
             TweenService:Create(silverStroke, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
             TweenService:Create(titleLabel, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
@@ -1582,18 +1611,17 @@ function Library.CreateWindow(a, ...)
     task.delay(Config.ShrinkDelay, function()
         flowSpeed = Config.FlowSpeed
         gradient.Color = rainbowColors
-        local shrinkTween = TweenService:Create(edge, TweenInfo.new(
+        local shrinkTween = edgeTween(TweenInfo.new(
             Config.ShrinkTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
         ), {
             Size = Config.IslandSize,
             Position = Config.IslandPosition,
         })
-        shrinkTween:Play()
         TweenService:Create(corner, TweenInfo.new(
             Config.ShrinkTime, Enum.EasingStyle.Quint, Enum.EasingDirection.Out
         ), {
             CornerRadius = Config.IslandCornerRadius,
-        }):Play()
+        })
         local titleShrinkTween = TweenService:Create(titleScale, TweenInfo.new(
             Config.TitleShrinkTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
         ), {
@@ -1644,8 +1672,7 @@ function Library.CreateWindow(a, ...)
 
                 local function tweenEdgeSize(size, dur)
                     if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
-                    dragSizeTween = TweenService:Create(edge, TweenInfo.new(dur, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = size })
-                    dragSizeTween:Play()
+                    dragSizeTween = edgeTween(TweenInfo.new(dur, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = size })
                     return dragSizeTween
                 end
                 local tapCount = 0
@@ -1670,15 +1697,15 @@ function Library.CreateWindow(a, ...)
                     if not skipRestore and hintActive and edge and edge.Parent and hintBaseSize and not expanded then
                         local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                         local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                        TweenService:Create(edge, TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        edgeTween(TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                             Size = hintBaseSize,
                             Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideOutDistance),
-                        }):Play()
+                        })
                         task.delay(Config.HintSlideTime, function()
                             if not edge or not edge.Parent then return end
-                            TweenService:Create(edge, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                            edgeTween(TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
                                 Position = UDim2.new(0.5, cx, 0, cy),
-                            }):Play()
+                            })
                             task.delay(0.16, function()
                                 if not edge or not edge.Parent then return end
                                 if hintBaseAnchor then edge.AnchorPoint = hintBaseAnchor end
@@ -1719,10 +1746,10 @@ function Library.CreateWindow(a, ...)
                     local tw = measureTextWidth(txt, tsize) + Config.HintExtendPad
                     local baseW = Config.IslandSize.X.Offset
                     local targetW = math.max(baseW + 80, tw)
-                    TweenService:Create(edge, TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    edgeTween(TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                         Size = UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
                         Position = UDim2.new(0.5, cx, 0, cy),
-                    }):Play()
+                    })
                     local hc = Instance.new("Frame")
                     hc.Name = "IslandHintContainer"
                     hc.Size = UDim2.new(1, 0, 1, 0)
@@ -2467,10 +2494,14 @@ function Library.CreateWindow(a, ...)
                             local optList = d.Options or {}
                             local count = #optList
                             if count == 0 then return end
-                            local ap = capsule.AbsolutePosition
                             local as = capsule.AbsoluteSize
                             local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
 
+                            -- 关键：先在原父级里读出屏幕绝对坐标，再脱离到 ScreenGui。
+                            -- 不要去改 AnchorPoint/Position 做局部坐标换算——AbsolutePosition
+                            -- 已经把整条父链的偏移累加进去了，任何再叠加父级偏移的换算都会双重累加，
+                            -- 导致菜单展开后向右/向下跳一大段距离。
+                            local ap = capsule.AbsolutePosition
                             local scrH = getViewportHeight()
                             local edgeGap = Config.DropdownMenuPad + 4
                             local capTop = ap.Y
@@ -2485,8 +2516,10 @@ function Library.CreateWindow(a, ...)
                             local needScroll = contentH > targetH
                             local expandW = math.max(Config.DropdownMenuW, as.X)
 
+                            -- 右边缘与胶囊右边缘对齐
                             local endX = ap.X + as.X - expandW
                             local endY = openUp and (ap.Y + as.Y - targetH) or ap.Y
+                            -- 记录原始状态
                             menuState = {
                                 parent = capsule.Parent,
                                 position = capsule.Position,
@@ -2503,13 +2536,15 @@ function Library.CreateWindow(a, ...)
                                 baseH = as.Y,
                             }
 
-                            capsule.AnchorPoint = Vector2.new(0, 0)
-                            capsule.Position = UDim2.fromOffset(ap.X, ap.Y)
-                            capsule.Size = UDim2.new(0, as.X, 0, as.Y)
+                            -- 脱离到 ScreenGui 顶层，避免被控件区的 ClipsDescendants 裁掉（选项不显示）
                             capsule.ClipsDescendants = true
                             capsule.ZIndex = Config.DropdownMenuZ
                             capsule.BackgroundColor3 = Config.DropdownMenuFill
+                            -- AnchorPoint 归零后，直接用屏幕绝对坐标定位（IgnoreGuiInset=true，无 inset 偏移）
+                            capsule.AnchorPoint = Vector2.new(0, 0)
+                            capsule.Position = UDim2.fromOffset(endX, endY)
                             capsule.Parent = screenGui
+                            capsule.Size = UDim2.fromOffset(expandW, targetH)
 
                             label.Visible = false
                             arrow.Visible = false
@@ -3351,9 +3386,20 @@ function Library.CreateWindow(a, ...)
                     longPress = task.delay(Config.LongPressThreshold, function()
                             if holding then
 
-                                if hintActive then clearHint(true) end
+if hintActive then clearHint(true) end
 
-                                if toggleAnimBusy then
+                        -- 关键：长按展开前把edge 归位到标准收起态。
+                        -- 若此刻还有 hint / 拖拽复位补间在跑，它们会与展开用的 Heartbeat 动画
+                        -- 逐帧争抢 Size/Position，表现为展开动画概率性偏移。
+                        -- 这里先掐掉全部补间并强制写入确定的起点值。
+                        cancelEdgeTweens()
+                        resetIslandDrag()
+                        if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
+                        edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                        edge.Position = islandRest
+                        edge.Size = Config.IslandSize
+
+                        if toggleAnimBusy then
                                     if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
                                     toggleAnimContainer = nil
                                     toggleAnimBusy = false
@@ -4614,10 +4660,10 @@ function Library.CreateWindow(a, ...)
                         if lb then TweenService:Create(lb, TweenInfo.new(et), { TextTransparency = 1 }):Play() end
                     end
                 end
-                TweenService:Create(edge, TweenInfo.new(et, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                edgeTween(TweenInfo.new(et, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                     Size = UDim2.new(curSize.X.Scale, curSize.X.Offset, curSize.Y.Scale, curSize.Y.Offset),
                     Position = UDim2.new(curPos.X.Scale, curPos.X.Offset, curPos.Y.Scale, curPos.Y.Offset),
-                }):Play()
+                })
                 task.delay(et + 0.03, function()
                     if myGen ~= actionGen then return end
                     if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
@@ -4626,10 +4672,10 @@ function Library.CreateWindow(a, ...)
                 end)
             end
             actionEnd = endNow
-            TweenService:Create(edge, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            edgeTween(TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                 Size = UDim2.new(curSize.X.Scale, curSize.X.Offset + dw, curSize.Y.Scale, curSize.Y.Offset + dh),
                 Position = UDim2.new(curPos.X.Scale, curPos.X.Offset, curPos.Y.Scale, curPos.Y.Offset + dh / 2),
-            }):Play()
+            })
             if oldContainer and oldContainer.Parent then
                 for _, cf in ipairs(oldContainer:GetChildren()) do
                     local lb = cf:FindFirstChildOfClass("TextLabel")
