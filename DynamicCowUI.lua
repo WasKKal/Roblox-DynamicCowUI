@@ -251,6 +251,42 @@ local Config = {
     CloseDialogTextColor = Color3.new(1, 1, 1),
     CloseCancelColor = Color3.fromRGB(64, 64, 76),
     CloseConfirmColor = Color3.fromRGB(210, 66, 66),
+
+    -- ============ 脚本切换（检测到其它已加载 UI 时的接管动画） ============
+    -- 中心 Title 文字上移 + 缩小 + 渐隐的时长
+    SwitchTitleMoveTime = 0.55,
+    -- 中心 Title 文字缩小到的比例（1 = 不缩）
+    SwitchTitleScale = 0.42,
+    -- 彩虹边框缩成灵动岛后「立马渐隐」的时长
+    SwitchBorderFadeTime = 0.18,
+    -- 面板自动展开后，所有元素渐隐的时长
+    SwitchFadeOutTime = 0.26,
+    -- loader 与提示文字停留时长
+    SwitchHoldTime = 1,
+    -- loader 与提示文字渐隐时长
+    SwitchLoaderFadeTime = 0.3,
+    -- 切换时的提示文字
+    SwitchLoadingText = "正在切换脚本",
+    -- 确认切换后重新载入时的提示文字
+ SwitchConfirmLoadingText = "正在载入脚本…",
+    -- 切换按钮（收起按钮左侧）
+    SwitchButtonIcon = "arrow-right-left",
+    SwitchButtonSize = 20,
+    SwitchButtonGap = 8,
+    -- 切换二次确认菜单（比关闭确认菜单更宽，以容纳超宽下拉菜单）
+    SwitchDialogW = 720,
+    SwitchDialogH = 250,
+    SwitchDialogTitle = "你要切换哪一个脚本？",
+    -- 下拉菜单
+    SwitchDropdownH = 46,
+    SwitchDropdownMaxH = 210,
+    SwitchDropdownIcon = "chevron-right",
+    SwitchDropdownItemH = 40,
+    SwitchDropdownItemGap = 4,
+    SwitchDropdownFill = Color3.fromRGB(38, 38, 48),
+    SwitchDropdownActiveColor = Color3.fromRGB(96, 132, 255),
+    SwitchDropdownTextColor = Color3.fromRGB(235, 235, 245),
+    SwitchDialogConfirmColor = Color3.fromRGB(96, 132, 255),
     IslandActionStrokeTransparency = 0.35,
     IslandActionReveal = 0.3,
     ActionFlashTime = 0.3,
@@ -640,6 +676,24 @@ title = Config.ErrorText
                 pcall(function() existing:_flashLoadedHint() end)
             end
             return existing
+        end
+    end
+
+    -- 切换模式检测：若当前已存在「其它 Title」的窗口，说明这是加载 / 切换到
+    -- 另一份脚本，入场动画要走接管流程（彩虹边框缩为灵动岛后立马渐隐、
+    -- 跳过黑球弹出与黑色填充、中心 Title 文字直接上移缩小淡出到灵动岛位置，
+    -- 随后自动展开面板并播放 loader）。
+    -- opts.ForceEntryAnimation == true 可强制走标准入场动画。
+    local switchingFrom = nil
+    do
+        for _, t in ipairs(loadedOrder) do
+            if t ~= title and loadedWindows[t] ~= nil then
+                switchingFrom = t
+                break
+            end
+        end
+        if switchingFrom ~= nil and type(opts) == "table" and opts.ForceEntryAnimation == true then
+            switchingFrom = nil
         end
     end
 
@@ -1762,9 +1816,3295 @@ title = Config.ErrorText
         end)
     end
 
+    -- 入场后的交互装配（灵动岛拖拽 / 长按展开 / 面板构建 / 提示动画 / 二次确认…）。
+    -- 标准入场与「脚本切换」入场都要复用它，故提取为函数并在此前置声明。
+    local runIslandEntrySetup = nil
+    local buildSwitchButton = nil
+    local showSwitchConfirm = nil
+    -- playSwitchSequence 定义在 runIslandEntrySetup 内部末尾，而二次确认的「确认」分支
+    -- 位于它之前，直接引用会拿到全局 nil，故用转发变量。
+    local playSwitchSequenceRef = nil
+    -- 切换模式：入场装配完成后自动展开面板并播放 loader。
+    -- 真正的实现定义在 runIslandEntrySetup 内部（依赖 doExpandPanel / playSwitchSequence），
+    -- 这里只做一次间接转发，避免第一次调用时传进去的仍是 nil。
+    local expandForSwitchRef = nil
+    local autoExpandForSwitch = function()
+        if expandForSwitchRef then expandForSwitchRef() end
+    end
+
+        runIslandEntrySetup = function(afterSetup)
+            if backdrop and backdrop.Parent then backdrop:Destroy() end
+            islandTextContainer = createIslandText(Config.IslandText, Config.IslandTextColor)
+        -- 切换模式不播黑球弹出动画（含勾选图标）。
+        -- 标准路径的 ready 标记是在 splitBall 内部延迟置位的，切换模式没有 splitBall，
+        -- 必须在这里补置，否则后续展开面板 / SetWindowAction 都会被 ready 挡住。
+        if not switchingFrom then
+            task.spawn(function() splitBall(isError) end)
+        else
+            ready = true
+        end
+            edge.AnchorPoint = Vector2.new(0.5, 0.5)
+            edge.Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
+            edge.Active = true
+            local interacting = false
+            local holding = false
+            local longPress = nil
+            local dragStartX = nil
+            local dragBaseSize = nil
+            local dragging = false
+            local dragStopTmr = nil
+            local dragRestoreTmr = nil
+            local dragSizeTween = nil
+
+            local function tweenEdgeSize(size, dur)
+                if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
+                dragSizeTween = edgeTween(TweenInfo.new(dur, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = size })
+                return dragSizeTween
+            end
+            local tapCount = 0
+            local tapWindowTmr = nil
+            local hintActive = false
+            local hintContainer = nil
+            local hintTmr = nil
+            local hintBaseSize = nil
+            local hintBaseAnchor = nil
+            local hintBasePos = nil
+            -- 连点触发提示后的点击冷却：hintCooldownUntil 之前不接受点击类交互。
+            -- 只拦 registerIslandTap，不拦 edge.InputBegan 的长按展开分支。
+            local hintCooldownUntil = 0
+            local hintCooldownTmr = nil
+            local islandRest = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
+
+            local function safeCancelTimer(handle)
+                if not handle then return end
+                pcall(task.cancel, handle)
+            end
+
+            local function startHintClickCooldown()
+                safeCancelTimer(hintCooldownTmr)
+                hintCooldownUntil = os.clock() + Config.HintClickCooldown
+                hintCooldownTmr = task.delay(Config.HintClickCooldown, function()
+                    hintCooldownTmr = nil
+                    hintCooldownUntil = 0
+                end)
+            end
+            local function inHintClickCooldown()
+                return hintCooldownUntil > 0 and os.clock() < hintCooldownUntil
+            end
+            local function clearHint(skipRestore)
+                safeCancelTimer(tapWindowTmr) tapWindowTmr = nil
+                safeCancelTimer(hintTmr) hintTmr = nil
+                if hintContainer and hintContainer.Parent then hintContainer:Destroy() end
+                hintContainer = nil
+                -- 捕获本轮还原所需的基准值到局部，避免被后续重入的 clearHint 置空后误用
+                local baseSize = hintBaseSize
+                local baseAnchor = hintBaseAnchor
+                local basePos = hintBasePos
+                if not skipRestore and hintActive and edge and edge.Parent and baseSize and not expanded then
+                    local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                    local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+                    edgeTween(TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        Size = baseSize,
+                        Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideOutDistance),
+                    })
+                    task.delay(Config.HintSlideTime, function()
+                        if not edge or not edge.Parent then return end
+                        edgeTween(TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                            Position = UDim2.new(0.5, cx, 0, cy),
+                        })
+                        task.delay(0.16, function()
+                            if not edge or not edge.Parent then return end
+                            if baseAnchor then edge.AnchorPoint = baseAnchor end
+                            if basePos then edge.Position = basePos end
+                            -- 还原完成后才解除 hint 占用，避免连点重入时还原补间互相争抢导致灵动岛偏移
+                            hintActive = false
+                            -- 提示动画彻底播完（滑出 + 回位均已结束）后才开始点击冷却，
+                            -- 这样「等 2 秒」是从动画结束点起算，而不是与动画时长互相挤占。
+                            -- 冷却只拦点击类交互（registerIslandTap），长按展开 UI 不受影响。
+                            startHintClickCooldown()
+                        end)
+                    end)
+                else
+                    hintActive = false
+                end
+                hintBaseSize = nil
+                hintBaseAnchor = nil
+                hintBasePos = nil
+                if not skipRestore and islandTextContainer and islandTextContainer.Parent then
+                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                        if lb then TweenService:Create(lb, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                    end
+                end
+            end
+            local function playHintAnimation()
+                if hintActive or expanded or not alive or not ready then return end
+                if actionBusy and actionEnd then actionEnd(true) end
+                hintActive = true
+                if islandTextContainer and islandTextContainer.Parent then
+                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                        if lb then TweenService:Create(lb, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                    end
+                end
+                hintBaseSize = edge.Size
+                hintBaseAnchor = edge.AnchorPoint
+                hintBasePos = edge.Position
+                local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+                edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                edge.Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideInDistance)
+                local txt = Config.HintText
+                local tsize = Config.HintTextSize
+                local tw = measureTextWidth(txt, tsize) + Config.HintExtendPad
+                local baseW = Config.IslandSize.X.Offset
+                local targetW = math.max(baseW + 80, tw)
+                edgeTween(TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
+                    Position = UDim2.new(0.5, cx, 0, cy),
+                })
+                local hc = Instance.new("Frame")
+                hc.Name = "IslandHintContainer"
+                hc.Size = UDim2.new(1, 0, 1, 0)
+                hc.BackgroundTransparency = 1
+                hc.BorderSizePixel = 0
+                hc.ClipsDescendants = true
+                hc.ZIndex = 55
+                hc.Parent = edge
+                local hl = Instance.new("UIListLayout")
+                hl.FillDirection = Enum.FillDirection.Horizontal
+                hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                hl.VerticalAlignment = Enum.VerticalAlignment.Center
+                hl.Parent = hc
+                local chars = {}
+                local idx = 0
+                for _, item in ipairs(parseColoredChars(txt, Config.TitleColor)) do
+                    local ch = item.ch
+                    if ch ~= " " then
+                        local cf2 = Instance.new("Frame")
+                        cf2.Size = UDim2.new(0, 0, 1, 0)
+                        cf2.AutomaticSize = Enum.AutomaticSize.X
+                        cf2.BackgroundTransparency = 1
+                        cf2.BorderSizePixel = 0
+                        cf2.Parent = hc
+                        local cl = Instance.new("TextLabel")
+                        cl.Size = UDim2.new(1, 0, 1, 0)
+                        cl.BackgroundTransparency = 1
+                        cl.Text = ch
+                        cl.TextColor3 = Config.TitleColor
+                        cl.TextTransparency = 1
+                        cl.TextSize = tsize
+                        cl.Font = charFont(ch)
+                        cl.TextXAlignment = Enum.TextXAlignment.Center
+                        cl.TextYAlignment = Enum.TextYAlignment.Center
+                        cl.Parent = cf2
+                        chars[#chars + 1] = { label = cl, order = idx }
+                        idx = idx + 1
+                    end
+                end
+                local center = (#chars - 1) / 2
+                for _, c in ipairs(chars) do
+                    local dist = math.abs(c.order - center)
+                    task.delay(dist * Config.HintRevealStep, function()
+                        if not hintActive or not c.label.Parent then return end
+                        TweenService:Create(c.label, TweenInfo.new(Config.HintRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                    end)
+                end
+                hintContainer = hc
+                safeCancelTimer(hintTmr)
+                hintTmr = task.delay(Config.HintHoldTime, function()
+                    hintTmr = nil
+                    if hintActive then clearHint() end
+                end)
+            end
+            local function registerIslandTap()
+                if hintActive or expanded or not alive or not ready then return end
+                -- 点击冷却中：吞掉本次连点，不累加 tapCount，避免提示动画被立刻重新触发
+                if inHintClickCooldown() then return end
+                tapCount = tapCount + 1
+                if tapWindowTmr then safeCancel(tapWindowTmr) end
+                tapWindowTmr = task.delay(Config.TapWindow, function()
+                    tapCount = 0
+                    tapWindowTmr = nil
+                end)
+                if tapCount >= 3 then
+                    tapCount = 0
+                    if tapWindowTmr then safeCancel(tapWindowTmr) tapWindowTmr = nil end
+                    playHintAnimation()
+                end
+            end
+            local function resetIslandDrag()
+                if dragStopTmr then safeCancel(dragStopTmr) dragStopTmr = nil end
+                if dragRestoreTmr then safeCancel(dragRestoreTmr) dragRestoreTmr = nil end
+                if dragging and dragBaseSize and not expanded then
+                    tweenEdgeSize(dragBaseSize, 0.3)
+                end
+                dragging = false
+                dragStartX = nil
+                dragBaseSize = nil
+            end
+            UserInputService.InputChanged:Connect(function(input)
+                if not holding or expanded or not ready then return end
+                if dragStartX == nil then return end
+                if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                local dx = input.Position.X - dragStartX
+                if not dragging then
+                    if dx > Config.IslandDragThreshold then
+                        dragging = true
+                        if longPress then safeCancel(longPress) longPress = nil end
+                    else
+                        return
+                    end
+                end
+                if dx < 0 then dx = 0 end
+                if dragging and dragRestoreTmr then safeCancel(dragRestoreTmr) dragRestoreTmr = nil end
+                local extra = math.min(dx * Config.IslandDragDamp, Config.IslandDragMax)
+                if dragBaseSize then
+                    edge.Size = UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + extra, dragBaseSize.Y.Scale, dragBaseSize.Y.Offset)
+                end
+                if dragStopTmr then safeCancel(dragStopTmr) end
+                dragStopTmr = task.delay(Config.IslandDragStopDelay, function()
+                    dragStopTmr = nil
+                    if dragging and holding and not expanded and dragBaseSize then
+                        tweenEdgeSize(UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + math.min(Config.IslandDragFixed, Config.IslandDragMax), dragBaseSize.Y.Scale, dragBaseSize.Y.Offset), 0.18)
+                        if dragRestoreTmr then safeCancel(dragRestoreTmr) end
+                        dragRestoreTmr = task.delay(Config.IslandDragHold, function()
+                            dragRestoreTmr = nil
+                            resetIslandDrag()
+                        end)
+                    end
+                end)
+            end)
+local closeBtn = nil
+          -- 切换脚本按钮（arrow-right-left），显示在收起按钮左侧。
+       -- 始终创建，但仅在存在其它已加载脚本时才可点。
+            local switchBtn = nil
+        -- 二次确认弹窗句柄：buildCloseButton 需要它做守卫，
+            -- 避免收起流程中又触发长按确认
+            local closeDialog = nil
+            local tabListContainer = nil
+            local tabContentContainer = nil
+            local tabContentBase = nil
+            local headerDivider = nil
+            local tabSeparator = nil
+            local tabEmptyLabel = nil
+            local tabContentEmpty = nil
+            local tabContentNoCtrl = nil
+            local tabSubtitleList = nil
+            local function destroyTabUI()
+                if openDropdownClose then openDropdownClose() end
+                if tabListContainer then tabListContainer:Destroy() tabListContainer = nil end
+                if tabContentContainer then tabContentContainer:Destroy() tabContentContainer = nil end
+                if headerDivider then headerDivider:Destroy() headerDivider = nil end
+                if tabSeparator then tabSeparator:Destroy() tabSeparator = nil end
+                if tabEmptyLabel then tabEmptyLabel:Destroy() tabEmptyLabel = nil end
+                tabContentEmpty = nil
+                tabContentNoCtrl = nil
+                tabSubtitleList = nil
+                tabContentBase = nil
+            end
+            local function renderSubtitles(tab)
+                if not tabSubtitleList then return end
+                for _, ch in ipairs(tabSubtitleList:GetChildren()) do
+                    if ch:IsA("GuiObject") then ch:Destroy() end
+                end
+                if not tab or not tab._subtitles then return end
+                local headH = Config.SubTitleRowHeight
+                local divGap = Config.SubTitleDividerGap
+                local function makeButton(bt, order)
+                    local btn = Instance.new("TextButton")
+                    btn.Name = "SubButton"
+                    btn.Size = UDim2.new(1, 0, 0, Config.ButtonHeight)
+                    btn.BackgroundColor3 = Config.ButtonFill
+                    btn.BackgroundTransparency = Config.ButtonFillTransparency
+                    btn.Text = ""
+                    btn.AutoButtonColor = false
+                    btn.LayoutOrder = order
+                    btn.ZIndex = 3
+                    local bcorner = Instance.new("UICorner")
+                    bcorner.CornerRadius = Config.ButtonCorner
+                    bcorner.Parent = btn
+                    local bstroke = Instance.new("UIStroke")
+                    bstroke.Color = Config.ButtonStroke
+                    bstroke.Transparency = Config.ButtonStrokeTransparency
+                    bstroke.Thickness = 1
+                    bstroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    bstroke.Parent = btn
+                    local row = Instance.new("Frame")
+                    row.Name = "Row"
+                    row.BackgroundTransparency = 1
+                    row.Size = UDim2.new(1, 0, 1, 0)
+                    row.ZIndex = 3
+                    row.Parent = btn
+                    local rl = Instance.new("UIListLayout")
+                    rl.FillDirection = Enum.FillDirection.Horizontal
+                    rl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                    rl.VerticalAlignment = Enum.VerticalAlignment.Center
+                    rl.SortOrder = Enum.SortOrder.LayoutOrder
+                    rl.Padding = UDim.new(0, Config.ButtonIconGap)
+                    rl.Parent = row
+                    if bt.Icon ~= nil and bt.Icon ~= "" then
+                        local ic = Instance.new("ImageLabel")
+                        ic.Name = "BtnIcon"
+                        ic.Size = UDim2.fromOffset(Config.ButtonIconSize, Config.ButtonIconSize)
+                        ic.BackgroundTransparency = 1
+                        ic.ImageColor3 = bt.IconColor or Config.ButtonTextColor
+                        ic.ScaleType = Enum.ScaleType.Fit
+                        ic.LayoutOrder = 1
+                        ic.ZIndex = 3
+                        ic.Parent = row
+                        task.spawn(function()
+                            local lucide = loadLucide()
+                            if lucide then
+                                local okB, asset = pcall(lucide.GetAsset, bt.Icon)
+                                if okB and asset and asset.Url then
+                                    ic.Image = asset.Url
+                                    if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                end
+                            end
+                        end)
+                    end
+                    local tx = Instance.new("TextLabel")
+                    tx.Name = "BtnText"
+                    tx.BackgroundTransparency = 1
+                    tx.Size = UDim2.new(0, 0, 1, 0)
+                    tx.AutomaticSize = Enum.AutomaticSize.X
+                    tx.Text = bt.Title
+                    tx.TextColor3 = Config.ButtonTextColor
+                    tx.TextSize = Config.ButtonTextSize
+                    tx.Font = Enum.Font.GothamMedium
+                    tx.TextXAlignment = Enum.TextXAlignment.Center
+                    tx.TextYAlignment = Enum.TextYAlignment.Center
+                    tx.LayoutOrder = 2
+                    tx.ZIndex = 3
+                    tx.Parent = row
+                    btn.MouseButton1Click:Connect(function()
+                        if shutdown or not bt then return end
+                        btn.BackgroundColor3 = Color3.fromRGB(96, 98, 112)
+                        btn.BackgroundTransparency = 0
+                        TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                            BackgroundColor3 = Config.ButtonFill,
+                            BackgroundTransparency = Config.ButtonFillTransparency,
+                        }):Play()
+                        if typeof(bt.OnClick) == "function" then
+                            local okC, errC = pcall(bt.OnClick)
+                            if not okC then reportError("AddButton OnClick 报错: " .. tostring(errC)) end
+                        end
+                    end)
+                    return btn
+                end
+                local function makeToggle(tg, order)
+                    if win._autoLoadConfig and tg.ConfigKey and win._configFolder then
+                        local sv = loadConfigValue(win._configFolder, tg.ConfigKey)
+                        if sv ~= nil then tg.Value = (sv == true) end
+                    end
+                    local row = Instance.new("TextButton")
+                    row.Name = "SubToggle"
+                    row.Size = UDim2.new(1, 0, 0, Config.ButtonHeight)
+                    row.BackgroundTransparency = 1
+                    row.Text = ""
+                    row.AutoButtonColor = false
+                    row.LayoutOrder = order
+                    row.ZIndex = 3
+                    local tlbl = Instance.new("TextLabel")
+                    tlbl.Name = "TglText"
+                    tlbl.BackgroundTransparency = 1
+                    tlbl.AnchorPoint = Vector2.new(0, 0.5)
+                    tlbl.Position = UDim2.new(0, 0, 0.5, 0)
+                    tlbl.Size = UDim2.new(1, -(Config.ToggleWidth + 14), 1, 0)
+                    tlbl.Text = tg.Title
+                    tlbl.TextColor3 = Config.ButtonTextColor
+                    tlbl.TextSize = Config.ButtonTextSize
+                    tlbl.Font = Enum.Font.GothamMedium
+                    tlbl.TextXAlignment = Enum.TextXAlignment.Left
+                    tlbl.TextYAlignment = Enum.TextYAlignment.Center
+                    tlbl.ZIndex = 3
+                    tlbl.Parent = row
+                    local trackW = Config.ToggleWidth
+                    local trackH = Config.ToggleHeight
+                    local pad = Config.TogglePad
+                    local thumbS = trackH - pad * 2
+                    local track = Instance.new("Frame")
+                    track.Name = "TglTrack"
+                    track.AnchorPoint = Vector2.new(1, 0.5)
+                    track.Position = UDim2.new(1, 0, 0.5, 0)
+                    track.Size = UDim2.fromOffset(trackW, trackH)
+                    track.BackgroundColor3 = tg.TrackColor or Config.ToggleTrackColor
+                    track.BorderSizePixel = 0
+                    track.ZIndex = 3
+                    track.Parent = row
+                    local tcc0 = Instance.new("UICorner")
+                    tcc0.CornerRadius = UDim.new(0.5, 0)
+                    tcc0.Parent = track
+                    local thumb = Instance.new("Frame")
+                    thumb.Name = "TglThumb"
+                    thumb.AnchorPoint = Vector2.new(0, 0.5)
+                    thumb.Position = UDim2.new(0, pad, 0.5, 0)
+                    thumb.Size = UDim2.fromOffset(thumbS, thumbS)
+                    thumb.BackgroundColor3 = tg.ThumbColor or Config.ToggleThumbColor
+                    thumb.BorderSizePixel = 0
+                    thumb.ZIndex = 4
+                    thumb.Parent = track
+                    local tcc1 = Instance.new("UICorner")
+                    tcc1.CornerRadius = UDim.new(0.5, 0)
+                    tcc1.Parent = thumb
+                    if tg.Icon ~= nil and tg.Icon ~= "" then
+                        local tic = Instance.new("ImageLabel")
+                        tic.Name = "TglIcon"
+                        tic.AnchorPoint = Vector2.new(0.5, 0.5)
+                        tic.Position = UDim2.new(0.5, 0, 0.5, 0)
+                        tic.Size = UDim2.fromOffset(thumbS * Config.ToggleIconRatio, thumbS * Config.ToggleIconRatio)
+                        tic.BackgroundTransparency = 1
+                        tic.ImageColor3 = tg.IconColor or Config.ToggleIconColor
+                        tic.ScaleType = Enum.ScaleType.Fit
+                        tic.ZIndex = 5
+                        tic.Parent = thumb
+                        task.spawn(function()
+                            local lucide = loadLucide()
+                            if lucide then
+                                local okI, asset = pcall(lucide.GetAsset, tg.Icon)
+                                if okI and asset and asset.Url then
+                                    tic.Image = asset.Url
+                                    if asset.ImageRectOffset then tic.ImageRectOffset = asset.ImageRectOffset tic.ImageRectSize = asset.ImageRectSize end
+                                end
+                            end
+                        end)
+                    end
+                    local function apply()
+                        local on = tg.Value
+                        local targetX = on and (trackW - pad - thumbS) or pad
+                        TweenService:Create(thumb, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                            Position = UDim2.new(0, targetX, 0.5, 0),
+                        }):Play()
+                        TweenService:Create(track, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                            BackgroundColor3 = on and Config.ToggleOnColor or (tg.TrackColor or Config.ToggleTrackColor),
+                        }):Play()
+                    end
+                    apply()
+                    row.MouseButton1Click:Connect(function()
+                        if shutdown then return end
+                        tg.Value = not tg.Value
+                        apply()
+
+                        lastToggleInfo = {
+                            Title = tg.Title or "Toggle",
+                            Icon = tg.Icon,
+                            IconColor = tg.IconColor,
+                            Value = tg.Value,
+                        }
+                        if tg.ConfigKey then win._cfgSave(win, tg.ConfigKey, tg.Value) end
+                        if typeof(tg.Callback) == "function" then
+                            local okC, errC = pcall(tg.Callback, tg.Value, tg)
+                            if not okC then reportError("AddToggle Callback 报错: " .. tostring(errC)) end
+                        end
+                    end)
+                    return row
+                end
+                local function makeParagraph(p, order, rowH)
+                    local frame = Instance.new("Frame")
+                    frame.Name = "SubParagraph"
+                    frame.BackgroundColor3 = p.BackColor or Config.ParagraphBackColor
+                    frame.BackgroundTransparency = Config.ParagraphBackTransparency
+                    frame.Size = UDim2.new(1, 0, 0, rowH or Config.ParagraphRowHeight)
+                    frame.LayoutOrder = order
+                    frame.ZIndex = 3
+                    local corner = Instance.new("UICorner")
+                    corner.CornerRadius = Config.ParagraphCorner
+                    corner.Parent = frame
+                    local stroke = Instance.new("UIStroke")
+                    stroke.Color = darkenColor(frame.BackgroundColor3, Config.ParagraphDarken)
+                    stroke.Thickness = Config.ParagraphBorderThickness
+                    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    stroke.Parent = frame
+                    local pad = Instance.new("UIPadding")
+                    pad.PaddingLeft = UDim.new(0, Config.ParagraphBackPad)
+                    pad.PaddingRight = UDim.new(0, Config.ParagraphBackPad)
+                    pad.Parent = frame
+                    local hl = Instance.new("UIListLayout")
+                    hl.FillDirection = Enum.FillDirection.Horizontal
+                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Left
+                    hl.VerticalAlignment = Enum.VerticalAlignment.Center
+                    hl.SortOrder = Enum.SortOrder.LayoutOrder
+                    hl.Padding = UDim.new(0, Config.ParagraphIconGap)
+                    hl.Parent = frame
+                    local hasIco = (p.Icon ~= nil and p.Icon ~= "")
+                    if hasIco then
+                        local ic = Instance.new("ImageLabel")
+                        ic.Name = "ParaIcon"
+                        ic.Size = UDim2.fromOffset(Config.ParagraphIconSize, Config.ParagraphIconSize)
+                        ic.BackgroundTransparency = 1
+                        ic.ImageColor3 = p.IconColor or Config.ParagraphInfoColor
+                        ic.ScaleType = Enum.ScaleType.Fit
+                        ic.LayoutOrder = 1
+                        ic.ZIndex = 3
+                        ic.Parent = frame
+                        task.spawn(function()
+                            local lucide = loadLucide()
+                            if lucide then
+                                local okP, asset = pcall(lucide.GetAsset, p.Icon)
+                                if okP and asset and asset.Url then
+                                    ic.Image = asset.Url
+                                    if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                end
+                            end
+                        end)
+                        p._iconLbl = ic
+                    end
+                    local txt = Instance.new("Frame")
+                    txt.Name = "ParaText"
+                    txt.BackgroundTransparency = 1
+                    txt.Size = UDim2.new(1, hasIco and -(Config.ParagraphIconSize + Config.ParagraphIconGap) or 0, 1, 0)
+                    txt.LayoutOrder = 2
+                    txt.ZIndex = 3
+                    txt.Parent = frame
+                    local vl = Instance.new("UIListLayout")
+                    vl.FillDirection = Enum.FillDirection.Vertical
+                    vl.HorizontalAlignment = Enum.HorizontalAlignment.Left
+                    vl.VerticalAlignment = Enum.VerticalAlignment.Top
+                    vl.SortOrder = Enum.SortOrder.LayoutOrder
+                    vl.Padding = UDim.new(0, Config.ParagraphTextGap)
+                    vl.Parent = txt
+                    local txtPad = Instance.new("UIPadding")
+                    txtPad.PaddingTop = UDim.new(0, Config.ParagraphTitleDrop)
+                    txtPad.Parent = txt
+                    local titleLbl = Instance.new("TextLabel")
+                    titleLbl.Name = "ParaTitle"
+                    titleLbl.BackgroundTransparency = 1
+                    titleLbl.Size = UDim2.new(1, 0, 0, Config.ParagraphTitleSize + Config.ParagraphTitlePad)
+                    titleLbl.Text = p.Title or ""
+                    titleLbl.TextColor3 = Config.ParagraphTitleColor
+                    titleLbl.TextSize = Config.ParagraphTitleSize
+                    titleLbl.Font = Enum.Font.GothamBold
+                    titleLbl.RichText = true
+                    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    titleLbl.TextYAlignment = Enum.TextYAlignment.Center
+                    titleLbl.LayoutOrder = 1
+                    titleLbl.ZIndex = 3
+                    titleLbl.Parent = txt
+                    local infoH = measureTextHeight(p.Info or "", Config.ParagraphInfoSize,
+                        math.max(40, (rowH or Config.ParagraphRowHeight)))
+                    local infoLbl = Instance.new("TextLabel")
+                    infoLbl.Name = "ParaInfo"
+                    infoLbl.BackgroundTransparency = 1
+                    infoLbl.Size = UDim2.new(1, 0, 0, infoH)
+                    infoLbl.Text = p.Info or ""
+                    infoLbl.TextColor3 = Config.ParagraphInfoColor
+                    infoLbl.TextSize = Config.ParagraphInfoSize
+                    infoLbl.Font = Enum.Font.Gotham
+                    infoLbl.RichText = true
+                    infoLbl.TextWrapped = true
+                    infoLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    infoLbl.TextYAlignment = Enum.TextYAlignment.Center
+                    infoLbl.LayoutOrder = 2
+                    infoLbl.ZIndex = 3
+                    infoLbl.Parent = txt
+                    p._titleLbl = titleLbl
+                    p._infoLbl = infoLbl
+                    p._iconLbl = hasIco and ic or nil
+                    p._frame = frame
+                    p._stroke = stroke
+                    return frame
+                end
+
+                local function makeLine(ln, order)
+                    local rowH = Config.LineRowHeight
+                    local frame = Instance.new("Frame")
+                    frame.Name = "SubLine"
+                    frame.BackgroundTransparency = 1
+                    frame.Size = UDim2.new(1, 0, 0, rowH)
+                    frame.LayoutOrder = order
+                    frame.ZIndex = 3
+                    local inset = ln.Inset or Config.LineInset
+                    local bar = Instance.new("Frame")
+                    bar.Name = "LineBar"
+                    bar.BackgroundColor3 = ln.Color or Config.LineColor
+                    bar.BorderSizePixel = 0
+                    bar.Size = UDim2.new(1, -(inset * 2), 0, ln.Thickness or Config.LineThickness)
+                    bar.Position = UDim2.new(0, inset, 0.5, 0)
+                    bar.AnchorPoint = Vector2.new(0, 0.5)
+                    bar.ZIndex = 3
+                    bar.Parent = frame
+
+                    ln._bar = bar
+                    ln._row = frame
+                    return frame
+                end
+                local function makeSlider(sl, order)
+                    if win._autoLoadConfig and sl.ConfigKey and win._configFolder then
+                        local sv = loadConfigValue(win._configFolder, sl.ConfigKey)
+                        if sv ~= nil and type(sv) == "number" then sl.Value = sv end
+                    end
+                    local rowH = Config.SliderRowHeight
+                    local frame = Instance.new("Frame")
+                    frame.Name = "SubSlider"
+                    frame.BackgroundTransparency = 1
+                    frame.Size = UDim2.new(1, 0, 0, rowH)
+                    frame.LayoutOrder = order
+                    frame.ZIndex = 3
+                    local titleW = measureTextWidth(sl.Title or "", Config.SliderTitleSize) + Config.SliderTitlePadX
+                    if titleW < Config.SliderTitleMinW then titleW = Config.SliderTitleMinW end
+                    local titleLbl = Instance.new("TextLabel")
+                    titleLbl.Name = "SliderTitle"
+                    titleLbl.BackgroundTransparency = 1
+                    titleLbl.Size = UDim2.new(0, titleW, 1, 0)
+                    titleLbl.Position = UDim2.new(0, 0, 0, 0)
+                    titleLbl.Text = sl.Title or ""
+                    titleLbl.TextColor3 = Config.SliderTitleColor
+                    titleLbl.TextSize = Config.SliderTitleSize
+                    titleLbl.Font = Enum.Font.GothamBold
+                    titleLbl.RichText = true
+                    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    titleLbl.TextYAlignment = Enum.TextYAlignment.Center
+                    titleLbl.ZIndex = 3
+                    titleLbl.Parent = frame
+                    local track = Instance.new("Frame")
+                    track.Name = "SliderTrack"
+                    track.BackgroundColor3 = Config.SliderTrackColor
+                    track.BackgroundTransparency = Config.SliderTrackTransparency
+                    track.Size = UDim2.new(1, -(titleW + Config.SliderTitleGap), 1, -Config.SliderTrackVPad * 2)
+                    track.Position = UDim2.new(0, titleW + Config.SliderTitleGap, 0, Config.SliderTrackVPad)
+                    track.ZIndex = 3
+                    local trackCorner = Instance.new("UICorner")
+                    trackCorner.CornerRadius = Config.SliderTrackCorner
+                    trackCorner.Parent = track
+                    track.Parent = frame
+                    local fill = Instance.new("Frame")
+                    fill.Name = "SliderFill"
+                    fill.BackgroundColor3 = sl.FillColor or Config.SliderFillColor
+                    fill.BackgroundTransparency = 0
+                    fill.Size = UDim2.new(0, 0, 1, 0)
+                    fill.ZIndex = 4
+                    local fillCorner = Instance.new("UICorner")
+                    fillCorner.CornerRadius = Config.SliderTrackCorner
+                    fillCorner.Parent = fill
+                    fill.Parent = track
+                    local function clampFrac(f)
+                        if f < 0 then f = 0 elseif f > 1 then f = 1 end
+                        return f
+                    end
+                    local function getRange() return sl.MaxValue - sl.MinValue end
+                    local function snapVal(v)
+                        local r = getRange()
+                        if r <= 0 then return sl.MinValue end
+                        if sl.Degree and sl.Degree > 0 then
+                            v = sl.MinValue + math.floor((v - sl.MinValue) / sl.Degree + 0.5) * sl.Degree
+                        end
+                        if v < sl.MinValue then v = sl.MinValue end
+                        if v > sl.MaxValue then v = sl.MaxValue end
+                        return v
+                    end
+                    local function valToFrac(v)
+                        local r = getRange()
+                        if r <= 0 then return 0 end
+                        return clampFrac((v - sl.MinValue) / r)
+                    end
+                    sl._refresh = function(animate)
+                        local f2 = valToFrac(sl.Value)
+                        if sl._tween then sl._tween:Cancel() end
+                        if animate then
+                            sl._tween = TweenService:Create(sl._fill, TweenInfo.new(Config.SliderAnimTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(f2, 0, 1, 0) })
+                            sl._tween:Play()
+                        else
+                            sl._fill.Size = UDim2.new(f2, 0, 1, 0)
+                        end
+                    end
+                    sl._applyFrac = function(f, animate)
+                        f = clampFrac(f)
+                        sl.Value = snapVal(sl.MinValue + f * getRange())
+                        sl._refresh(animate)
+                        if sl.ConfigKey then win._cfgSave(win, sl.ConfigKey, sl.Value) end
+                        if type(sl.OnChanged) == "function" then
+
+                            local okC, errC = pcall(sl.OnChanged, sl.Value, sl)
+                            if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
+                        end
+                    end
+                    sl.Value = sl.Value or sl.MinValue
+                    sl._frame = frame
+                    sl._track = track
+                    sl._fill = fill
+                    sl._titleLbl = titleLbl
+                    sl._refresh(false)
+                    local dragging = false
+                    local function pointFrac(input)
+                        local aw = sl._track.AbsoluteSize.X
+                        if aw <= 0 then return 0 end
+                        local x = (input.Position.X - sl._track.AbsolutePosition.X) / aw
+                        return clampFrac(x)
+                    end
+                    track.Active = true
+                    fill.Active = false
+                    track.InputBegan:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            dragging = true
+                            sl._applyFrac(pointFrac(input), true)
+                            local moveConn
+                            moveConn = input.Changed:Connect(function()
+                                if input.UserInputState == Enum.UserInputState.End then
+                                    dragging = false
+                                    if moveConn then moveConn:Disconnect() end
+                                elseif input.Position then
+                                    sl._applyFrac(pointFrac(input), false)
+                                end
+                            end)
+                        end
+                    end)
+                    return frame
+                end
+                local function makeDropdown(d, order)
+                    d.Multiple = d.Multiple and true or false
+                    if win._autoLoadConfig and d.ConfigKey and win._configFolder then
+                        local sv = loadConfigValue(win._configFolder, d.ConfigKey)
+                        if sv ~= nil then d.Selected = sv end
+                    end
+                    if not d.Multiple then
+                        d.Selected = (type(d.Selected) == "string" and d.Selected) or nil
+                    else
+                        if type(d.Selected) ~= "table" then d.Selected = {} end
+                    end
+                    local function isSelected(name)
+                        if d.Multiple then
+                            for _, s in ipairs(d.Selected) do if s == name then return true end end
+                            return false
+                        end
+                        return d.Selected == name
+                    end
+                    local function truncateToWidth(text, maxW)
+                        if text == "" then return text end
+                        if measureTextWidth(text, Config.DropdownCapsuleTextSize) <= maxW then return text end
+                        local chars = {}
+                        for _, cp in utf8.codes(text) do chars[#chars + 1] = utf8.char(cp) end
+                        local out = ""
+                        for i = 1, #chars do
+                            local cand = out .. chars[i]
+                            if measureTextWidth(cand .. "…", Config.DropdownCapsuleTextSize) > maxW then
+                                return out .. "…"
+                            end
+                            out = cand
+                        end
+                        return out .. "…"
+                    end
+                    local function capsuleText()
+                        local maxW = Config.DropdownCapsuleW - Config.DropdownMenuPad * 2 - Config.DropdownArrowSize - 6
+                        if d.Multiple then
+                            local n = #d.Selected
+                            if n == 0 then return Config.DropdownCapsulePlaceholder end
+                            local joined = table.concat(d.Selected, ", ")
+                            if measureTextWidth(joined, Config.DropdownCapsuleTextSize) > maxW then
+                                return "已选择" .. n .. "个"
+                            end
+                            return joined
+                        end
+                        if not d.Selected then return Config.DropdownCapsulePlaceholder end
+                        return truncateToWidth(d.Selected, maxW)
+                    end
+                    local function refreshCapsule()
+                        if d._label and d._label.Parent then d._label.Text = capsuleText() end
+                    end
+                    local function saveSel()
+                        if d.ConfigKey then win._cfgSave(win, d.ConfigKey, d.Selected) end
+                    end
+                    local function refreshHighlights()
+                        if not d._menuScroll then return end
+                        for _, ob in ipairs(d._menuScroll:GetChildren()) do
+                            if ob:IsA("TextButton") then
+                                ob.BackgroundColor3 = isSelected(ob:GetAttribute("OptName")) and Config.DropdownOptionSelected or Config.DropdownMenuFill
+                            end
+                        end
+                    end
+                    local function applySelection(name)
+                        if d.Multiple then
+                            local idx = 0
+                            for i, s in ipairs(d.Selected) do if s == name then idx = i break end end
+                            if idx > 0 then table.remove(d.Selected, idx) else d.Selected[#d.Selected + 1] = name end
+                        else
+                            d.Selected = name
+                        end
+                        refreshCapsule()
+                        saveSel()
+                        refreshHighlights()
+                        if type(d.OnChanged) == "function" then
+                            local okC, errC = pcall(d.OnChanged, d.Selected, d)
+                            if not okC then reportError("AddDropdown OnChanged 报错: " .. tostring(errC)) end
+                        end
+                        if not d.Multiple and d._closeMenu then d._closeMenu(true) end
+                    end
+                    local frame = Instance.new("Frame")
+                    frame.Name = "SubDropdown"
+                    frame.BackgroundTransparency = 1
+                    frame.Size = UDim2.new(1, 0, 0, Config.DropdownRowHeight)
+                    frame.LayoutOrder = order
+                    frame.ZIndex = 3
+                    local titleW = measureTextWidth(d.Title or "", Config.DropdownTitleSize) + Config.DropdownTitlePadX
+                    if titleW < Config.DropdownTitleMinW then titleW = Config.DropdownTitleMinW end
+                    local titleLbl = Instance.new("TextLabel")
+                    titleLbl.Name = "DdTitle"
+                    titleLbl.BackgroundTransparency = 1
+                    titleLbl.Size = UDim2.new(0, titleW, 1, 0)
+                    titleLbl.Position = UDim2.new(0, 0, 0, 0)
+                    titleLbl.Text = d.Title or ""
+                    titleLbl.TextColor3 = Config.DropdownTitleColor
+                    titleLbl.TextSize = Config.DropdownTitleSize
+                    titleLbl.Font = Enum.Font.GothamBold
+                    titleLbl.RichText = true
+                    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    titleLbl.TextYAlignment = Enum.TextYAlignment.Center
+                    titleLbl.ZIndex = 3
+                    titleLbl.Parent = frame
+                    local capsule = Instance.new("TextButton")
+                    capsule.Name = "DdCapsule"
+                    capsule.AutoButtonColor = false
+                    capsule.AnchorPoint = Vector2.new(1, 0.5)
+                    capsule.Position = UDim2.new(1, 0, 0.5, 0)
+                    capsule.Size = UDim2.new(0, Config.DropdownCapsuleW, 0, Config.DropdownCapsuleH)
+                    capsule.BackgroundTransparency = 1
+                    capsule.Text = ""
+                    capsule.ZIndex = 3
+                    capsule.Parent = frame
+                    local capCorner = Instance.new("UICorner")
+                    capCorner.CornerRadius = UDim.new(0.5, 0)
+                    capCorner.Parent = capsule
+                    local capStroke = Instance.new("UIStroke")
+                    capStroke.Color = Config.DropdownCapsuleStroke
+                    capStroke.Thickness = Config.DropdownCapsuleStrokeThickness
+                    capStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    capStroke.Parent = capsule
+                    local label = Instance.new("TextLabel")
+                    label.Name = "DdLabel"
+                    label.BackgroundTransparency = 1
+                    label.AnchorPoint = Vector2.new(0, 0.5)
+                    label.Position = UDim2.new(0, Config.DropdownMenuPad + 2, 0.5, 0)
+                    label.Size = UDim2.new(1, -(Config.DropdownMenuPad * 2 + Config.DropdownArrowSize + 6), 1, 0)
+                    label.Font = Enum.Font.Gotham
+                    label.TextColor3 = Config.DropdownCapsuleTextColor
+                    label.TextSize = Config.DropdownCapsuleTextSize
+                    label.TextXAlignment = Enum.TextXAlignment.Left
+                    label.TextYAlignment = Enum.TextYAlignment.Center
+                    label.ZIndex = 4
+                    label.Parent = capsule
+                    local arrow = Instance.new("ImageLabel")
+                    arrow.Name = "DdArrow"
+                    arrow.AnchorPoint = Vector2.new(1, 0.5)
+                    arrow.Position = UDim2.new(1, -Config.DropdownMenuPad - 2, 0.5, 0)
+                    arrow.Size = UDim2.fromOffset(Config.DropdownArrowSize, Config.DropdownArrowSize)
+                    arrow.BackgroundTransparency = 1
+                    arrow.ImageColor3 = Config.DropdownCapsuleStroke
+                    arrow.ScaleType = Enum.ScaleType.Fit
+                    arrow.ZIndex = 4
+                    arrow.Parent = capsule
+                    task.spawn(function()
+                        local lucide = loadLucide()
+                        if lucide then
+                            local okA, asset = pcall(lucide.GetAsset, "chevron-down")
+                            if okA and asset and asset.Url then
+                                arrow.Image = asset.Url
+                                if asset.ImageRectOffset then arrow.ImageRectOffset = asset.ImageRectOffset arrow.ImageRectSize = asset.ImageRectSize end
+                            end
+                        end
+                    end)
+
+                    local menuState = nil
+                    local outsideConn = nil
+                    local function openMenu()
+                        if menuState then return end
+                        if openDropdownClose then openDropdownClose() end
+                        local optList = d.Options or {}
+                        local count = #optList
+                        if count == 0 then return end
+                        local as = capsule.AbsoluteSize
+                        local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
+
+                        -- 关键：先在原父级里读出屏幕绝对坐标，再脱离到 ScreenGui。
+                        -- 不要去改 AnchorPoint/Position 做局部坐标换算——AbsolutePosition
+                        -- 已经把整条父链的偏移累加进去了，任何再叠加父级偏移的换算都会双重累加，
+                        -- 导致菜单展开后向右/向下跳一大段距离。
+                        local ap = capsule.AbsolutePosition
+                        local scrH = getViewportHeight()
+                        local edgeGap = Config.DropdownMenuPad + 4
+                        local capTop = ap.Y
+                        local capBottom = ap.Y + as.Y
+                        local belowSpace = scrH - capBottom - edgeGap
+                        local aboveSpace = capTop - edgeGap
+                        local openUp = (contentH > belowSpace) and (aboveSpace > belowSpace)
+                        local minH = Config.DropdownOptionH + Config.DropdownMenuPad * 2
+                        local avail = openUp and aboveSpace or belowSpace
+                        if avail < minH then avail = minH end
+                        local targetH = math.min(contentH, Config.DropdownMenuMaxH, avail)
+                        local needScroll = contentH > targetH
+                        local expandW = math.max(Config.DropdownMenuW, as.X)
+
+                        -- 右边缘与胶囊右边缘对齐
+                        local endX = ap.X + as.X - expandW
+                        local endY = openUp and (ap.Y + as.Y - targetH) or ap.Y
+                        -- 记录原始状态
+                        menuState = {
+                            parent = capsule.Parent,
+                            position = capsule.Position,
+                            size = capsule.Size,
+                            anchor = capsule.AnchorPoint,
+                            zindex = capsule.ZIndex,
+                            clips = capsule.ClipsDescendants,
+                            corner = capCorner.CornerRadius,
+                            bgColor = capsule.BackgroundColor3,
+
+                            baseX = ap.X,
+                            baseY = ap.Y,
+                            baseW = as.X,
+                            baseH = as.Y,
+                        }
+
+                        -- 脱离到 ScreenGui 顶层，避免被控件区的 ClipsDescendants 裁掉（选项不显示）
+                        capsule.ClipsDescendants = true
+                        capsule.ZIndex = Config.DropdownMenuZ
+                        capsule.BackgroundColor3 = Config.DropdownMenuFill
+                        -- AnchorPoint 归零后，直接用屏幕绝对坐标定位（IgnoreGuiInset=true，无 inset 偏移）
+                        capsule.AnchorPoint = Vector2.new(0, 0)
+                        capsule.Position = UDim2.fromOffset(endX, endY)
+                        capsule.Parent = screenGui
+                        capsule.Size = UDim2.fromOffset(expandW, targetH)
+
+                        label.Visible = false
+                        arrow.Visible = false
+
+                        local container
+                        if needScroll then
+                            local sc = Instance.new("ScrollingFrame")
+                            sc.Name = "DdScroll"
+                            sc.BackgroundTransparency = 1
+                            sc.BorderSizePixel = 0
+                            sc.Size = UDim2.new(1, 0, 1, 0)
+                            sc.CanvasSize = UDim2.new(0, 0, 0, contentH)
+                            sc.ScrollingDirection = Enum.ScrollingDirection.Y
+                            sc.ScrollBarThickness = 3
+                            sc.ZIndex = 2
+                            sc.Parent = capsule
+                            container = sc
+                            menuState.container = sc
+                        else
+                            container = capsule
+                        end
+                        local list = Instance.new("UIListLayout")
+                        list.FillDirection = Enum.FillDirection.Vertical
+                        list.SortOrder = Enum.SortOrder.LayoutOrder
+                        list.Padding = UDim.new(0, 0)
+                        list.Parent = container
+                        local pad = Instance.new("UIPadding")
+                        pad.PaddingTop = UDim.new(0, Config.DropdownMenuPad)
+                        pad.PaddingBottom = UDim.new(0, Config.DropdownMenuPad)
+                        pad.PaddingLeft = UDim.new(0, Config.DropdownMenuPad)
+                        pad.PaddingRight = UDim.new(0, Config.DropdownMenuPad)
+                        pad.Parent = container
+                        menuState.list = list
+                        menuState.pad = pad
+                        d._menuScroll = container
+                        for i, opt in ipairs(optList) do
+                            local ob = Instance.new("TextButton")
+                            ob.Name = "DdOption"
+                            ob.Size = UDim2.new(1, 0, 0, Config.DropdownOptionH)
+                            ob.BackgroundColor3 = isSelected(opt) and Config.DropdownOptionSelected or Config.DropdownMenuFill
+                            ob.BackgroundTransparency = 1
+                            ob.TextTransparency = 1
+                            ob.Text = opt
+                            ob.TextColor3 = Config.DropdownOptionTextColor
+                            ob.TextSize = Config.DropdownOptionTextSize
+                            ob.Font = Enum.Font.Gotham
+                            ob.TextXAlignment = Enum.TextXAlignment.Left
+                            ob.AutoButtonColor = false
+                            ob.LayoutOrder = i
+                            ob.ZIndex = 2
+                            ob:SetAttribute("OptName", opt)
+                            ob.Parent = container
+                            local obCorner = Instance.new("UICorner")
+                            obCorner.CornerRadius = UDim.new(0, 5)
+                            obCorner.Parent = ob
+                            ob.MouseButton1Click:Connect(function()
+                                applySelection(opt)
+                            end)
+                            ob.MouseEnter:Connect(function()
+                                if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownOptionHover }):Play() end
+                            end)
+                            ob.MouseLeave:Connect(function()
+                                if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownMenuFill }):Play() end
+                            end)
+                        end
+                        local closed = false
+                        local function restore()
+                            if outsideConn then outsideConn:Disconnect() outsideConn = nil end
+                            if d._menuScroll == container then d._menuScroll = nil end
+                            d._closeMenu = nil
+                            local st = menuState
+                            menuState = nil
+
+                            for _, ob in ipairs(container:GetChildren()) do
+                                if ob:IsA("TextButton") and ob.Name == "DdOption" then ob:Destroy() end
+                            end
+                            if st.list and st.list.Parent then st.list:Destroy() end
+                            if st.pad and st.pad.Parent then st.pad:Destroy() end
+                            if st.container and st.container.Parent then st.container:Destroy() end
+                            if st.parent and st.parent.Parent then
+                                capsule.AnchorPoint = st.anchor
+                                capsule.Position = st.position
+                                capsule.Size = st.size
+                                capsule.ZIndex = st.zindex
+                                capsule.ClipsDescendants = st.clips
+                                capsule.BackgroundColor3 = st.bgColor
+                                capsule.Parent = st.parent
+                                capCorner.CornerRadius = st.corner
+                                label.Visible = true
+                                arrow.Visible = true
+                            elseif capsule and capsule.Parent then
+
+                                capsule:Destroy()
+                            end
+                        end
+                        local function closeMenu(animate)
+                            if closed then return end
+                            closed = true
+                            if openDropdownClose == closeMenu then openDropdownClose = nil end
+                            if not animate then restore() return end
+                            for _, ob in ipairs(container:GetChildren()) do
+                                if ob:IsA("TextButton") then
+                                    TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+                                end
+                            end
+                            TweenService:Create(capsule, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+                                Position = UDim2.fromOffset(menuState.baseX, menuState.baseY),
+                                Size = UDim2.new(0, as.X, 0, as.Y),
+                                BackgroundTransparency = 1,
+                            }):Play()
+                            TweenService:Create(capCorner, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { CornerRadius = menuState.corner }):Play()
+                            task.delay(Config.DropdownCollapseTime + 0.05, restore)
+                        end
+                        d._closeMenu = closeMenu
+                        openDropdownClose = closeMenu
+
+                        TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                            Position = UDim2.fromOffset(endX, endY),
+                            Size = UDim2.new(0, expandW, 0, targetH),
+                        }):Play()
+                        TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.DropdownMenuFillTransparency }):Play()
+                        TweenService:Create(capCorner, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { CornerRadius = UDim.new(0, Config.DropdownMenuCorner) }):Play()
+                        for i, ob in ipairs(container:GetChildren()) do
+                            if ob:IsA("TextButton") then
+                                task.delay(Config.DropdownRevealTime + (i - 1) * Config.DropdownOptionStagger, function()
+                                    if closed or not ob.Parent then return end
+                                    TweenService:Create(ob, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 0, TextTransparency = 0 }):Play()
+                                end)
+                            end
+                        end
+
+                        outsideConn = UserInputService.InputBegan:Connect(function(input)
+                            if closed then return end
+                            if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                            local p, cp, cs = input.Position, capsule.AbsolutePosition, capsule.AbsoluteSize
+                            if p and p.X >= cp.X and p.X <= cp.X + cs.X and p.Y >= cp.Y and p.Y <= cp.Y + cs.Y then return end
+                            closeMenu(true)
+                        end)
+                    end
+                    capsule.MouseButton1Click:Connect(function()
+                        if menuState then
+                            if d._closeMenu then d._closeMenu(true) end
+                        else
+                            openMenu()
+                        end
+                    end)
+                    d._refreshCapsule = refreshCapsule
+                    refreshCapsule()
+                    d._frame = frame
+                    d._capsule = capsule
+                    d._label = label
+                    d._titleLbl = titleLbl
+                    return frame
+                end
+                for _, st in ipairs(tab._subtitles) do
+                    local btns = st._buttons or {}
+                    local tgts = st._toggles or {}
+                    local pgrs = st._paragraphs or {}
+                    local slds = st._sliders or {}
+                    local ddns = st._dropdowns or {}
+                    local lns = st._lines or {}
+                    local paraW = math.max(60, (tabContentContainer and tabContentContainer.AbsoluteSize.X or 0)
+                        - Config.SubTitleBodyPadX * 2 - Config.ParagraphBackPad * 2)
+                    local itemH = {}
+                    for _ in ipairs(btns) do itemH[#itemH + 1] = Config.ButtonHeight end
+                    for _ in ipairs(tgts) do itemH[#itemH + 1] = Config.ButtonHeight end
+                    for _, pg in ipairs(pgrs) do itemH[#itemH + 1] = paragraphHeight(pg, paraW) end
+                    for _ in ipairs(slds) do itemH[#itemH + 1] = Config.SliderRowHeight end
+                    for _ in ipairs(ddns) do itemH[#itemH + 1] = Config.DropdownRowHeight end
+                    for _ in ipairs(lns) do itemH[#itemH + 1] = Config.LineRowHeight end
+                    local ccount = #itemH
+                    local sumH = 0
+                    for _, h in ipairs(itemH) do sumH = sumH + h end
+                    local contentH
+                    if ccount > 0 then
+                        contentH = Config.SubTitleBodyPadY * 2 + sumH + (ccount - 1) * Config.ButtonGap
+                    else
+                        contentH = 0
+                    end
+                    local fullH = headH + divGap + contentH
+                    local minH = headH + divGap
+                    local block = Instance.new("Frame")
+                    block.Name = "SubBlock"
+                    block.BackgroundTransparency = 1
+                    block.Size = UDim2.new(1, 0, 0, st.collapsed and minH or fullH)
+                    block.ClipsDescendants = true
+                    block.ZIndex = 2
+                    block.Parent = tabSubtitleList
+                    local div = Instance.new("Frame")
+                    div.Size = UDim2.new(1, 0, 0, 1)
+                    div.Position = UDim2.new(0, 0, 0, headH)
+                    div.BackgroundColor3 = Config.DividerColor
+                    div.BorderSizePixel = 0
+                    div.ZIndex = 2
+                    div.Parent = block
+                    local body = Instance.new("Frame")
+                    body.Name = "SubBody"
+                    body.Size = UDim2.new(1, 0, 0, contentH)
+                    body.Position = UDim2.new(0, 0, 0, headH + divGap)
+                    body.BackgroundColor3 = Config.SubTitleBodyFill
+                    body.BackgroundTransparency = 1
+                    body.BorderSizePixel = 0
+                    body.ZIndex = 1
+                    body.Parent = block
+                    local bc = Instance.new("UICorner")
+                    bc.CornerRadius = UDim.new(0, 6)
+                    bc.Parent = body
+                    if ccount > 0 then
+                        local bl = Instance.new("UIListLayout")
+                        bl.FillDirection = Enum.FillDirection.Vertical
+                        bl.SortOrder = Enum.SortOrder.LayoutOrder
+                        bl.Padding = UDim.new(0, Config.ButtonGap)
+                        bl.Parent = body
+                        local bp = Instance.new("UIPadding")
+                        bp.PaddingTop = UDim.new(0, Config.SubTitleBodyPadY)
+                        bp.PaddingBottom = UDim.new(0, Config.SubTitleBodyPadY)
+                        bp.PaddingLeft = UDim.new(0, Config.SubTitleBodyPadX)
+                        bp.PaddingRight = UDim.new(0, Config.SubTitleBodyPadX)
+                        bp.Parent = body
+                        for bi, bt in ipairs(btns) do
+                            makeButton(bt, bi).Parent = body
+                        end
+                        for ti, tg in ipairs(tgts) do
+                            makeToggle(tg, #btns + ti).Parent = body
+                        end
+                        for pi, pg in ipairs(pgrs) do
+                            local pIdx = #btns + #tgts + pi
+                            pg._rowH = itemH[pIdx]
+                            pg._paraW = paraW
+                            pg._block = block
+                            pg._body = body
+                            pg._bodyH = contentH
+                            pg._headH = headH
+                            pg._divGap = divGap
+                            pg._collapsed = st.collapsed
+                            makeParagraph(pg, pIdx, itemH[pIdx]).Parent = body
+                        end
+                        for si, sl in ipairs(slds) do
+                            makeSlider(sl, #btns + #tgts + #pgrs + si).Parent = body
+                        end
+                        for di, dd in ipairs(ddns) do
+                            makeDropdown(dd, #btns + #tgts + #pgrs + #slds + di).Parent = body
+                        end
+                        for li, ln in ipairs(lns) do
+                            makeLine(ln, #btns + #tgts + #pgrs + #slds + #ddns + li).Parent = body
+                        end
+                    end
+                    local hasIco = (st.Icon ~= nil and st.Icon ~= "")
+                    local tX = 0
+                    if hasIco then
+                        local hicon = Instance.new("ImageLabel")
+                        hicon.Name = "SubIcon"
+                        hicon.Size = UDim2.fromOffset(Config.SubTitleIconSize, Config.SubTitleIconSize)
+                        hicon.Position = UDim2.new(0, 0, 0, (headH - Config.SubTitleIconSize) / 2)
+                        hicon.BackgroundTransparency = 1
+                        hicon.ImageColor3 = st.IconColor or Config.SubTitleColor
+                        hicon.ScaleType = Enum.ScaleType.Fit
+                        hicon.ZIndex = 3
+                        hicon.Parent = block
+                        tX = Config.SubTitleIconSize + 8
+                        task.spawn(function()
+                            local lucide = loadLucide()
+                            if lucide then
+                                local okI, asset = pcall(lucide.GetAsset, st.Icon)
+                                if okI and asset and asset.Url then
+                                    hicon.Image = asset.Url
+                                    if asset.ImageRectOffset then hicon.ImageRectOffset = asset.ImageRectOffset hicon.ImageRectSize = asset.ImageRectSize end
+                                end
+                            end
+                        end)
+                    end
+                    local htext = Instance.new("TextLabel")
+                    htext.Name = "SubText"
+                    htext.Size = UDim2.new(1, -(tX + Config.SubTitleArrowSize + 10), 0, headH)
+                    htext.Position = UDim2.new(0, tX, 0, 0)
+                    htext.BackgroundTransparency = 1
+                    htext.Text = st.Title
+                    htext.TextColor3 = Config.SubTitleColor
+                    htext.TextSize = Config.SubTitleTextSize
+                    htext.Font = Enum.Font.GothamBold
+                    htext.TextXAlignment = Enum.TextXAlignment.Left
+                    htext.TextYAlignment = Enum.TextYAlignment.Center
+                    htext.ZIndex = 3
+                    htext.Parent = block
+                    local arrow = Instance.new("ImageLabel")
+                    arrow.Name = "SubArrow"
+                    arrow.Size = UDim2.fromOffset(Config.SubTitleArrowSize, Config.SubTitleArrowSize)
+                    arrow.AnchorPoint = Vector2.new(1, 0.5)
+                    arrow.Position = UDim2.new(1, 0, 0, headH / 2)
+                    arrow.BackgroundTransparency = 1
+                    arrow.ImageColor3 = Config.SubTitleColor
+                    arrow.ScaleType = Enum.ScaleType.Fit
+                    arrow.Rotation = st.collapsed and Config.SubTitleArrowRotate or 0
+                    arrow.ZIndex = 3
+                    arrow.Parent = block
+                    task.spawn(function()
+                        local lucide = loadLucide()
+                        if lucide then
+                            local okA, asset = pcall(lucide.GetAsset, "chevron-down")
+                            if okA and asset and asset.Url then
+                                arrow.Image = asset.Url
+                                if asset.ImageRectOffset then arrow.ImageRectOffset = asset.ImageRectOffset arrow.ImageRectSize = asset.ImageRectSize end
+                            end
+                        end
+                    end)
+                    local hit = Instance.new("TextButton")
+                    hit.Size = UDim2.new(1, 0, 0, headH)
+                    hit.Position = UDim2.new(0, 0, 0, 0)
+                    hit.BackgroundTransparency = 1
+                    hit.Text = ""
+                    hit.AutoButtonColor = false
+                    hit.ZIndex = 4
+                    hit.Parent = block
+                    hit.MouseButton1Click:Connect(function()
+                        st.collapsed = not st.collapsed
+                        TweenService:Create(block, TweenInfo.new(Config.SubTitleCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                            Size = UDim2.new(1, 0, 0, st.collapsed and minH or fullH),
+                        }):Play()
+                        TweenService:Create(arrow, TweenInfo.new(Config.SubTitleCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                            Rotation = st.collapsed and Config.SubTitleArrowRotate or 0,
+                        }):Play()
+                    end)
+                end
+            end
+            local function animateContentIn()
+                if not tabContentContainer or not tabContentBase then return end
+                local sc = tabContentContainer:FindFirstChild("TabScroll")
+                if sc then sc.CanvasPosition = Vector2.new(0, 0) end
+                tabContentContainer.GroupTransparency = 1
+                tabContentContainer.Position = UDim2.new(tabContentBase.X.Scale, tabContentBase.X.Offset + 18, tabContentBase.Y.Scale, tabContentBase.Y.Offset)
+                TweenService:Create(tabContentContainer, TweenInfo.new(Config.PageAnimTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    GroupTransparency = 0,
+                    Position = tabContentBase,
+                }):Play()
+            end
+            local function updateContentArea()
+                local hasSel = (win._activeTab ~= 0)
+                local tab = hasSel and win._tabs[win._activeTab] or nil
+                local hasSub = (tab and tab._subtitles and #tab._subtitles > 0)
+                if tabContentEmpty then tabContentEmpty.Visible = (not hasSel) end
+                if tabContentNoCtrl then tabContentNoCtrl.Visible = (hasSel and not hasSub) end
+                renderSubtitles(hasSub and tab or nil)
+            end
+            local function updateTabsHighlight()
+                if not tabListContainer then return end
+                for _, row in ipairs(tabListContainer:GetChildren()) do
+                    if row:IsA("TextButton") then
+                        local idx = row.LayoutOrder
+                        local active = (win._activeTab == idx)
+                        local nl = row:FindFirstChild("TabName")
+                        local ic2 = row:FindFirstChild("TabIcon")
+                        local sel = row:FindFirstChild("TabSel")
+                        if nl then TweenService:Create(nl, TweenInfo.new(0.15), { TextColor3 = active and Config.TabActiveColor or Config.TabInactiveColor }):Play() end
+                        if ic2 then
+                            local td = win._tabs[idx]
+                            local base = (td and td.IconColor) or Config.TabInactiveColor
+                            TweenService:Create(ic2, TweenInfo.new(0.15), { ImageColor3 = active and Config.TabActiveColor or base }):Play()
+                        end
+                        -- 选中指示器：每个 TabRow 自带一个 TabSel（Position 恒为 0,0，
+                        -- 因为它相对所在行定位），所以这里只做淡入淡出，
+                        -- 绝不能补间 Position —— 否则会向下偏移一个行高，看起来跑到下一个选项卡上。
+                        if sel then
+                            if active then
+                                local first = not sel.Visible
+                                if first then
+                                    sel.Position = UDim2.new(0, 0, 0, 0)
+                                    sel.BackgroundTransparency = 1
+                                end
+                                sel.Visible = true
+                                sel.ZIndex = 2
+                                TweenService:Create(sel, TweenInfo.new(
+                                    Config.TabSelFadeTime,
+                                    Enum.EasingStyle.Sine, Enum.EasingDirection.Out
+                                ), {
+                                    BackgroundTransparency = Config.TabSelFillTransparency,
+                                }):Play()
+                            else
+                                if sel.Visible then
+                                    -- 先淡出，播完再隐藏，避免残留一帧；
+                                    -- 期间若被重新选中，Visible 会被置回 true，回调需再确认一次
+                                    local tw = TweenService:Create(sel, TweenInfo.new(
+                                        Config.TabSelFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
+                                    ), {
+                                        BackgroundTransparency = 1,
+                                    })
+                                    tw:Play()
+                                    tw.Completed:Connect(function(state)
+                                        if state == Enum.PlaybackState.Completed
+                                            and sel.Parent
+                                            and win._activeTab ~= idx then
+                                            sel.Visible = false
+                                        end
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            local playToggleStateAnimation = nil
+
+            local function collapsePanel(skipToggleAnim)
+                if not expanded then return end
+                titleGen = titleGen + 1
+                cancelTitleTweens()
+                if actionEnd then actionEnd() end
+                local ll = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
+                if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
+                local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+                local collapseFinished = false
+                animateEdge(Config.IslandSize, Config.IslandPosition, Config.PanelExpandTime, Config.PanelBounce, function()
+                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                    edge.Position = UDim2.new(0.5, cx, 0, cy)
+                    winOpen = false
+                    collapseFinished = true
+                end)
+                TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Position = UDim2.new(Config.IslandPosition.X.Scale, cx, Config.IslandPosition.Y.Scale, cy),
+                }):Play()
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do local lb = cf:FindFirstChildOfClass("TextLabel") if lb then lb.TextTransparency = 0 end end
+                if closeBtn then closeBtn:Destroy() closeBtn = nil end
+                if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
+                if titleIcon then titleIcon:Destroy() titleIcon = nil end
+                if infoLabel then infoLabel:Destroy() infoLabel = nil end
+                clearBrand()
+                destroyTabUI()
+                win._rebuildTabs = nil
+                expanded = false
+
+                setIslandText(islandTextOverride or title, Config.TitleColor)
+                interacting = false
+
+                if skipToggleAnim then
+                    lastToggleInfo = nil
+                elseif playToggleStateAnimation then
+                    -- 等收起动画播完再播开关状态动画，避免两者重叠打架
+                    task.spawn(function()
+                        local waited = 0
+                        while not collapseFinished and alive and waited < 2 do
+                            task.wait(0.02)
+                            waited = waited + 0.02
+                        end
+                        if not alive or shutdown then lastToggleInfo = nil return end
+                        playToggleStateAnimation()
+                    end)
+                end
+            end
+
+            local lastPanelLayout = nil
+
+            local function buildTabUI(layout)
+    local titlePad = layout.titlePad
+                            local blockH = layout.blockH
+                            local m = layout.m
+                            local top = layout.top
+                            local sh = layout.sh
+                            destroyTabUI()
+                            local divY = titlePad + blockH + Config.HeaderDividerGap
+                            local div = Instance.new("Frame")
+                            div.Name = "HeaderDivider"
+                            div.Size = UDim2.new(1, -(titlePad * 2), 0, 1)
+                            div.Position = UDim2.new(0, titlePad, 0, divY)
+                            div.BackgroundColor3 = Config.DividerColor
+                            div.BorderSizePixel = 0
+                            div.ZIndex = 2
+                            div.Parent = contentRoot
+                            headerDivider = div
+                            local listTop = divY + Config.HeaderDividerGap
+                            local listW = Config.TabWidth
+                            if #win._tabs > 0 then
+                                local listFrame = Instance.new("Frame")
+                                listFrame.Name = "TabList"
+                                listFrame.BackgroundTransparency = 1
+                                listFrame.Position = UDim2.new(0, titlePad, 0, listTop)
+                                listFrame.Size = UDim2.new(0, listW, 1, -(listTop + m))
+                                listFrame.ZIndex = 2
+                                listFrame.Parent = contentRoot
+                                tabListContainer = listFrame
+                                local sep = Instance.new("Frame")
+                                sep.Name = "TabSeparator"
+                                sep.Size = UDim2.new(0, 1, 1, -(listTop + m))
+                                sep.Position = UDim2.new(0, titlePad + listW + Config.TabAreaGap / 2, 0, listTop)
+                                sep.BackgroundColor3 = Config.DividerColor
+                                sep.BorderSizePixel = 0
+                                sep.ZIndex = 2
+                                sep.Parent = contentRoot
+                                tabSeparator = sep
+                                local contentX = titlePad + listW + Config.TabAreaGap
+                                local contentFrame = Instance.new("CanvasGroup")
+                                contentFrame.Name = "TabContent"
+                                contentFrame.BackgroundTransparency = 1
+                                contentFrame.Position = UDim2.new(0, contentX, 0, listTop)
+
+                                contentFrame.Size = UDim2.new(1, -(contentX + titlePad), 1, -listTop)
+                                contentFrame.ClipsDescendants = true
+                                contentFrame.ZIndex = 2
+                                contentFrame.Parent = contentRoot
+                                tabContentContainer = contentFrame
+                                tabContentBase = contentFrame.Position
+                                local function makeStateGroup(iconName, text)
+                                    local g = Instance.new("Frame")
+                                    g.Name = "StateGroup"
+                                    g.BackgroundTransparency = 1
+                                    g.AnchorPoint = Vector2.new(0.5, 0.5)
+                                    g.Position = UDim2.new(0.5, 0, 0.5, 0)
+                                    g.Size = UDim2.fromOffset(220, 130)
+                                    g.ZIndex = 3
+                                    g.Parent = contentFrame
+                                    local ic = Instance.new("ImageLabel")
+                                    ic.Name = "StateIcon"
+                                    ic.Size = UDim2.fromOffset(Config.ContentEmptyIconSize, Config.ContentEmptyIconSize)
+                                    ic.AnchorPoint = Vector2.new(0.5, 0)
+                                    ic.Position = UDim2.new(0.5, 0, 0, 0)
+                                    ic.BackgroundTransparency = 1
+                                    ic.ImageColor3 = Config.TabInactiveColor
+                                    ic.ScaleType = Enum.ScaleType.Fit
+                                    ic.ZIndex = 3
+                                    ic.Parent = g
+                                    local tx = Instance.new("TextLabel")
+                                    tx.Name = "StateText"
+                                    tx.AnchorPoint = Vector2.new(0.5, 0)
+                                    tx.Position = UDim2.new(0.5, 0, 0, Config.ContentEmptyIconSize + 14)
+                                    tx.Size = UDim2.new(1, 0, 0, 24)
+                                    tx.BackgroundTransparency = 1
+                                    tx.Text = text
+                                    tx.TextColor3 = Config.TabInactiveColor
+                                    tx.TextSize = Config.TabTextSize
+                                    tx.Font = Enum.Font.Gotham
+                                    tx.TextXAlignment = Enum.TextXAlignment.Center
+                                    tx.TextYAlignment = Enum.TextYAlignment.Center
+                                    tx.ZIndex = 3
+                                    tx.Parent = g
+                                    task.spawn(function()
+                                        local lucide = loadLucide()
+                                        if lucide then
+                                            local okE, asset = pcall(lucide.GetAsset, iconName)
+                                            if okE and asset and asset.Url then
+                                                ic.Image = asset.Url
+                                                if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                            end
+                                        end
+                                    end)
+                                    return g
+                                end
+                                tabContentEmpty = makeStateGroup(Config.ContentEmptyIcon, Config.ContentEmptyText)
+                                tabContentNoCtrl = makeStateGroup(Config.ContentNoCtrlIcon, Config.ContentNoCtrlText)
+                                local scroll = Instance.new("ScrollingFrame")
+                                scroll.Name = "TabScroll"
+                                scroll.BackgroundTransparency = 1
+                                scroll.BorderSizePixel = 0
+                                scroll.Size = UDim2.new(1, 0, 1, 0)
+                                scroll.Position = UDim2.new(0, 0, 0, 0)
+                                scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+                                scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+                                scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+                                scroll.ScrollingEnabled = true
+                                scroll.ScrollBarThickness = Config.ContentScrollBarThickness
+                                scroll.ScrollBarImageTransparency = Config.ContentScrollBarTransparency
+                                scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+                                scroll.ClipsDescendants = true
+                                scroll.ZIndex = 2
+                                scroll.Parent = contentFrame
+                                local subList = Instance.new("Frame")
+                                subList.Name = "TabSubtitleList"
+                                subList.BackgroundTransparency = 1
+                                subList.Size = UDim2.new(1, 0, 0, 0)
+                                subList.AutomaticSize = Enum.AutomaticSize.Y
+                                subList.ZIndex = 2
+                                subList.Parent = scroll
+                                local subListLayout = Instance.new("UIListLayout")
+                                subListLayout.FillDirection = Enum.FillDirection.Vertical
+                                subListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+                                subListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+                                subListLayout.Padding = UDim.new(0, Config.SubTitleBlockGap)
+                                subListLayout.Parent = subList
+                                local subListPad = Instance.new("UIPadding")
+                                subListPad.PaddingRight = UDim.new(0, Config.ContentScrollBarThickness + 2)
+                                subListPad.Parent = subList
+                                tabSubtitleList = subList
+                                for i, tab in ipairs(win._tabs) do
+                                    local row = Instance.new("TextButton")
+                                    row.Name = "TabRow"
+                                    row.Size = UDim2.new(1, 0, 0, Config.TabRowHeight)
+                                    row.Position = UDim2.new(0, 0, 0, (i - 1) * (Config.TabRowHeight + Config.TabRowGap))
+                                    row.BackgroundTransparency = 1
+                                    row.Text = ""
+                                    row.AutoButtonColor = false
+                                    row.LayoutOrder = i
+                                    row.ZIndex = 3
+                                    row.Parent = listFrame
+                                    local sel = Instance.new("Frame")
+                                    sel.Name = "TabSel"
+                                    sel.Size = UDim2.new(1, 0, 1, 0)
+                                    sel.Position = UDim2.new(0, 0, 0, 0)
+                                    sel.BackgroundColor3 = Config.TabSelFill
+                                    sel.BackgroundTransparency = Config.TabSelFillTransparency
+                                    sel.BorderSizePixel = 0
+                                    sel.Visible = false
+                                    sel.ZIndex = 2
+                                    sel.Parent = row
+                                    local selCorner = Instance.new("UICorner")
+                                    selCorner.CornerRadius = Config.TabSelCorner
+                                    selCorner.Parent = sel
+                                    local selStroke = Instance.new("UIStroke")
+                                    selStroke.Color = Config.TabSelStroke
+                                    selStroke.Thickness = Config.TabSelStrokeThickness
+                                    selStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                                    selStroke.Parent = sel
+                                    local selGrad = Instance.new("UIGradient")
+                                    selGrad.Rotation = 135
+                                    selGrad.Color = ColorSequence.new({
+                                        ColorSequenceKeypoint.new(0, Color3.fromRGB(104, 106, 118)),
+                                        ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 28, 34)),
+                                    })
+                                    selGrad.Parent = sel
+                                    local hasIcon = (tab.Icon ~= nil and tab.Icon ~= "")
+                                    local ticon = nil
+                                    if hasIcon then
+                                        ticon = Instance.new("ImageLabel")
+                                        ticon.Name = "TabIcon"
+                                        ticon.Size = UDim2.fromOffset(Config.TabIconSize, Config.TabIconSize)
+                                        ticon.Position = UDim2.new(0, Config.TabRowPadX, 0.5, 0)
+                                        ticon.AnchorPoint = Vector2.new(0, 0.5)
+                                        ticon.BackgroundTransparency = 1
+                                        ticon.ImageColor3 = tab.IconColor or Config.TabInactiveColor
+                                        ticon.ImageTransparency = 1
+                                        ticon.ZIndex = 3
+                                        ticon.Parent = row
+                                    end
+                                    local tname = Instance.new("TextLabel")
+                                    tname.Name = "TabName"
+                                    tname.BackgroundTransparency = 1
+                                    tname.Text = tab.Title
+                                    tname.TextColor3 = Config.TabInactiveColor
+                                    tname.TextSize = Config.TabTextSize
+                                    tname.Font = Enum.Font.Gotham
+                                    tname.TextYAlignment = Enum.TextYAlignment.Center
+                                    tname.TextTransparency = 1
+                                    tname.ZIndex = 3
+                                    if hasIcon then
+                                        tname.Size = UDim2.new(1, -(Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap), 1, 0)
+                                        tname.Position = UDim2.new(0, Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap, 0, 0)
+                                        tname.TextXAlignment = Enum.TextXAlignment.Left
+                                    else
+                                        tname.Size = UDim2.new(1, -(Config.TabRowPadX * 2), 1, 0)
+                                        tname.Position = UDim2.new(0, Config.TabRowPadX, 0, 0)
+                                        tname.TextXAlignment = Enum.TextXAlignment.Left
+                                    end
+                                    tname.Parent = row
+                                    task.delay(Config.PanelExpandTime + (i - 1) * Config.TabStagger, function()
+                                        if not expanded then return end
+                                        if ticon and ticon.Parent then TweenService:Create(ticon, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play() end
+                                        if tname and tname.Parent then TweenService:Create(tname, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                                    end)
+                                    row.MouseButton1Click:Connect(function()
+                                        if shutdown then return end
+                                        win._activeTab = i
+                                        updateTabsHighlight()
+                                        updateContentArea()
+                                        animateContentIn()
+                                    end)
+                                    if hasIcon then
+                                        task.spawn(function()
+                                            local lucide = loadLucide()
+                                            if lucide then
+                                                local okA, asset = pcall(lucide.GetAsset, tab.Icon)
+                                                if okA and asset and asset.Url then
+                                                    ticon.Image = asset.Url
+                                                    if asset.ImageRectOffset then ticon.ImageRectOffset = asset.ImageRectOffset ticon.ImageRectSize = asset.ImageRectSize end
+                                                end
+                                            end
+                                        end)
+                                    end
+                                end
+                                updateTabsHighlight()
+                                updateContentArea()
+                            else
+                                local msg = "还没有任何选项卡"
+                                local parts = {}
+                                for _, cp in utf8.codes(msg) do parts[#parts + 1] = utf8.char(cp) end
+                                local lbl = Instance.new("TextLabel")
+                                lbl.Name = "TabEmpty"
+                                lbl.BackgroundTransparency = 1
+                                lbl.AnchorPoint = Vector2.new(0.5, 0.5)
+                                lbl.Size = UDim2.fromOffset(listW, 0)
+                                lbl.AutomaticSize = Enum.AutomaticSize.Y
+                                lbl.Position = UDim2.new(0, titlePad + listW / 2, 0, (listTop + (sh - top - m)) / 2)
+                                lbl.Text = table.concat(parts, "\n")
+                                lbl.TextColor3 = Config.TabInactiveColor
+                                lbl.TextSize = Config.TabTextSize
+                                lbl.Font = Enum.Font.Gotham
+                                lbl.TextXAlignment = Enum.TextXAlignment.Center
+                                lbl.TextYAlignment = Enum.TextYAlignment.Center
+                                lbl.ZIndex = 2
+                                lbl.Parent = contentRoot
+                                tabEmptyLabel = lbl
+                            end
+            end
+
+        local function setHeaderVisible(vis)
+            local t = vis and 0 or 1
+            if islandTextContainer and islandTextContainer.Parent then
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then TweenService:Create(lb, TweenInfo.new(0.22), { TextTransparency = t }):Play() end
+                end
+            end
+            if titleIcon then TweenService:Create(titleIcon, TweenInfo.new(0.22), { ImageTransparency = t }):Play() end
+            if infoLabel then TweenService:Create(infoLabel, TweenInfo.new(0.22), { TextTransparency = t }):Play() end
+            if closeBtn then TweenService:Create(closeBtn, TweenInfo.new(0.22), { ImageTransparency = t }):Play() closeBtn.Active = vis end
+        end
+        local function makePill(label, color)
+            local b = Instance.new("TextButton")
+            b.Size = UDim2.new(0, Config.CloseDialogBtnW, 0, Config.CloseDialogBtnH)
+            b.BackgroundColor3 = color
+            b.Text = label
+            b.TextColor3 = Color3.new(1, 1, 1)
+            b.TextSize = 16
+            b.Font = Enum.Font.GothamBold
+            b.AutoButtonColor = false
+            b.ZIndex = 72
+            local c = Instance.new("UICorner")
+            c.CornerRadius = UDim.new(0.5, 0)
+            c.Parent = b
+            return b
+        end
+
+            local function buildCloseButton(onHoldConfirm)
+                        local btn = Instance.new("ImageButton")
+                        btn.Name = "PanelClose"
+                        btn.Size = UDim2.new(0, 20, 0, 20)
+                        btn.Position = UDim2.new(1, -26, 0, 6)
+                        btn.BackgroundTransparency = 1
+                        btn.ScaleType = Enum.ScaleType.Fit
+                        btn.ImageColor3 = Color3.new(1, 1, 1)
+                        btn.Parent = contentRoot
+                        local closeHold = nil
+                        -- 按下时刻的按钮有效性令牌：collapsePanel 会让本按钮立即失效，
+                        -- 防止「快速点击后立刻按住」在旧按钮上重启closeHold 计时器，
+                        -- 导致收起动画与二次确认动画同时播放。
+                        local pressGen = 0
+                        btn.InputBegan:Connect(function(bi)
+                            if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
+                                if shutdown then return end
+                                -- 面板已收起 / 二次确认中 / 按钮已被移除时，忽略本次按下
+                                if not expanded or closeDialog or btn.Parent == nil then return end
+                                pressGen = pressGen + 1
+                                local myGen = pressGen
+                                TweenService:Create(btn, TweenInfo.new(Config.CloseHoldTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Config.RedXColor }):Play()
+                                if closeHold then safeCancel(closeHold) end
+                                closeHold = task.delay(Config.CloseHoldTime, function()
+                                    closeHold = nil
+                                    -- 计时期间若发生过收起/二次确认，则本次长按作废
+                                    if myGen ~= pressGen then return end
+                                    if not expanded or closeDialog then return end
+                                    if onHoldConfirm then onHoldConfirm() end
+                                end)
+                            end
+                        end)
+                        btn.InputEnded:Connect(function(bi)
+                            if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
+                                TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Color3.new(1, 1, 1) }):Play()
+                                if closeHold then
+                                    safeCancel(closeHold)
+                                    closeHold = nil
+                                    -- 已进入收起/二次确认流程时不再重复触发
+                                    if expanded and not closeDialog then
+                                        pressGen = pressGen + 1
+                                        collapsePanel()
+                                    end
+                                end
+                            end
+                        end)
+                        task.spawn(function()
+                            local lucide = loadLucide()
+                            if lucide then
+                                local ok, icon = pcall(lucide.GetAsset, "circle-x")
+                                if ok and icon and icon.Url then
+                                    btn.Image = icon.Url
+                                    if icon.ImageRectOffset then btn.ImageRectOffset = icon.ImageRectOffset btn.ImageRectSize = icon.ImageRectSize end
+                                end
+                            end
+                        end)
+                        closeBtn = btn
+            end
+
+local function buildHeaderDecor()
+  if not lastPanelLayout then return end
+                if titleIcon then titleIcon:Destroy() end
+                local iconS = Config.TitleIconSize
+                local iconGap = Config.TitleIconGap
+                local titleH = (islandTextContainer and islandTextContainer.Parent) and islandTextContainer.AbsoluteSize.Y or Config.TitleIconSize
+                local infoH = Config.InfoBoxHeight
+                local vGap = Config.InfoTopGap
+                local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
+                local top = lastPanelLayout.top
+                local titlePad = lastPanelLayout.titlePad
+                local m = lastPanelLayout.m
+                local blockTop = top + titlePad
+                local blockCY = blockTop + blockH / 2
+                local iconLeft = m + titlePad + Config.TitleIconNudgeX
+                local contentLeftX = iconLeft + iconS + iconGap
+                local infoTop = blockTop + titleH + vGap - Config.InfoRise
+                if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
+                local ic = Instance.new("ImageLabel")
+                ic.Name = "TitleIcon"
+                ic.Size = UDim2.fromOffset(iconS, iconS)
+                ic.AnchorPoint = Vector2.new(0.5, 0.5)
+                ic.BackgroundTransparency = 1
+                ic.ImageTransparency = 1
+                ic.ImageColor3 = iconColor
+                ic.ScaleType = Enum.ScaleType.Fit
+                ic.Position = UDim2.new(0, iconLeft + iconS / 2, 0, blockCY)
+                ic.Parent = screenGui
+                titleIcon = ic
+                if iconFromURL then
+                    ic.ScaleType = Enum.ScaleType.Crop
+                    if not iconColorSet then ic.ImageColor3 = Color3.new(1, 1, 1) end
+                end
+                task.spawn(function()
+                    -- 图标来源优先级：IconFromURL > Icon。
+                    -- 有 URL 时先显示持续旋转的 loader，下载完成后做交接动画；
+                    -- 下载失败则回退到 carton（不再回退到 Icon，符合“失败即 carton”）。
+                    local handoff = Config.TitleIconHandoffTime
+
+                    local function setFinal(img, rectOff, rectSize, tintWithIconColor)
+                        if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
+                        if not (ic and ic.Parent) then return end
+                        -- 交接：先把旋转归零再淡入真实图标，避免残留旋转角度
+                        ic.Rotation = 0
+                        ic.Image = img
+                        if rectOff then ic.ImageRectOffset = rectOff ic.ImageRectSize = rectSize end
+                        -- Lucide 系图标（Icon / carton 兜底）走 iconColor 染色，
+                        -- 避免继承 IconFromURL 分支为真实图片设置的纯白
+                        if tintWithIconColor then ic.ImageColor3 = iconColor end
+                        TweenService:Create(ic, TweenInfo.new(handoff, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                            ImageTransparency = 0,
+                        }):Play()
+                    end
+                    -- 真实图标需等面板展开完成再交接，避免下载快时图标先于面板出现
+                    local function setFinalAfterExpand(img, rectOff, rectSize, tintWithIconColor)
+                        task.delay(Config.PanelExpandTime, function()
+                            setFinal(img, rectOff, rectSize, tintWithIconColor)
+                        end)
+                    end
+
+                    if iconFromURL then
+                        -- loader：立即可见并持续旋转，下载期间作为占位
+                        if not (ic and ic.Parent) then return end
+                        local loaderAsset = getLucideIcon(Config.TitleLoaderIcon)
+                        if loaderAsset then
+                            ic.Image = loaderAsset.Url
+                            if loaderAsset.ImageRectOffset then
+                                ic.ImageRectOffset = loaderAsset.ImageRectOffset
+                                ic.ImageRectSize = loaderAsset.ImageRectSize
+                            end
+                        end
+                        ic.ImageTransparency = 0
+                        -- 持续旋转：用 RepeatCount=-1 循环补间驱动，无需轮询；
+                        -- 补间持有引用，图标销毁时由外层 nil 判断收尾
+                        if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) end
+                        loaderSpinTween = TweenService:Create(ic, TweenInfo.new(
+                            Config.TitleLoaderSpinTime, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut,
+                            -1, false
+                        ), { Rotation = 360 })
+                        loaderSpinTween:Play()
+
+                        local assetId = loadIconFromURL(iconFromURL)
+                        if not (ic and ic.Parent) then return end
+                        if assetId then
+                            -- 成功：先淡出 loader，再淡入真实图标
+                            ic.Rotation = 0
+                            TweenService:Create(ic, TweenInfo.new(handoff * 0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                ImageTransparency = 1,
+                            }):Play()
+                            task.delay(handoff * 0.5, function() setFinalAfterExpand(assetId) end)
+                        else
+                            -- 失败：回退 carton
+                            local failAsset = getLucideIcon(Config.TitleIconFailIcon)
+                            if failAsset then
+                                ic.Rotation = 0
+                                TweenService:Create(ic, TweenInfo.new(handoff * 0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                    ImageTransparency = 1,
+                                }):Play()
+                                task.delay(handoff * 0.5, function()
+                                    setFinalAfterExpand(failAsset.Url, failAsset.ImageRectOffset, failAsset.ImageRectSize, true)
+                                end)
+                            else
+                                ic.Rotation = 0
+                                ic.ImageColor3 = iconColor
+                                ic.ImageTransparency = 0
+                            end
+                        end
+                        return
+                    end
+
+                    -- 无 URL：直接用 Icon（Lucide）
+                    local asset = getLucideIcon(iconName)
+                    if asset then
+                        setFinalAfterExpand(asset.Url, asset.ImageRectOffset, asset.ImageRectSize, true)
+                    else
+                        ic.ImageTransparency = 0
+                    end
+                end)
+                if info ~= "" then
+                    if infoLabel then infoLabel:Destroy() end
+                    local il = Instance.new("TextLabel")
+                    il.Name = "InfoLabel"
+                    il.Size = UDim2.new(1, -(contentLeftX + titlePad), 0, infoH)
+                    il.AutomaticSize = Enum.AutomaticSize.Y
+                    il.AnchorPoint = Vector2.new(0, 0)
+                    il.BackgroundTransparency = 1
+                    il.BorderSizePixel = 0
+                    il.Text = info
+                    il.TextColor3 = Config.InfoColor
+                    il.TextTransparency = 1
+                    il.TextSize = Config.InfoTextSize
+                    il.Font = Enum.Font.Gotham
+                    il.TextWrapped = true
+                    il.TextXAlignment = Enum.TextXAlignment.Left
+                    il.TextYAlignment = Enum.TextYAlignment.Top
+                    il.Position = UDim2.new(0, contentLeftX + 40, 0, infoTop)
+                    il.Parent = screenGui
+                    infoLabel = il
+                end
+            end
+
+        -- ==================== 脚本切换：切换按钮 + 二次确认菜单 ====================
+        -- 收起按钮左侧的「切换脚本」按钮（arrow-right-left）。
+        -- 始终渐显显示，但仅在存在其它已加载脚本时才可点；
+        -- 无可切换目标时置灰并给出提示。
+        local function otherLoadedTitles()
+            local out = {}
+            for _, t in ipairs(loadedOrder) do
+                if t ~= title and loadedWindows[t] ~= nil then
+                    out[#out + 1] = t
+                end
+            end
+            return out
+        end
+
+        local function buildSwitchButtonImpl()
+            if switchBtn and switchBtn.Parent then switchBtn:Destroy() end
+            switchBtn = nil
+            if not lastPanelLayout then return end
+            local sz = Config.SwitchButtonSize
+            local b = Instance.new("ImageButton")
+            b.Name = "PanelSwitch"
+            b.Size = UDim2.fromOffset(sz, sz)
+            b.Position = UDim2.new(1, -26 - sz - Config.SwitchButtonGap, 0, 6)
+            b.BackgroundTransparency = 1
+            b.ScaleType = Enum.ScaleType.Fit
+            b.ImageColor3 = Color3.new(1, 1, 1)
+            b.ImageTransparency = 0
+            b.ZIndex = 3
+            b.Parent = contentRoot
+            local others = otherLoadedTitles()
+            local enabled = #others > 0
+            b.Active = enabled
+            b.Interactable = enabled
+            if not enabled then b.ImageColor3 = Color3.new(0.45, 0.45, 0.5) end
+            task.spawn(function()
+                local a = getLucideIcon(Config.SwitchButtonIcon)
+                if not (a and b.Parent) then return end
+                b.Image = a.Url
+                if a.ImageRectOffset then
+                    b.ImageRectOffset = a.ImageRectOffset
+                    b.ImageRectSize = a.ImageRectSize
+                end
+            end)
+            b.MouseButton1Click:Connect(function()
+                if shutdown then return end
+                if not expanded or closeDialog then return end
+                if #otherLoadedTitles() == 0 then
+                    reportError("没有其它已加载的脚本可切换")
+                    return
+                end
+                if showSwitchConfirm then showSwitchConfirm() end
+            end)
+            TweenService:Create(b, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                ImageTransparency = enabled and 0 or 0.55,
+            }):Play()
+            switchBtn = b
+        end
+
+        -- 二次确认菜单：标题「你要切换哪一个脚本？」+ 超宽下拉菜单 + 取消 / 确认
+        local function buildSwitchConfirmImpl()
+            if closeDialog or shutdown then return end
+            if not expanded then return end
+            setHeaderVisible(false)
+            if switchBtn then TweenService:Create(switchBtn, TweenInfo.new(0.22), { ImageTransparency = 1 }):Play() end
+            if closeBtn then TweenService:Create(closeBtn, TweenInfo.new(0.22), { ImageTransparency = 1 }):Play() end
+            destroyTabUI()
+
+            local sw = screenGui.AbsoluteSize.X
+            local sh = screenGui.AbsoluteSize.Y
+            local dlg = Instance.new("Frame")
+            dlg.Name = "SwitchDialog"
+            dlg.BackgroundColor3 = Config.CloseDialogFill
+            dlg.BackgroundTransparency = Config.CloseDialogFillTransparency
+            dlg.BorderSizePixel = 0
+            dlg.Size = UDim2.new(1, 0, 1, 0)
+            dlg.ZIndex = 70
+            dlg.ClipsDescendants = true
+            dlg.Parent = contentRoot
+            local dc = Instance.new("UICorner")
+            dc.CornerRadius = Config.CloseDialogCorner
+            dc.Parent = dlg
+
+            local pad = Config.CloseDialogPad
+            local txt = Instance.new("TextLabel")
+            txt.Name = "SwitchDialogTitle"
+            txt.BackgroundTransparency = 1
+            txt.AnchorPoint = Vector2.new(0.5, 0)
+            txt.Position = UDim2.new(0.5, 0, 0, pad)
+            txt.Size = UDim2.new(1, -pad * 2, 0, 0)
+            txt.AutomaticSize = Enum.AutomaticSize.Y
+            txt.Text = Config.SwitchDialogTitle
+            txt.TextColor3 = Config.CloseDialogTextColor
+            txt.TextSize = Config.CloseDialogTextSize
+            txt.Font = Enum.Font.Gotham
+            txt.TextWrapped = true
+            txt.ZIndex = 71
+            txt.Parent = dlg
+
+            local ddW = Config.SwitchDialogW - pad * 2
+            local ddH = Config.SwitchDropdownH
+            local ddY = pad + 30
+            local dd = Instance.new("TextButton")
+            dd.Name = "SwitchDropdown"
+            dd.Size = UDim2.new(0, ddW, 0, ddH)
+            dd.Position = UDim2.new(0.5, 0, 0, ddY)
+            dd.AnchorPoint = Vector2.new(0.5, 0)
+            dd.BackgroundColor3 = Config.SwitchDropdownFill
+            dd.BorderSizePixel = 0
+            dd.Text = ""
+            dd.AutoButtonColor = false
+            dd.ZIndex = 72
+            dd.Parent = dlg
+            local ddc = Instance.new("UICorner")
+            ddc.CornerRadius = UDim.new(0.5, 0)
+            ddc.Parent = dd
+
+            local chev = Instance.new("ImageLabel")
+            chev.Name = "SwitchDropdownChevron"
+            chev.Size = UDim2.fromOffset(18, 18)
+            chev.Position = UDim2.new(1, -18, 0.5, 0)
+            chev.AnchorPoint = Vector2.new(0.5, 0.5)
+            chev.BackgroundTransparency = 1
+            chev.ImageColor3 = Config.SwitchDropdownTextColor
+            chev.ScaleType = Enum.ScaleType.Fit
+            chev.ZIndex = 73
+            chev.Parent = dd
+            task.spawn(function()
+                local a = getLucideIcon(Config.SwitchDropdownIcon)
+                if not (a and chev.Parent) then return end
+                chev.Image = a.Url
+                if a.ImageRectOffset then
+                    chev.ImageRectOffset = a.ImageRectOffset
+                    chev.ImageRectSize = a.ImageRectSize
+                end
+            end)
+
+            local selected = nil
+            local selLabel = Instance.new("TextLabel")
+            selLabel.Name = "SwitchDropdownLabel"
+            selLabel.BackgroundTransparency = 1
+            selLabel.Size = UDim2.new(1, -46, 1, 0)
+            selLabel.Position = UDim2.new(0, 16, 0, 0)
+            selLabel.TextColor3 = Config.SwitchDropdownTextColor
+            selLabel.TextSize = 16
+            selLabel.Font = Enum.Font.Gotham
+            selLabel.TextXAlignment = Enum.TextXAlignment.Left
+            selLabel.TextYAlignment = Enum.TextYAlignment.Center
+            selLabel.TextWrapped = false
+            selLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            selLabel.ZIndex = 73
+            selLabel.Parent = dd
+
+            local items = otherLoadedTitles()
+            local listOpen = false
+            local listFrame = nil
+            local function closeList()
+                if not listOpen then return end
+                listOpen = false
+                if listFrame and listFrame.Parent then listFrame:Destroy() end
+                listFrame = nil
+                TweenService:Create(dd, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(0, ddW, 0, ddH),
+                }):Play()
+                TweenService:Create(chev, TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                    Rotation = 0,
+                }):Play()
+            end
+            local function renderList()
+                if listFrame then listFrame:Destroy() end
+                listFrame = Instance.new("Frame")
+                listFrame.Name = "SwitchDropdownList"
+                listFrame.BackgroundTransparency = 1
+                listFrame.Size = UDim2.new(0, ddW - 16, 0, 0)
+                listFrame.Position = UDim2.new(0.5, 0, 0, ddY + ddH + 6)
+                listFrame.AnchorPoint = Vector2.new(0.5, 0)
+                listFrame.ZIndex = 73
+                listFrame.Parent = dlg
+                local lay = Instance.new("UIListLayout")
+                lay.SortOrder = Enum.SortOrder.LayoutOrder
+                lay.FillDirection = Enum.FillDirection.Vertical
+                lay.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                lay.VerticalAlignment = Enum.VerticalAlignment.Top
+                lay.Padding = UDim.new(0, Config.SwitchDropdownItemGap)
+                lay.Parent = listFrame
+                for i, t in ipairs(items) do
+                    local it = Instance.new("TextButton")
+                    it.Name = "SwitchDropdownItem"
+                    it.Size = UDim2.new(1, 0, 0, Config.SwitchDropdownItemH)
+                    it.BackgroundColor3 = Config.SwitchDropdownFill
+                    it.BorderSizePixel = 0
+                    it.Text = ""
+                    it.AutoButtonColor = false
+                    it.LayoutOrder = i
+                    it.ZIndex = 74
+                    it.Parent = listFrame
+                    local ic2 = Instance.new("UICorner")
+                    ic2.CornerRadius = UDim.new(0, 10)
+                    ic2.Parent = it
+                    local lb = Instance.new("TextLabel")
+                    lb.BackgroundTransparency = 1
+                    lb.Size = UDim2.new(1, -30, 1, 0)
+                    lb.Position = UDim2.new(0, 14, 0, 0)
+                    lb.Text = t
+                    lb.TextColor3 = Config.SwitchDropdownTextColor
+                    lb.TextSize = 15
+                    lb.Font = Enum.Font.Gotham
+                    lb.TextXAlignment = Enum.TextXAlignment.Left
+                    lb.TextYAlignment = Enum.TextYAlignment.Center
+                    lb.TextTruncate = Enum.TextTruncate.AtEnd
+                    lb.ZIndex = 75
+                    lb.Parent = it
+                    if selected == t then
+                        it.BackgroundColor3 = Config.SwitchDropdownActiveColor
+                        lb.TextColor3 = Color3.new(1, 1, 1)
+                    end
+                    it.MouseButton1Click:Connect(function()
+                        selected = t
+                        selLabel.Text = t
+                        renderList()
+                    end)
+                end
+            end
+
+            dd.MouseButton1Click:Connect(function()
+                if #items == 0 then
+                    reportError("没有其它已加载的脚本可切换")
+                    return
+                end
+                if listOpen then
+                    closeList()
+                else
+                    listOpen = true
+                    renderList()
+                    local belowSpace = (sh - ddY - ddH) - Config.SwitchDropdownMaxH
+                    local listH = #items * (Config.SwitchDropdownItemH + Config.SwitchDropdownItemGap)
+                    if belowSpace < listH and ddY - listH - 6 > 0 then
+                        listFrame.Position = UDim2.new(0.5, 0, 0, ddY - listH - 6)
+                        listFrame.AnchorPoint = Vector2.new(0.5, 1)
+                    else
+                        listFrame.Position = UDim2.new(0.5, 0, 0, ddY + ddH + 6)
+                        listFrame.AnchorPoint = Vector2.new(0.5, 0)
+                    end
+                    TweenService:Create(dd, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        Size = UDim2.new(0, ddW, 0, math.min(ddH + listH + 12, Config.SwitchDropdownMaxH + ddH)),
+                    }):Play()
+                    TweenService:Create(chev, TweenInfo.new(0.24, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                        Rotation = 90,
+                    }):Play()
+                end
+            end)
+            if #items > 0 then
+                selected = items[1]
+                selLabel.Text = selected
+            end
+
+            local bars = Instance.new("Frame")
+            bars.BackgroundTransparency = 1
+            bars.AnchorPoint = Vector2.new(0.5, 1)
+            bars.Position = UDim2.new(0.5, 0, 1, -pad)
+            bars.Size = UDim2.new(1, -pad * 2, 0, Config.CloseDialogBtnH)
+            bars.ZIndex = 71
+            bars.Parent = dlg
+            local bl = Instance.new("UIListLayout")
+            bl.FillDirection = Enum.FillDirection.Horizontal
+            bl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+            bl.VerticalAlignment = Enum.VerticalAlignment.Center
+            bl.SortOrder = Enum.SortOrder.LayoutOrder
+            bl.Padding = UDim.new(0, Config.CloseDialogBtnGap)
+            bl.Parent = bars
+
+            local function closeListAndRestore()
+                closeList()
+                if dlg and dlg.Parent then dlg:Destroy() end
+                if closeDialog == dlg then closeDialog = nil end
+                setHeaderVisible(true)
+                if switchBtn then
+                    TweenService:Create(switchBtn, TweenInfo.new(0.24), { ImageTransparency = 0 }):Play()
+                    switchBtn.Active = true
+                end
+                if lastPanelLayout then buildTabUI(lastPanelLayout) end
+                animateEdge(UDim2.new(0, sw - lastPanelLayout.m * 2, 0, sh - lastPanelLayout.top - lastPanelLayout.m),
+                    UDim2.new(0, lastPanelLayout.m, 0, lastPanelLayout.top), Config.PanelExpandTime)
+            end
+
+            local cancelB = makePill("取消", Config.CloseCancelColor)
+            cancelB.LayoutOrder = 1
+            cancelB.Parent = bars
+            cancelB.MouseButton1Click:Connect(function()
+                if closeDialog ~= dlg then return end
+                closeListAndRestore()
+            end)
+
+            local okBtn = makePill("确认", Config.SwitchDialogConfirmColor)
+            okBtn.LayoutOrder = 2
+            okBtn.Parent = bars
+            okBtn.MouseButton1Click:Connect(function()
+                if closeDialog ~= dlg then return end
+                if selected == nil then
+                    reportError("请先在下拉菜单中选择要切换到的脚本")
+                    return
+                end
+                closeList()
+                if dlg and dlg.Parent then dlg:Destroy() end
+                if closeDialog == dlg then closeDialog = nil end
+                expanded = true
+                titleGen = titleGen + 1
+                islandScale.Scale = 1
+                local m2 = Config.PanelMargin
+                local top2 = Config.IslandPosition.Y.Offset + Config.PanelDrop
+                cancelEdgeTweens()
+                edge.AnchorPoint = Vector2.new(0, 0)
+                edge.Position = Config.IslandPosition
+                animateEdge(UDim2.new(0, sw - m2 * 2, 0, sh - top2 - m2), UDim2.new(0, m2, 0, top2), Config.PanelExpandTime)
+                task.delay(Config.PanelExpandTime, function() winOpen = true end)
+                playBorderSweep()
+                lastPanelLayout = { titlePad = Config.HeaderPad, blockH = (lastPanelLayout and lastPanelLayout.blockH) or 0, m = m2, top = top2, sh = sh }
+                buildHeaderDecor()
+                buildTabUI(lastPanelLayout)
+                buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
+                buildSwitchButton()
+                task.delay(Config.PanelExpandTime + Config.FadeInTime * 0.5, function()
+                    if playSwitchSequenceRef then playSwitchSequenceRef(Config.SwitchConfirmLoadingText) end
+                end)
+            end)
+
+            closeDialog = dlg
+            animateEdge(UDim2.new(0, Config.SwitchDialogW, 0, Config.SwitchDialogH),
+                UDim2.new(0, (sw - Config.SwitchDialogW) / 2, 0, (sh - Config.SwitchDialogH) / 2), 0.35)
+        end
+        buildSwitchButton = buildSwitchButtonImpl
+        showSwitchConfirm = buildSwitchConfirmImpl
+
+
+            local iconTextBusy = false
+            local function playIconTextAnimation(text, iconName, iconColor)
+                if not alive or not ready or shutdown then return end
+                if iconTextBusy then return end
+                if not text or #text == 0 then return end
+                if iconName ~= nil and type(iconName) ~= "string" then return end
+                iconTextBusy = true
+                local wasExpanded = expanded
+
+                if hintActive then clearHint(true) end
+                if actionBusy and actionEnd then actionEnd(true) end
+
+                if toggleAnimBusy then
+                    if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
+                    toggleAnimContainer = nil
+                    toggleAnimBusy = false
+                end
+
+                local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+
+                if wasExpanded then
+                    collapsePanel(true)
+                    task.wait(Config.PanelExpandTime * 0.5)
+                    -- 等待期间窗口可能被关闭/销毁，必须重新确认状态，
+                    -- 否则会继续往下建胖岛并留下状态污染
+                    if not alive or shutdown then
+                        iconTextBusy = false
+                        return
+                    end
+                end
+                expanded = false
+                winOpen = false
+                interacting = false
+
+                local iconSize = Config.IconTextIconSize
+                local textSize = Config.IconTextTextSize
+                local tw = measureTextWidth(text, textSize)
+                local iconW = iconName and iconSize or 0
+                local contentW = iconW + (iconW > 0 and Config.IconTextGap or 0) + tw
+                local targetW = math.max(Config.IconTextMinW, contentW + Config.IconTextPadX * 2)
+
+                local hc = Instance.new("Frame")
+                hc.Name = "IslandIconTextContainer"
+                hc.Size = UDim2.new(1, 0, 1, 0)
+                hc.BackgroundTransparency = 1
+                hc.BorderSizePixel = 0
+                hc.ClipsDescendants = true
+                hc.ZIndex = 56
+                hc.Parent = edge
+                local hl = Instance.new("UIListLayout")
+                hl.FillDirection = Enum.FillDirection.Horizontal
+                hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                hl.VerticalAlignment = Enum.VerticalAlignment.Center
+                hl.SortOrder = Enum.SortOrder.LayoutOrder
+                hl.Padding = UDim.new(0, iconW > 0 and Config.IconTextGap or 0)
+                hl.Parent = hc
+
+                if islandTextContainer and islandTextContainer.Parent then
+                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                        if lb then TweenService:Create(lb, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                    end
+                end
+                local iconLbl = nil
+                if iconName and iconName ~= "" then
+                    iconLbl = Instance.new("ImageLabel")
+                    iconLbl.Name = "IconTextIcon"
+                    iconLbl.BackgroundTransparency = 1
+                    iconLbl.Size = UDim2.fromOffset(iconSize, iconSize)
+                    iconLbl.ImageColor3 = iconColor or Config.SubTitleColor
+                    iconLbl.ImageTransparency = 1
+                    iconLbl.ScaleType = Enum.ScaleType.Fit
+                    iconLbl.LayoutOrder = 1
+                    iconLbl.ZIndex = 57
+                    iconLbl.Parent = hc
+                    task.spawn(function()
+                        local lucide = loadLucide()
+                        if not lucide then return end
+                        local okA, asset = pcall(lucide.GetAsset, iconName)
+                        if okA and asset and asset.Url then
+                            if not iconLbl or not iconLbl.Parent then return end
+                            iconLbl.Image = asset.Url
+                            if asset.ImageRectOffset then iconLbl.ImageRectOffset = asset.ImageRectOffset iconLbl.ImageRectSize = asset.ImageRectSize end
+                            TweenService:Create(iconLbl, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+                        end
+                    end)
+                end
+                local txtLbl = Instance.new("TextLabel")
+                txtLbl.Name = "IconTextLabel"
+                txtLbl.BackgroundTransparency = 1
+                txtLbl.Size = UDim2.fromOffset(tw, Config.IslandSize.Y.Offset)
+                txtLbl.Text = text
+                txtLbl.TextColor3 = Config.TitleColor
+                txtLbl.TextTransparency = 1
+                txtLbl.TextSize = textSize
+                txtLbl.Font = Enum.Font.GothamBold
+                txtLbl.RichText = true
+                txtLbl.LayoutOrder = 2
+                txtLbl.ZIndex = 57
+                txtLbl.Parent = hc
+                task.delay(0.12, function()
+                    if txtLbl and txtLbl.Parent then
+                        TweenService:Create(txtLbl, TweenInfo.new(0.26, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                    end
+                end)
+
+                edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                edge.Position = islandRest
+                animateEdge(
+                    UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
+                    UDim2.new(0.5, cx, 0, cy + (wasExpanded and 0 or 6)),
+                    Config.IconTextGrowTime,
+                    0
+                )
+
+                task.delay(Config.IconTextHoldTime, function()
+                    -- 无论后续走哪条分支，都必须先解除 busy 与销毁胖岛容器，
+                    -- 否则一次异常会让 iconTextBusy 永久为 true，后续调用全被静默吞掉
+                    iconTextBusy = false
+                    if not alive or shutdown then
+                        if hc and hc.Parent then hc:Destroy() end
+                        return
+                    end
+                    if hc and hc.Parent then hc:Destroy() end
+
+                    animateEdge(Config.IslandSize, islandRest, Config.IconTextRestoreTime, 0)
+
+                    setIslandText(islandTextOverride or title, Config.TitleColor)
+                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                        if lb then TweenService:Create(lb, TweenInfo.new(Config.IconTextRestoreTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                    end
+
+                    if wasExpanded then
+                        task.delay(Config.IconTextGrowTime, function()
+                            -- 关键：此处不可因 expanded 已为 true 就 return。
+                            -- collapsePanel 已经跑完（面板已收起、Title/Info/TabList 已销毁），
+                            -- 若此处提前退出，面板就永远停在「收起且无内容」的状态。
+                            -- 正确做法是让本次恢复流程自行完成重建（下面会强制接管）。
+                            if not alive or shutdown then return end
+                            if expanded then
+                                -- 用户在等待期间已手动展开：放弃本次恢复，
+                                -- 但仍需把面板内容重建回来，避免用户看到空面板。
+                                if lastPanelLayout then
+                                    buildTabUI(lastPanelLayout)
+                                    buildCloseButton(function() showCloseConfirm() end)
+                                    if buildSwitchButton then buildSwitchButton() end
+                                    buildHeaderDecor()
+                                end
+                                return
+                            end
+                            expanded = true
+                            titleGen = titleGen + 1
+                            local myGen = titleGen
+                            islandScale.Scale = 1
+                            if islandTextContainer and islandTextContainer.Parent then
+                                -- 面板态显示原始标题（收起态的 override 文字不该出现在面板里）
+                                setIslandText(islandTextOverride or title, Config.TitleColor)
+                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                                    if lb then lb.TextTransparency = 1 end
+                                end
+                            end
+                            edge.AnchorPoint = Vector2.new(0, 0)
+                            edge.Position = Config.IslandPosition
+                            local sw = screenGui.AbsoluteSize.X
+                            local sh = screenGui.AbsoluteSize.Y
+                            local m = Config.PanelMargin
+                            local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
+                            animateEdge(
+                                UDim2.new(0, sw - m * 2, 0, sh - top - m),
+                                UDim2.new(0, m, 0, top),
+                                Config.PanelExpandTime
+                            )
+                            playBorderSweep()
+                            if lastPanelLayout then
+                                buildTabUI(lastPanelLayout)
+                                buildCloseButton(function() showCloseConfirm() end)
+                                if buildSwitchButton then buildSwitchButton() end
+                                buildHeaderDecor()
+                            end
+                            task.delay(Config.PanelExpandTime, function() winOpen = true end)
+                            local rcList = islandTextContainer:FindFirstChildOfClass("UIListLayout")
+                            if rcList then rcList.HorizontalAlignment = Enum.HorizontalAlignment.Left end
+                            task.delay(Config.FadeInTime, function()
+                                if not expanded or myGen ~= titleGen then return end
+                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                                    if lb then TweenService:Create(lb, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                                end
+                            end)
+                        end)
+                    end
+                end)
+            end
+
+            iconTextPlayer = playIconTextAnimation
+
+            local function buildCharLabel(ch, color, size)
+                local frame = Instance.new("Frame")
+                frame.Size = UDim2.new(0, 0, 1, 0)
+                frame.AutomaticSize = Enum.AutomaticSize.X
+                frame.BackgroundTransparency = 1
+                frame.BorderSizePixel = 0
+                local lb = Instance.new("TextLabel")
+                lb.Size = UDim2.new(1, 0, 1, 0)
+                lb.BackgroundTransparency = 1
+                lb.Text = ch
+                lb.TextColor3 = color
+                lb.TextTransparency = 1
+                lb.TextSize = size
+                lb.Font = charFont(ch)
+                lb.TextXAlignment = Enum.TextXAlignment.Center
+                lb.TextYAlignment = Enum.TextYAlignment.Center
+                lb.Parent = frame
+                return frame, lb
+            end
+
+            playToggleStateAnimation = function()
+                if not alive or not ready or shutdown then lastToggleInfo = nil return end
+                if toggleAnimBusy or iconTextBusy or hintActive then lastToggleInfo = nil return end
+                local info = lastToggleInfo
+                if not info then return end
+                -- 一次性消费：播完即清空，避免后续收起反复重播上次的开关状态动画
+                lastToggleInfo = nil
+                local on = info.Value == true
+                local stateColor = on and Config.ToggleIslandOnColor or Config.ToggleIslandOffColor
+                local stateText = on and "已开启" or "已关闭"
+                local titleText = info.Title or "Toggle"
+
+                -- 在图标 / 功能Title / 状态 三组之间插入等宽留白，
+                -- 用空帧而非 ListLayout.Padding（否则会把「已开启」内部字符也撑开）
+                -- 注意：parent 必须作为参数传入，本函数定义早于 local hc 声明，
+                -- 直接用闭包 hc 会捕获到外层错误的 hc（Lua 词法作用域规定）
+                local function addToggleSpacer(parent, order, w)
+                    local sp = Instance.new("Frame")
+                    sp.Name = "ToggleStateSpacer"
+                    sp.BackgroundTransparency = 1
+                    sp.BorderSizePixel = 0
+                    sp.Size = UDim2.new(0, w, 1, 0)
+                    sp.LayoutOrder = order
+                    sp.ZIndex = 56
+                    sp.Parent = parent
+                end
+
+                toggleAnimBusy = true
+
+                if actionBusy and actionEnd then actionEnd(true) end
+
+                local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+
+                local iconSize = Config.ToggleIslandIconSize
+                local textSize = Config.ToggleIslandTextSize
+                local iconW = (info.Icon and info.Icon ~= "") and iconSize or 0
+                local gap = Config.ToggleIslandGap
+                local titleW = measureTextWidth(titleText, textSize)
+                local stateW = measureTextWidth(stateText, textSize)
+                local inner = iconW + (iconW > 0 and gap or 0) + titleW + gap + stateW
+                local targetW = math.max(Config.ToggleIslandMinW, inner + Config.ToggleIslandPadX * 2)
+
+                edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                edge.Position = islandRest
+                animateEdge(
+                    UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
+                    UDim2.new(0.5, cx, 0, cy),
+                    Config.ToggleIslandGrowTime,
+                    0
+                )
+
+                if islandTextContainer and islandTextContainer.Parent then
+                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                        if lb then TweenService:Create(lb, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                    end
+                end
+
+                local hc = Instance.new("Frame")
+                hc.Name = "IslandToggleContainer"
+                hc.Size = UDim2.new(1, 0, 1, 0)
+                hc.BackgroundTransparency = 1
+                hc.BorderSizePixel = 0
+                hc.ClipsDescendants = true
+                hc.ZIndex = 56
+                hc.Parent = edge
+                toggleAnimContainer = hc
+                local hl = Instance.new("UIListLayout")
+                hl.FillDirection = Enum.FillDirection.Horizontal
+                -- 左右对称内边距 + 居中对齐：
+                -- 内容宽度等于 inner，而灵动岛宽度 targetW = max(MinW, inner + PadX*2)，
+                -- 用对称 padding + Center 可保证内容在两种情况下都真正居中
+                -- （原实现是 Left 对齐 + 仅左 padding，内容窄于灵动岛时会全部贴死左侧）
+                hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                hl.VerticalAlignment = Enum.VerticalAlignment.Center
+                hl.SortOrder = Enum.SortOrder.LayoutOrder
+                -- 字符之间不加间距，「已开启」与名称之间也不分隔
+                hl.Padding = UDim.new(0, 0)
+                hl.Parent = hc
+
+                -- 左右对称内边距：与 targetW 的 inner + PadX*2 计算一致，保证内容居中
+                local bothPad = Instance.new("UIPadding")
+                bothPad.PaddingLeft = UDim.new(0, Config.ToggleIslandPadX)
+                bothPad.PaddingRight = UDim.new(0, Config.ToggleIslandPadX)
+                bothPad.Parent = hc
+
+                local step = Config.ToggleIslandStepTime
+                local revealT = Config.ToggleIslandRevealTime
+                local fadeT = Config.ToggleIslandFadeTime
+
+                local revealList, fadeList = {}, {}
+
+                if iconW > 0 then
+                    local iconImg, iconRectOff, iconRectSize = nil, nil, nil
+                    if iconW > 0 then
+                        task.spawn(function()
+                            local lucide = loadLucide()
+                            if not lucide then return end
+                            local okA, asset = pcall(lucide.GetAsset, info.Icon)
+                            if okA and asset and asset.Url then
+                                iconImg = asset.Url
+                                iconRectOff = asset.ImageRectOffset
+                                iconRectSize = asset.ImageRectSize
+                            end
+                        end)
+                    end
+
+                    local ic = Instance.new("ImageLabel")
+                    ic.Name = "ToggleStateIcon"
+                    ic.BackgroundTransparency = 1
+                    ic.Size = UDim2.fromOffset(iconSize, iconSize)
+                    ic.ImageColor3 = stateColor
+                    ic.ImageTransparency = 1
+                    ic.ScaleType = Enum.ScaleType.Fit
+                    ic.LayoutOrder = 1
+                    ic.ZIndex = 57
+                    ic.Parent = hc
+                    if iconImg then
+                        ic.Image = iconImg
+                        if iconRectOff then ic.ImageRectOffset = iconRectOff ic.ImageRectSize = iconRectSize end
+                    end
+
+                    -- 图标资源就绪后才淡入，避免出现空白图标
+                    table.insert(revealList, { obj = ic, dist = 0, waitImg = true })
+                    table.insert(fadeList, { obj = ic, dist = 0 })
+
+                    -- 图标与功能Title 之间按句留出间距
+                    addToggleSpacer(hc, 1.5, gap)
+                end
+
+                do
+                    local titleItems = {}
+                    for _, item in ipairs(parseColoredChars(titleText, Config.TitleColor)) do
+                        if item.ch ~= " " then titleItems[#titleItems + 1] = item end
+                    end
+                    local n = #titleItems
+                    for i, item in ipairs(titleItems) do
+                        local frame, lb = buildCharLabel(item.ch, Config.TitleColor, textSize)
+                        frame.LayoutOrder = 2
+                        frame.ZIndex = 57
+                        frame.Parent = hc
+                        local dist = math.abs(i - (n + 1) / 2)
+                        table.insert(revealList, { obj = lb, dist = dist })
+                        table.insert(fadeList, { obj = lb, dist = dist })
+                    end
+
+                    -- 功能Title 与 状态 之间按句留出间距
+                    addToggleSpacer(hc, 2.5, gap)
+                end
+
+                do
+                    local stateItems = {}
+                    for _, item in ipairs(parseColoredChars(stateText, stateColor)) do
+                        if item.ch ~= " " then stateItems[#stateItems + 1] = item end
+                    end
+                    local n = #stateItems
+                    for i, item in ipairs(stateItems) do
+                        local frame, lb = buildCharLabel(item.ch, stateColor, textSize)
+                        frame.LayoutOrder = 3
+                        frame.ZIndex = 57
+                        frame.Parent = hc
+                        local dist = math.abs(i - (n + 1) / 2)
+                        table.insert(revealList, { obj = lb, dist = dist })
+                        table.insert(fadeList, { obj = lb, dist = dist })
+                    end
+                end
+
+                for _, e in ipairs(revealList) do
+                    local isText = e.obj:IsA("TextLabel")
+                    local md = math.max(e.dist, 0.001)
+                    task.delay(md * step, function()
+                        if not e.obj or not e.obj.Parent then return end
+                        if e.waitImg then
+                            -- 等图标资源就绪再淡入，最多等 0.8 秒
+                            local waited = 0
+                            while e.obj.Parent and e.obj.Image == "" and waited < 0.8 do
+                                task.wait(0.05)
+                                waited = waited + 0.05
+                            end
+                            if not e.obj or not e.obj.Parent then return end
+                            if e.obj.Image == "" then return end
+                        end
+                        if isText then
+                            TweenService:Create(e.obj, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                        else
+                            TweenService:Create(e.obj, TweenInfo.new(0.26, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+                        end
+                    end)
+                end
+
+                task.delay(Config.ToggleIslandHoldTime, function()
+                    if not alive then return end
+                    -- 恢复阶段比展示阶段更紧凑：逐字间隔按系数缩放，
+                    -- 否则「字符数 × StepTime」会让长标题迟迟等不到原文字回来
+                    local rStep = step * (Config.ToggleIslandRestoreStepScale or 1)
+                    if hc and hc.Parent then
+                        -- 淡出与标题渐显同用缩放后的间隔，保持与 totalFade 的等待一致
+                        for _, e in ipairs(fadeList) do
+                            if not e.obj or not e.obj.Parent then return end
+                            local isText = e.obj:IsA("TextLabel")
+                            local md = math.max(e.dist, 0.001)
+                            task.delay(md * rStep, function()
+                                if not e.obj or not e.obj.Parent then return end
+                                if isText then
+                                    TweenService:Create(e.obj, TweenInfo.new(fadeT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
+                                else
+                                    TweenService:Create(e.obj, TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
+                                end
+                            end)
+                        end
+                    end
+
+                    animateEdge(Config.IslandSize, islandRest, Config.ToggleIslandRestoreTime, 0)
+
+                    local totalFade = #fadeList * rStep + fadeT + 0.1
+                    task.delay(totalFade, function()
+                        if not alive then return end
+                        if hc and hc.Parent then hc:Destroy() end
+
+                        setIslandText(islandTextOverride or title, Config.TitleColor)
+                        if islandTextContainer and islandTextContainer.Parent then
+                            -- 标题渐显：先全透明，再由中心向两侧逐字浮现
+                            local restoreChars = {}
+                            for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                local lb = cf:FindFirstChildOfClass("TextLabel")
+                                if lb then
+                                    lb.TextTransparency = 1
+                                    restoreChars[#restoreChars + 1] = lb
+                                end
+                            end
+                            local rc = #restoreChars
+                            for i, lb in ipairs(restoreChars) do
+                                local dist = math.abs(i - (rc + 1) / 2)
+                                task.delay(dist * rStep, function()
+                                    if not lb or not lb.Parent then return end
+                                    TweenService:Create(lb, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                                end)
+                            end
+                            -- 标题渐显完成后再释放忙碌锁，避免下一次交互被吞
+                            task.delay(rc * rStep + revealT, function()
+                                if toggleAnimBusy and toggleAnimContainer == hc then
+                                    toggleAnimBusy = false
+                                    toggleAnimContainer = nil
+                                end
+                            end)
+                        else
+                            if toggleAnimBusy and toggleAnimContainer == hc then
+                                toggleAnimBusy = false
+                                toggleAnimContainer = nil
+                            end
+                        end
+                    end)
+                end)
+            end
+
+            edge.InputBegan:Connect(function(input)
+                if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                if not ready then return end
+                if interacting then return end
+                if expanded then return end
+                interacting = true
+                holding = true
+                dragStartX = input.Position.X
+
+                if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
+                dragBaseSize = hintActive and edge.Size or Config.IslandSize
+                dragging = false
+                TweenService:Create(islandScale, TweenInfo.new(Config.TapExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = Config.IslandTapScale }):Play()
+                longPress = task.delay(Config.LongPressThreshold, function()
+                        if holding then
+
+if hintActive then clearHint(true) end
+
+                    -- 关键：长按展开前把edge 归位到标准收起态。
+                    -- 若此刻还有 hint / 拖拽复位补间在跑，它们会与展开用的 Heartbeat 动画
+                    -- 逐帧争抢 Size/Position，表现为展开动画概率性偏移。
+                    -- 这里先掐掉全部补间并强制写入确定的起点值。
+                    cancelEdgeTweens()
+                    resetIslandDrag()
+                    if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
+                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                    edge.Position = islandRest
+                    edge.Size = Config.IslandSize
+
+                    if toggleAnimBusy then
+                                if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
+                                toggleAnimContainer = nil
+                                toggleAnimBusy = false
+                            end
+                            expanded = true
+                            titleGen = titleGen + 1
+                            local myTitleGen = titleGen
+                            islandScale.Scale = 1
+
+                        if islandTextContainer and islandTextContainer.Parent then
+                            setIslandText(title, Config.TitleColor)
+                            for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                local lb = cf:FindFirstChildOfClass("TextLabel")
+                                if lb then lb.TextTransparency = 1 end
+                            end
+                        end
+                        edge.AnchorPoint = Vector2.new(0, 0)
+                        edge.Position = Config.IslandPosition
+                        local sw = screenGui.AbsoluteSize.X
+                        local sh = screenGui.AbsoluteSize.Y
+                        local m = Config.PanelMargin
+                        local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
+                        animateEdge(
+                            UDim2.new(0, sw - m * 2, 0, sh - top - m),
+                            UDim2.new(0, m, 0, top),
+                            Config.PanelExpandTime
+                        )
+                        playBorderSweep()
+                        task.delay(Config.PanelExpandTime, function() winOpen = true end)
+                        local titlePad = Config.HeaderPad
+                        local iconS = Config.TitleIconSize
+                        local iconGap = Config.TitleIconGap
+                        local titleH = islandTextContainer.AbsoluteSize.Y
+                        local infoH = Config.InfoBoxHeight
+                        local vGap = Config.InfoTopGap
+                        local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
+                        local blockTop = top + titlePad
+                        local blockCY = blockTop + blockH / 2
+                        local iconLeft = m + titlePad + Config.TitleIconNudgeX
+                        local contentLeftX = iconLeft + iconS + iconGap
+                        local titleTargetY = blockTop + titleH / 2 + Config.TitleDrop
+                        local infoTop = blockTop + titleH + vGap - Config.InfoRise
+                        local listLayout = islandTextContainer:FindFirstChildOfClass("UIListLayout")
+                        win._titleLeftX = contentLeftX
+                        win._titleY = titleTargetY
+                        local function fadeTitleLabels(t)
+                            cancelTitleTweens()
+                            for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                local lb = cf:FindFirstChildOfClass("TextLabel")
+                                if lb then
+                                    local tw = TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = t })
+                                    table.insert(titleTweens, tw)
+                                    tw:Play()
+                                end
+                            end
+                        end
+                        fadeTitleLabels(1)
+                        task.delay(Config.FadeInTime, function()
+                            if not expanded or myTitleGen ~= titleGen then return end
+                            if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
+
+                            local tipX = contentLeftX + islandTextContainer.AbsoluteSize.X / 2
+                            local slide = 40
+                            islandTextContainer.Position = UDim2.new(0, tipX + slide, 0, titleTargetY)
+                            TweenService:Create(islandTextContainer, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                Position = UDim2.new(0, tipX, 0, titleTargetY),
+                            }):Play()
+                            fadeTitleLabels(0)
+                            task.delay(Config.InfoEnterDelay, function()
+                                if not expanded or myTitleGen ~= titleGen then return end
+                                if infoLabel and infoLabel.Parent then
+                                    TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                        Position = UDim2.new(0, contentLeftX, 0, infoTop),
+                                        TextTransparency = 0,
+                                    }):Play()
+                                end
+                            end)
+                        end)
+                        lastPanelLayout = { titlePad = titlePad, blockH = blockH, m = m, top = top, sh = sh }
+                        win._rebuildTabs = function() buildTabUI(lastPanelLayout) end
+                        buildHeaderDecor()
+                        buildTabUI(lastPanelLayout)
+                        buildCloseButton(function() showCloseConfirm() end)
+                        if buildSwitchButton then buildSwitchButton() end
+
+                        local function runCloseSequence()
+                            shutdown = true
+                            if closeBtn then closeBtn:Destroy() closeBtn = nil end
+                            if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
+                if titleIcon then titleIcon:Destroy() titleIcon = nil end
+                            if infoLabel then infoLabel:Destroy() infoLabel = nil end
+                            clearBrand()
+                            destroyTabUI()
+                            local cx2 = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                            local cy2 = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+
+                            if islandTextContainer and islandTextContainer.Parent then
+                                TweenService:Create(islandTextContainer, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                                    Position = UDim2.new(Config.IslandPosition.X.Scale, cx2, Config.IslandPosition.Y.Scale, cy2),
+                                }):Play()
+                            end
+
+                            animateEdge(Config.IslandSize, Config.IslandPosition, 0.45, 0, function()
+                                edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                                edge.Position = UDim2.new(0.5, cx2, 0, cy2)
+                                local list = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
+                                if list then list.HorizontalAlignment = Enum.HorizontalAlignment.Center end
+                                if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
+                                islandTextContainer = createIslandText(Config.IslandText, Config.TitleColor, true)
+                                TweenService:Create(stroke, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                                silverStroke.Color = Config.RedXColor
+                                TweenService:Create(silverStroke, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
+                                if fillFrame and fillFrame.Parent then
+                                    TweenService:Create(fillFrame, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
+                                end
+                                task.delay(0.75, function()
+                                    explode()
+                                    if islandTextContainer and islandTextContainer.Parent then
+                                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                            local lb = cf:FindFirstChildOfClass("TextLabel")
+                                            if lb then TweenService:Create(lb, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                                        end
+                                    end
+                                    TweenService:Create(silverStroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                                    TweenService:Create(stroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
+                                    if fillFrame and fillFrame.Parent then
+                                        TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+                                    end
+                                    task.delay(1.0, function()
+                                        alive = false
+                                        unregisterLoadedWindow(title, win)
+                                        if screenGui and screenGui.Parent then screenGui:Destroy() end
+                                    end)
+                                end)
+                            end)
+                        end
+showCloseConfirm = function()
+    if closeDialog or shutdown then return end
+                            setHeaderVisible(false)
+                            destroyTabUI()
+                            local dlg = Instance.new("Frame")
+                            dlg.Name = "CloseDialog"
+                            dlg.BackgroundColor3 = Config.CloseDialogFill
+                            dlg.BackgroundTransparency = Config.CloseDialogFillTransparency
+                            dlg.BorderSizePixel = 0
+                            dlg.Size = UDim2.new(1, 0, 1, 0)
+                            dlg.ZIndex = 70
+                            dlg.ClipsDescendants = true
+                            dlg.Parent = contentRoot
+                            local dc = Instance.new("UICorner")
+                            dc.CornerRadius = Config.CloseDialogCorner
+                            dc.Parent = dlg
+                            local txt = Instance.new("TextLabel")
+                            txt.BackgroundTransparency = 1
+                            txt.AnchorPoint = Vector2.new(0.5, 0)
+                            txt.Position = UDim2.new(0.5, 0, 0, Config.CloseDialogPad)
+                            txt.Size = UDim2.new(1, -Config.CloseDialogPad * 2, 0, 0)
+                            txt.AutomaticSize = Enum.AutomaticSize.Y
+                            txt.Text = "你要关闭 " .. (tostring(title):gsub("<[^>]*>", "")) .. " 吗？\n这将会关闭所有功能"
+                            txt.TextColor3 = Config.CloseDialogTextColor
+                            txt.TextSize = Config.CloseDialogTextSize
+                            txt.Font = Enum.Font.Gotham
+                            txt.TextWrapped = true
+                            txt.ZIndex = 71
+                            txt.Parent = dlg
+                            local bars = Instance.new("Frame")
+                            bars.BackgroundTransparency = 1
+                            bars.AnchorPoint = Vector2.new(0.5, 1)
+                            bars.Position = UDim2.new(0.5, 0, 1, -Config.CloseDialogPad)
+                            bars.Size = UDim2.new(1, -Config.CloseDialogPad * 2, 0, Config.CloseDialogBtnH)
+                            bars.ZIndex = 71
+                            bars.Parent = dlg
+                            local bl = Instance.new("UIListLayout")
+                            bl.FillDirection = Enum.FillDirection.Horizontal
+                            bl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                            bl.VerticalAlignment = Enum.VerticalAlignment.Center
+                            bl.SortOrder = Enum.SortOrder.LayoutOrder
+                            bl.Padding = UDim.new(0, Config.CloseDialogBtnGap)
+                            bl.Parent = bars
+            local cancelB = makePill("取消", Config.CloseCancelColor)
+                            cancelB.LayoutOrder = 1
+                            cancelB.Parent = bars
+                            cancelB.MouseButton1Click:Connect(function()
+                                if closeDialog ~= dlg then return end
+                                closeDialog = nil
+                                dlg:Destroy()
+                                setHeaderVisible(true)
+                                buildTabUI(lastPanelLayout)
+                                animateEdge(UDim2.new(0, sw - m * 2, 0, sh - top - m), UDim2.new(0, m, 0, top), Config.PanelExpandTime)
+                            end)
+                            local okBtn = makePill("确认", Config.CloseConfirmColor)
+                            okBtn.LayoutOrder = 2
+                            okBtn.Parent = bars
+                            okBtn.MouseButton1Click:Connect(function()
+                                if closeDialog ~= dlg then return end
+                                closeDialog = nil
+                                dlg:Destroy()
+                                runCloseSequence()
+                            end)
+                            closeDialog = dlg
+                            animateEdge(UDim2.new(0, Config.CloseDialogW, 0, Config.CloseDialogH), UDim2.new(0, (sw - Config.CloseDialogW) / 2, 0, (sh - Config.CloseDialogH) / 2), 0.35)
+                        end
+                    end
+                end)
+            end)
+
+-- 动画互斥：记录本次展开/收起动画的结束时刻，
+-- 该时刻之前拒绝新的调用，避免两套动画同时改写 edge 的 Size/Position
+--（会表现为面板偏移或内容错位）
+local windowActionUntil = 0
+
+--- 以编程方式展开面板（等价于长按灵动岛），带完整展开动画
+local function doExpandPanel()
+    if not alive or shutdown or not ready then return false end
+    if expanded then return false end
+    if hintActive then clearHint(true) end
+    if actionBusy and actionEnd then actionEnd(true) end
+    if toggleAnimBusy then
+        if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
+        toggleAnimContainer = nil
+        toggleAnimBusy = false
+    end
+    -- 先把 edge 归位到标准收起态，避免与残留补间争抢
+    cancelEdgeTweens()
+    resetIslandDrag()
+    edge.AnchorPoint = Vector2.new(0.5, 0.5)
+    edge.Position = islandRest
+    edge.Size = Config.IslandSize
+
+    expanded = true
+    titleGen = titleGen + 1
+    local myTitleGen = titleGen
+    islandScale.Scale = 1
+
+    if islandTextContainer and islandTextContainer.Parent then
+        setIslandText(title, Config.TitleColor)
+        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+            local lb = cf:FindFirstChildOfClass("TextLabel")
+            if lb then lb.TextTransparency = 1 end
+        end
+    end
+    edge.AnchorPoint = Vector2.new(0, 0)
+    edge.Position = Config.IslandPosition
+    local sw = screenGui.AbsoluteSize.X
+    local sh = screenGui.AbsoluteSize.Y
+    local m = Config.PanelMargin
+    local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
+    animateEdge(
+        UDim2.new(0, sw - m * 2, 0, sh - top - m),
+        UDim2.new(0, m, 0, top),
+        Config.PanelExpandTime
+    )
+    playBorderSweep()
+    task.delay(Config.PanelExpandTime, function() winOpen = true end)
+
+    -- 头部布局与长按展开保持一致
+    local titlePad = Config.HeaderPad
+    local iconS = Config.TitleIconSize
+    local iconGap = Config.TitleIconGap
+    local titleH = islandTextContainer and islandTextContainer.Parent
+        and islandTextContainer.AbsoluteSize.Y or Config.TitleIconSize
+    local infoH = Config.InfoBoxHeight
+    local vGap = Config.InfoTopGap
+    local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
+    local blockTop = top + titlePad
+    local iconLeft = m + titlePad + Config.TitleIconNudgeX
+    local contentLeftX = iconLeft + iconS + iconGap
+    local titleTargetY = blockTop + titleH / 2 + Config.TitleDrop
+    local infoTop = blockTop + titleH + vGap - Config.InfoRise
+    local listLayout = islandTextContainer
+        and islandTextContainer:FindFirstChildOfClass("UIListLayout")
+    win._titleLeftX = contentLeftX
+    win._titleY = titleTargetY
+
+    local function fadeTitleLabels(t)
+        cancelTitleTweens()
+        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+            local lb = cf:FindFirstChildOfClass("TextLabel")
+            if lb then
+                local tw = TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = t })
+                table.insert(titleTweens, tw)
+                tw:Play()
+            end
+        end
+    end
+    fadeTitleLabels(1)
+    task.delay(Config.FadeInTime, function()
+        if not expanded or myTitleGen ~= titleGen then return end
+        if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
+        local tipX = contentLeftX + islandTextContainer.AbsoluteSize.X / 2
+        islandTextContainer.Position = UDim2.new(0, tipX + 40, 0, titleTargetY)
+        TweenService:Create(islandTextContainer, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, tipX, 0, titleTargetY),
+        }):Play()
+        fadeTitleLabels(0)
+        task.delay(Config.InfoEnterDelay, function()
+            if not expanded or myTitleGen ~= titleGen then return end
+            if infoLabel and infoLabel.Parent then
+                TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                    Position = UDim2.new(0, contentLeftX, 0, infoTop),
+                    TextTransparency = 0,
+                }):Play()
+            end
+        end)
+    end)
+
+    lastPanelLayout = { titlePad = titlePad, blockH = blockH, m = m, top = top, sh = sh }
+    win._rebuildTabs = function() buildTabUI(lastPanelLayout) end
+    buildHeaderDecor()
+    buildTabUI(lastPanelLayout)
+    buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
+    if buildSwitchButton then buildSwitchButton() end
+    return true
+end
+
+--- 以编程方式收起面板（等价于点收起按钮），带收起动画
+local function doCollapsePanel()
+    if not alive or shutdown then return false end
+ if not expanded then return false end
+    collapsePanel()
+    return true
+end
+
+-- SetWindowAction(true) 展开面板，SetWindowAction(false) 收起面板。
+-- 动画进行中调用会被拒绝（返回 false），避免两套动画互相打架。
+win.SetWindowAction = function(self, open)
+    if self ~= nil and type(self) == "table" and self ~= win and self.SetWindowAction == nil then
+        open = self
+    end
+    if type(open) ~= "boolean" then
+        reportError("SetWindowAction 参数必须是 boolean（true 展开 / false 收起），已忽略")
+        return false
+    end
+    if not alive or shutdown then return false end
+    if not ready then return false end
+    if windowActionUntil > 0 and os.clock() < windowActionUntil then
+        reportError("SetWindowAction 忽略：面板动画进行中，请稍后再试")
+        return false
+    end
+    local ok
+    if open then
+        ok = doExpandPanel()
+    else
+        ok = doCollapsePanel()
+    end
+    if not ok then return false end
+    -- 锁到本次动画彻底结束（展开含标题/Info 错峰入场）
+    local dur = open
+        and (Config.PanelExpandTime + Config.FadeInTime + Config.InfoEnterDelay + 0.1)
+        or (Config.PanelExpandTime + 0.1)
+    windowActionUntil = os.clock() + dur
+    return true
+end
+            edge.InputEnded:Connect(function(input)
+                if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                if not interacting then return end
+                holding = false
+                local wasDragging = dragging
+                if longPress then safeCancel(longPress) longPress = nil end
+                resetIslandDrag()
+                if expanded then
+                    interacting = false
+                else
+                    TweenService:Create(islandScale, TweenInfo.new(Config.TapShrinkTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+                    if hintActive then
+                        clearHint()
+                    elseif not wasDragging then
+
+                        registerIslandTap()
+                    end
+                    interacting = false
+                end
+            end)
+  -- ==================== 脚本切换：自动展开 + loader ====================
+    -- 面板中央的旋转 loader + 提示文字。返回容器，便于外部淡出。
+local function makeSwitchLoader(text)
+       local box = Instance.new("Frame")
+        box.Name = "SwitchLoaderBox"
+        box.BackgroundTransparency = 1
+        box.AnchorPoint = Vector2.new(0.5, 0.5)
+        box.Size = UDim2.fromOffset(240, 120)
+        box.Position = UDim2.new(0.5, 0, 0.5, 0)
+        box.ZIndex = 75
+        box.Parent = contentRoot
+
+    local ic = Instance.new("ImageLabel")
+        ic.Name = "SwitchLoaderIcon"
+        ic.AnchorPoint = Vector2.new(0.5, 0.5)
+        ic.Size = UDim2.fromOffset(46, 46)
+        ic.Position = UDim2.new(0.5, 0, 0.5, -20)
+        ic.BackgroundTransparency = 1
+        ic.ImageColor3 = Color3.new(1, 1, 1)
+        ic.ImageTransparency = 0
+        ic.ScaleType = Enum.ScaleType.Fit
+        ic.ZIndex = 76
+        ic.Parent = box
+        local spin = nil
+        local asset = getLucideIcon(Config.TitleLoaderIcon)
+        if asset then
+ ic.Image = asset.Url
+  if asset.ImageRectOffset then
+   ic.ImageRectOffset = asset.ImageRectOffset
+        ic.ImageRectSize = asset.ImageRectSize
+     end
+   end
+        spin = TweenService:Create(ic, TweenInfo.new(
+            Config.TitleLoaderSpinTime, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false
+        ), { Rotation = 360 })
+        spin:Play()
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Name = "SwitchLoaderText"
+        lbl.AnchorPoint = Vector2.new(0.5, 0)
+        lbl.Size = UDim2.new(1, 0, 0, 26)
+        lbl.Position = UDim2.new(0.5, 0, 0.5, 14)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = tostring(text or "")
+        lbl.TextColor3 = Config.SwitchDropdownTextColor
+        lbl.TextSize = 17
+        lbl.Font = Enum.Font.Gotham
+        lbl.TextXAlignment = Enum.TextXAlignment.Center
+      lbl.TextYAlignment = Enum.TextYAlignment.Center
+        lbl.TextTransparency = 0
+  lbl.ZIndex = 76
+        lbl.Parent = box
+
+        return box, ic, lbl, spin
+    end
+
+    -- 面板内所有元素渐隐（标题 / Info / 收起按钮 / 切换按钮 / 分隔线 / 选项卡 / 控件）
+    local function fadeAllPanelItems(t, dur)
+        dur = dur or Config.SwitchFadeOutTime
+        local ti = TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        if islandTextContainer and islandTextContainer.Parent then
+        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+    local lb = cf:FindFirstChildOfClass("TextLabel")
+    if lb then TweenService:Create(lb, ti, { TextTransparency = t }):Play() end
+       end
+    end
+     if titleIcon then TweenService:Create(titleIcon, ti, { ImageTransparency = t }):Play() end
+  if infoLabel then TweenService:Create(infoLabel, ti, { TextTransparency = t }):Play() end
+        if closeBtn then
+            TweenService:Create(closeBtn, ti, { ImageTransparency = t }):Play()
+   closeBtn.Active = (t == 0)
+     end
+        if switchBtn then
+  TweenService:Create(switchBtn, ti, { ImageTransparency = t }):Play()
+      switchBtn.Active = (t == 0)
+        end
+   if headerDivider then
+TweenService:Create(headerDivider, ti, { BackgroundTransparency = t }):Play()
+        end
+  if tabSeparator then
+            TweenService:Create(tabSeparator, ti, { BackgroundTransparency = t }):Play()
+        end
+  if tabListContainer then
+            TweenService:Create(tabListContainer, ti, { BackgroundTransparency = t }):Play()
+        end
+        if tabContentContainer then
+            TweenService:Create(tabContentContainer, ti, { GroupTransparency = t }):Play()
+end
+  if tabEmptyLabel then
+ TweenService:Create(tabEmptyLabel, ti, { TextTransparency = t }):Play()
+      end
+    end
+
+    local function playPanelContentEntrance()
+        if not alive or shutdown or not expanded then return end
+        if lastPanelLayout then
+   buildTabUI(lastPanelLayout)
+buildHeaderDecor()
+       buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
+     buildSwitchButton()
+      end
+        local myGen = titleGen
+        cancelTitleTweens()
+        local listLayout = islandTextContainer and islandTextContainer.Parent
+       and islandTextContainer:FindFirstChildOfClass("UIListLayout")
+        task.delay(Config.FadeInTime, function()
+if not expanded or myGen ~= titleGen then return end
+          if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
+            if islandTextContainer and islandTextContainer.Parent then
+   local lx = (win._titleLeftX or 0) + islandTextContainer.AbsoluteSize.X / 2
+   local ly = win._titleY or 0
+    islandTextContainer.Position = UDim2.new(0, lx + 40, 0, ly)
+     TweenService:Create(islandTextContainer, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+      Position = UDim2.new(0, lx, 0, ly),
+         }):Play()
+        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+    local lb = cf:FindFirstChildOfClass("TextLabel")
+         if lb then
+     local tw = TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 })
+     table.insert(titleTweens, tw)
+    tw:Play()
+       end
+   end
+     end
+      task.delay(Config.InfoEnterDelay, function()
+      if not expanded or myGen ~= titleGen then return end
+    if infoLabel and infoLabel.Parent then
+   local ix = win._titleLeftX or 0
+     local iy = ((lastPanelLayout and lastPanelLayout.top or 0)
+              + (lastPanelLayout and lastPanelLayout.titlePad or 0)
+     + (lastPanelLayout and lastPanelLayout.blockH or 0))
+    TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+  Position = UDim2.new(0, ix, 0, iy),
+        TextTransparency = 0,
+        }):Play()
+      end
+     end)
+        end)
+    end
+
+-- 播放「元素渐隐 -> loader 停留 -> loader 渐隐 -> 正常入场动画载入内容」
+    local function playSwitchSequence(loadingText)
+        if not alive or shutdown then return end
+      -- 1) 所有面板元素渐隐
+        fadeAllPanelItems(1)
+    task.delay(Config.SwitchFadeOutTime, function()
+     if not alive or shutdown or not expanded then return end
+       -- 2) 中心出现旋转 loader + 提示文字
+      local box, ic, lbl, spin = makeSwitchLoader(loadingText or Config.SwitchLoadingText)
+      box.Parent = contentRoot
+        ic.Rotation = 0
+            TweenService:Create(ic, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Rotation = 360 }):Play()
+     -- 3) 等待
+       task.delay(Config.SwitchHoldTime, function()
+      if not alive or shutdown or not expanded then
+        if spin then pcall(function() spin:Cancel() end) end
+       if box and box.Parent then box:Destroy() end
+          return
+   end
+           -- 4) loader 与文字渐隐
+      if ic then TweenService:Create(ic, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play() end
+if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                if spin then task.delay(Config.SwitchLoaderFadeTime, function() pcall(function() spin:Cancel() end) end) end
+            task.delay(Config.SwitchLoaderFadeTime, function()
+   if not alive or shutdown then return end
+         if box and box.Parent then box:Destroy() end
+       if not expanded then return end
+    -- 5) 重建面板内容，并沿用「展开面板完成时」的元素入场动画
+          playPanelContentEntrance()
+         end)
+       end)
+        end)
+    end
+
+    -- 展开完成后的元素入场动画（标题错峰 + Info 延迟 + 选项卡错峰）
+
+    -- 切换模式的入场收尾：自动展开面板 -> 元素渐隐 -> loader -> 内容入场
+    -- 注意：这里必须挂到外层转发变量上。切换分支是 runIslandEntrySetup 的第一次调用，
+    -- 若 autoExpandForSwitch 本身在本函数体内赋值，那次调用传进去的还是 nil。
+    playSwitchSequenceRef = playSwitchSequence
+
+    expandForSwitchRef = function()
+        if not alive or shutdown then return end
+        task.wait(0.05)
+        if not doExpandPanel() then return end
+        -- 等展开动画与标题/Info 错峰入场走完，再开始渐隐
+        task.delay(Config.PanelExpandTime + Config.FadeInTime + Config.InfoEnterDelay, function()
+            playSwitchSequence(Config.SwitchLoadingText)
+        end)
+    end
+
+    -- 切换模式：入场装配完成后自动展开面板并播放 loader
+      if afterSetup then task.spawn(afterSetup) end
+end
+
     task.delay(Config.ShrinkDelay, function()
         flowSpeed = Config.FlowSpeed
         gradient.Color = rainbowColors
+        -- 切换模式：屏幕中心的 DynamicCow 品牌文字在缩小的同时就换成新脚本 Title
+        if switchingFrom ~= nil then
+            titleLabel.Text = title
+            glowLabel.Text = title
+        end
         local shrinkTween = edgeTween(TweenInfo.new(
             Config.ShrinkTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
         ), {
@@ -1787,7 +5127,66 @@ title = Config.ErrorText
         ), {
             BackgroundTransparency = 1,
         }):Play()
-        titleShrinkTween.Completed:Connect(function()
+        if switchingFrom ~= nil then
+   -- ============ 脚本切换入场动画 ============
+            -- 需求：彩虹边框缩小为灵动岛样式后「立马渐隐」；
+            -- 不要黑色灵动岛填充动画，也不要黑球弹出动画（含动画图标）。
+      -- 中心 Title 文字向上移动同时缩小，同步渐隐，直到灵动岛位置完全隐藏。
+        local islandCX = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+            local islandCY = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+            local function fadeBrandOut(dur)
+       TweenService:Create(titleLabel, TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+            TextTransparency = 1,
+                }):Play()
+    TweenService:Create(glowLabel, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        TextTransparency = 1,
+     TextStrokeTransparency = 1,
+       }):Play()
+         end
+titleShrinkTween.Completed:Connect(function()
+    fadeBrandOut(Config.SwitchTitleMoveTime)
+         end)
+            -- 中心 Title 文字上移 + 缩小 + 渐隐，目标是灵动岛中心位置
+            TweenService:Create(titleFrame, TweenInfo.new(
+   Config.SwitchTitleMoveTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
+            ), {
+         Position = UDim2.new(0.5, islandCX, 0, islandCY),
+            }):Play()
+            TweenService:Create(titleScale, TweenInfo.new(
+         Config.SwitchTitleMoveTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
+      ), {
+    Scale = Config.SwitchTitleScale,
+            }):Play()
+
+shrinkTween.Completed:Connect(function()
+     -- 彩虹边框缩成灵动岛后立马渐隐
+     TweenService:Create(stroke, TweenInfo.new(
+    Config.SwitchBorderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
+          ), {
+              Transparency = 1,
+        }):Play()
+           TweenService:Create(silverStroke, TweenInfo.new(
+  Config.SwitchBorderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
+             ), {
+         Transparency = 1,
+   }):Play()
+        -- 切换模式下彩虹已渐隐，停掉流动避免残留彩色描边
+        flowSpeed = 0
+
+     task.delay(Config.SwitchTitleMoveTime, function()
+          if not alive then return end
+          if backdrop and backdrop.Parent then backdrop:Destroy() end
+      if titleFrame and titleFrame.Parent then titleFrame:Destroy() end
+     if stroke and stroke.Parent then stroke:Destroy() end
+     if silverStroke and silverStroke.Parent then silverStroke:Destroy() end
+        -- 装配交互，然后自动展开面板并播放 loader
+  if runIslandEntrySetup then runIslandEntrySetup(autoExpandForSwitch) end
+         end)
+        end)
+            return
+        end
+
+     titleShrinkTween.Completed:Connect(function()
             TweenService:Create(titleLabel, TweenInfo.new(
                 Config.TitleShrinkTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
             ), {
@@ -1807,2728 +5206,9 @@ title = Config.ErrorText
                 Size = UDim2.new(1, 0, 1, 0),
             })
             fillTween:Play()
+            -- 标准入场：等黑色灵动岛填充动画结束再装配交互
             fillTween.Completed:Connect(function()
-                if backdrop and backdrop.Parent then backdrop:Destroy() end
-                islandTextContainer = createIslandText(Config.IslandText, Config.IslandTextColor)
-                task.spawn(function() splitBall(isError) end)
-                edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                edge.Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
-                edge.Active = true
-                local interacting = false
-                local holding = false
-                local longPress = nil
-                local dragStartX = nil
-                local dragBaseSize = nil
-                local dragging = false
-                local dragStopTmr = nil
-                local dragRestoreTmr = nil
-                local dragSizeTween = nil
-
-                local function tweenEdgeSize(size, dur)
-                    if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
-                    dragSizeTween = edgeTween(TweenInfo.new(dur, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = size })
-                    return dragSizeTween
-                end
-                local tapCount = 0
-                local tapWindowTmr = nil
-                local hintActive = false
-                local hintContainer = nil
-                local hintTmr = nil
-                local hintBaseSize = nil
-                local hintBaseAnchor = nil
-                local hintBasePos = nil
-                -- 连点触发提示后的点击冷却：hintCooldownUntil 之前不接受点击类交互。
-                -- 只拦 registerIslandTap，不拦 edge.InputBegan 的长按展开分支。
-                local hintCooldownUntil = 0
-                local hintCooldownTmr = nil
-                local islandRest = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
-
-                local function safeCancelTimer(handle)
-                    if not handle then return end
-                    pcall(task.cancel, handle)
-                end
-
-                local function startHintClickCooldown()
-                    safeCancelTimer(hintCooldownTmr)
-                    hintCooldownUntil = os.clock() + Config.HintClickCooldown
-                    hintCooldownTmr = task.delay(Config.HintClickCooldown, function()
-                        hintCooldownTmr = nil
-                        hintCooldownUntil = 0
-                    end)
-                end
-                local function inHintClickCooldown()
-                    return hintCooldownUntil > 0 and os.clock() < hintCooldownUntil
-                end
-                local function clearHint(skipRestore)
-                    safeCancelTimer(tapWindowTmr) tapWindowTmr = nil
-                    safeCancelTimer(hintTmr) hintTmr = nil
-                    if hintContainer and hintContainer.Parent then hintContainer:Destroy() end
-                    hintContainer = nil
-                    -- 捕获本轮还原所需的基准值到局部，避免被后续重入的 clearHint 置空后误用
-                    local baseSize = hintBaseSize
-                    local baseAnchor = hintBaseAnchor
-                    local basePos = hintBasePos
-                    if not skipRestore and hintActive and edge and edge.Parent and baseSize and not expanded then
-                        local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-                        local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                        edgeTween(TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                            Size = baseSize,
-                            Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideOutDistance),
-                        })
-                        task.delay(Config.HintSlideTime, function()
-                            if not edge or not edge.Parent then return end
-                            edgeTween(TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                Position = UDim2.new(0.5, cx, 0, cy),
-                            })
-                            task.delay(0.16, function()
-                                if not edge or not edge.Parent then return end
-                                if baseAnchor then edge.AnchorPoint = baseAnchor end
-                                if basePos then edge.Position = basePos end
-                                -- 还原完成后才解除 hint 占用，避免连点重入时还原补间互相争抢导致灵动岛偏移
-                                hintActive = false
-                                -- 提示动画彻底播完（滑出 + 回位均已结束）后才开始点击冷却，
-                                -- 这样「等 2 秒」是从动画结束点起算，而不是与动画时长互相挤占。
-                                -- 冷却只拦点击类交互（registerIslandTap），长按展开 UI 不受影响。
-                                startHintClickCooldown()
-                            end)
-                        end)
-                    else
-                        hintActive = false
-                    end
-                    hintBaseSize = nil
-                    hintBaseAnchor = nil
-                    hintBasePos = nil
-                    if not skipRestore and islandTextContainer and islandTextContainer.Parent then
-                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                            local lb = cf:FindFirstChildOfClass("TextLabel")
-                            if lb then TweenService:Create(lb, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
-                        end
-                    end
-                end
-                local function playHintAnimation()
-                    if hintActive or expanded or not alive or not ready then return end
-                    if actionBusy and actionEnd then actionEnd(true) end
-                    hintActive = true
-                    if islandTextContainer and islandTextContainer.Parent then
-                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                            local lb = cf:FindFirstChildOfClass("TextLabel")
-                            if lb then TweenService:Create(lb, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
-                        end
-                    end
-                    hintBaseSize = edge.Size
-                    hintBaseAnchor = edge.AnchorPoint
-                    hintBasePos = edge.Position
-                    local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-                    local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                    edge.Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideInDistance)
-                    local txt = Config.HintText
-                    local tsize = Config.HintTextSize
-                    local tw = measureTextWidth(txt, tsize) + Config.HintExtendPad
-                    local baseW = Config.IslandSize.X.Offset
-                    local targetW = math.max(baseW + 80, tw)
-                    edgeTween(TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                        Size = UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
-                        Position = UDim2.new(0.5, cx, 0, cy),
-                    })
-                    local hc = Instance.new("Frame")
-                    hc.Name = "IslandHintContainer"
-                    hc.Size = UDim2.new(1, 0, 1, 0)
-                    hc.BackgroundTransparency = 1
-                    hc.BorderSizePixel = 0
-                    hc.ClipsDescendants = true
-                    hc.ZIndex = 55
-                    hc.Parent = edge
-                    local hl = Instance.new("UIListLayout")
-                    hl.FillDirection = Enum.FillDirection.Horizontal
-                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                    hl.VerticalAlignment = Enum.VerticalAlignment.Center
-                    hl.Parent = hc
-                    local chars = {}
-                    local idx = 0
-                    for _, item in ipairs(parseColoredChars(txt, Config.TitleColor)) do
-                        local ch = item.ch
-                        if ch ~= " " then
-                            local cf2 = Instance.new("Frame")
-                            cf2.Size = UDim2.new(0, 0, 1, 0)
-                            cf2.AutomaticSize = Enum.AutomaticSize.X
-                            cf2.BackgroundTransparency = 1
-                            cf2.BorderSizePixel = 0
-                            cf2.Parent = hc
-                            local cl = Instance.new("TextLabel")
-                            cl.Size = UDim2.new(1, 0, 1, 0)
-                            cl.BackgroundTransparency = 1
-                            cl.Text = ch
-                            cl.TextColor3 = Config.TitleColor
-                            cl.TextTransparency = 1
-                            cl.TextSize = tsize
-                            cl.Font = charFont(ch)
-                            cl.TextXAlignment = Enum.TextXAlignment.Center
-                            cl.TextYAlignment = Enum.TextYAlignment.Center
-                            cl.Parent = cf2
-                            chars[#chars + 1] = { label = cl, order = idx }
-                            idx = idx + 1
-                        end
-                    end
-                    local center = (#chars - 1) / 2
-                    for _, c in ipairs(chars) do
-                        local dist = math.abs(c.order - center)
-                        task.delay(dist * Config.HintRevealStep, function()
-                            if not hintActive or not c.label.Parent then return end
-                            TweenService:Create(c.label, TweenInfo.new(Config.HintRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
-                        end)
-                    end
-                    hintContainer = hc
-                    safeCancelTimer(hintTmr)
-                    hintTmr = task.delay(Config.HintHoldTime, function()
-                        hintTmr = nil
-                        if hintActive then clearHint() end
-                    end)
-                end
-                local function registerIslandTap()
-                    if hintActive or expanded or not alive or not ready then return end
-                    -- 点击冷却中：吞掉本次连点，不累加 tapCount，避免提示动画被立刻重新触发
-                    if inHintClickCooldown() then return end
-                    tapCount = tapCount + 1
-                    if tapWindowTmr then safeCancel(tapWindowTmr) end
-                    tapWindowTmr = task.delay(Config.TapWindow, function()
-                        tapCount = 0
-                        tapWindowTmr = nil
-                    end)
-                    if tapCount >= 3 then
-                        tapCount = 0
-                        if tapWindowTmr then safeCancel(tapWindowTmr) tapWindowTmr = nil end
-                        playHintAnimation()
-                    end
-                end
-                local function resetIslandDrag()
-                    if dragStopTmr then safeCancel(dragStopTmr) dragStopTmr = nil end
-                    if dragRestoreTmr then safeCancel(dragRestoreTmr) dragRestoreTmr = nil end
-                    if dragging and dragBaseSize and not expanded then
-                        tweenEdgeSize(dragBaseSize, 0.3)
-                    end
-                    dragging = false
-                    dragStartX = nil
-                    dragBaseSize = nil
-                end
-                UserInputService.InputChanged:Connect(function(input)
-                    if not holding or expanded or not ready then return end
-                    if dragStartX == nil then return end
-                    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-                    local dx = input.Position.X - dragStartX
-                    if not dragging then
-                        if dx > Config.IslandDragThreshold then
-                            dragging = true
-                            if longPress then safeCancel(longPress) longPress = nil end
-                        else
-                            return
-                        end
-                    end
-                    if dx < 0 then dx = 0 end
-                    if dragging and dragRestoreTmr then safeCancel(dragRestoreTmr) dragRestoreTmr = nil end
-                    local extra = math.min(dx * Config.IslandDragDamp, Config.IslandDragMax)
-                    if dragBaseSize then
-                        edge.Size = UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + extra, dragBaseSize.Y.Scale, dragBaseSize.Y.Offset)
-                    end
-                    if dragStopTmr then safeCancel(dragStopTmr) end
-                    dragStopTmr = task.delay(Config.IslandDragStopDelay, function()
-                        dragStopTmr = nil
-                        if dragging and holding and not expanded and dragBaseSize then
-                            tweenEdgeSize(UDim2.new(dragBaseSize.X.Scale, dragBaseSize.X.Offset + math.min(Config.IslandDragFixed, Config.IslandDragMax), dragBaseSize.Y.Scale, dragBaseSize.Y.Offset), 0.18)
-                            if dragRestoreTmr then safeCancel(dragRestoreTmr) end
-                            dragRestoreTmr = task.delay(Config.IslandDragHold, function()
-                                dragRestoreTmr = nil
-                                resetIslandDrag()
-                            end)
-                        end
-                    end)
-                end)
-                local closeBtn = nil
-                -- 二次确认弹窗句柄：buildCloseButton 需要它做守卫，
-                -- 避免收起流程中又触发长按确认
-                local closeDialog = nil
-                local tabListContainer = nil
-                local tabContentContainer = nil
-                local tabContentBase = nil
-                local headerDivider = nil
-                local tabSeparator = nil
-                local tabEmptyLabel = nil
-                local tabContentEmpty = nil
-                local tabContentNoCtrl = nil
-                local tabSubtitleList = nil
-                local function destroyTabUI()
-                    if openDropdownClose then openDropdownClose() end
-                    if tabListContainer then tabListContainer:Destroy() tabListContainer = nil end
-                    if tabContentContainer then tabContentContainer:Destroy() tabContentContainer = nil end
-                    if headerDivider then headerDivider:Destroy() headerDivider = nil end
-                    if tabSeparator then tabSeparator:Destroy() tabSeparator = nil end
-                    if tabEmptyLabel then tabEmptyLabel:Destroy() tabEmptyLabel = nil end
-                    tabContentEmpty = nil
-                    tabContentNoCtrl = nil
-                    tabSubtitleList = nil
-                    tabContentBase = nil
-                end
-                local function renderSubtitles(tab)
-                    if not tabSubtitleList then return end
-                    for _, ch in ipairs(tabSubtitleList:GetChildren()) do
-                        if ch:IsA("GuiObject") then ch:Destroy() end
-                    end
-                    if not tab or not tab._subtitles then return end
-                    local headH = Config.SubTitleRowHeight
-                    local divGap = Config.SubTitleDividerGap
-                    local function makeButton(bt, order)
-                        local btn = Instance.new("TextButton")
-                        btn.Name = "SubButton"
-                        btn.Size = UDim2.new(1, 0, 0, Config.ButtonHeight)
-                        btn.BackgroundColor3 = Config.ButtonFill
-                        btn.BackgroundTransparency = Config.ButtonFillTransparency
-                        btn.Text = ""
-                        btn.AutoButtonColor = false
-                        btn.LayoutOrder = order
-                        btn.ZIndex = 3
-                        local bcorner = Instance.new("UICorner")
-                        bcorner.CornerRadius = Config.ButtonCorner
-                        bcorner.Parent = btn
-                        local bstroke = Instance.new("UIStroke")
-                        bstroke.Color = Config.ButtonStroke
-                        bstroke.Transparency = Config.ButtonStrokeTransparency
-                        bstroke.Thickness = 1
-                        bstroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                        bstroke.Parent = btn
-                        local row = Instance.new("Frame")
-                        row.Name = "Row"
-                        row.BackgroundTransparency = 1
-                        row.Size = UDim2.new(1, 0, 1, 0)
-                        row.ZIndex = 3
-                        row.Parent = btn
-                        local rl = Instance.new("UIListLayout")
-                        rl.FillDirection = Enum.FillDirection.Horizontal
-                        rl.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                        rl.VerticalAlignment = Enum.VerticalAlignment.Center
-                        rl.SortOrder = Enum.SortOrder.LayoutOrder
-                        rl.Padding = UDim.new(0, Config.ButtonIconGap)
-                        rl.Parent = row
-                        if bt.Icon ~= nil and bt.Icon ~= "" then
-                            local ic = Instance.new("ImageLabel")
-                            ic.Name = "BtnIcon"
-                            ic.Size = UDim2.fromOffset(Config.ButtonIconSize, Config.ButtonIconSize)
-                            ic.BackgroundTransparency = 1
-                            ic.ImageColor3 = bt.IconColor or Config.ButtonTextColor
-                            ic.ScaleType = Enum.ScaleType.Fit
-                            ic.LayoutOrder = 1
-                            ic.ZIndex = 3
-                            ic.Parent = row
-                            task.spawn(function()
-                                local lucide = loadLucide()
-                                if lucide then
-                                    local okB, asset = pcall(lucide.GetAsset, bt.Icon)
-                                    if okB and asset and asset.Url then
-                                        ic.Image = asset.Url
-                                        if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
-                                    end
-                                end
-                            end)
-                        end
-                        local tx = Instance.new("TextLabel")
-                        tx.Name = "BtnText"
-                        tx.BackgroundTransparency = 1
-                        tx.Size = UDim2.new(0, 0, 1, 0)
-                        tx.AutomaticSize = Enum.AutomaticSize.X
-                        tx.Text = bt.Title
-                        tx.TextColor3 = Config.ButtonTextColor
-                        tx.TextSize = Config.ButtonTextSize
-                        tx.Font = Enum.Font.GothamMedium
-                        tx.TextXAlignment = Enum.TextXAlignment.Center
-                        tx.TextYAlignment = Enum.TextYAlignment.Center
-                        tx.LayoutOrder = 2
-                        tx.ZIndex = 3
-                        tx.Parent = row
-                        btn.MouseButton1Click:Connect(function()
-                            if shutdown or not bt then return end
-                            btn.BackgroundColor3 = Color3.fromRGB(96, 98, 112)
-                            btn.BackgroundTransparency = 0
-                            TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                BackgroundColor3 = Config.ButtonFill,
-                                BackgroundTransparency = Config.ButtonFillTransparency,
-                            }):Play()
-                            if typeof(bt.OnClick) == "function" then
-                                local okC, errC = pcall(bt.OnClick)
-                                if not okC then reportError("AddButton OnClick 报错: " .. tostring(errC)) end
-                            end
-                        end)
-                        return btn
-                    end
-                    local function makeToggle(tg, order)
-                        if win._autoLoadConfig and tg.ConfigKey and win._configFolder then
-                            local sv = loadConfigValue(win._configFolder, tg.ConfigKey)
-                            if sv ~= nil then tg.Value = (sv == true) end
-                        end
-                        local row = Instance.new("TextButton")
-                        row.Name = "SubToggle"
-                        row.Size = UDim2.new(1, 0, 0, Config.ButtonHeight)
-                        row.BackgroundTransparency = 1
-                        row.Text = ""
-                        row.AutoButtonColor = false
-                        row.LayoutOrder = order
-                        row.ZIndex = 3
-                        local tlbl = Instance.new("TextLabel")
-                        tlbl.Name = "TglText"
-                        tlbl.BackgroundTransparency = 1
-                        tlbl.AnchorPoint = Vector2.new(0, 0.5)
-                        tlbl.Position = UDim2.new(0, 0, 0.5, 0)
-                        tlbl.Size = UDim2.new(1, -(Config.ToggleWidth + 14), 1, 0)
-                        tlbl.Text = tg.Title
-                        tlbl.TextColor3 = Config.ButtonTextColor
-                        tlbl.TextSize = Config.ButtonTextSize
-                        tlbl.Font = Enum.Font.GothamMedium
-                        tlbl.TextXAlignment = Enum.TextXAlignment.Left
-                        tlbl.TextYAlignment = Enum.TextYAlignment.Center
-                        tlbl.ZIndex = 3
-                        tlbl.Parent = row
-                        local trackW = Config.ToggleWidth
-                        local trackH = Config.ToggleHeight
-                        local pad = Config.TogglePad
-                        local thumbS = trackH - pad * 2
-                        local track = Instance.new("Frame")
-                        track.Name = "TglTrack"
-                        track.AnchorPoint = Vector2.new(1, 0.5)
-                        track.Position = UDim2.new(1, 0, 0.5, 0)
-                        track.Size = UDim2.fromOffset(trackW, trackH)
-                        track.BackgroundColor3 = tg.TrackColor or Config.ToggleTrackColor
-                        track.BorderSizePixel = 0
-                        track.ZIndex = 3
-                        track.Parent = row
-                        local tcc0 = Instance.new("UICorner")
-                        tcc0.CornerRadius = UDim.new(0.5, 0)
-                        tcc0.Parent = track
-                        local thumb = Instance.new("Frame")
-                        thumb.Name = "TglThumb"
-                        thumb.AnchorPoint = Vector2.new(0, 0.5)
-                        thumb.Position = UDim2.new(0, pad, 0.5, 0)
-                        thumb.Size = UDim2.fromOffset(thumbS, thumbS)
-                        thumb.BackgroundColor3 = tg.ThumbColor or Config.ToggleThumbColor
-                        thumb.BorderSizePixel = 0
-                        thumb.ZIndex = 4
-                        thumb.Parent = track
-                        local tcc1 = Instance.new("UICorner")
-                        tcc1.CornerRadius = UDim.new(0.5, 0)
-                        tcc1.Parent = thumb
-                        if tg.Icon ~= nil and tg.Icon ~= "" then
-                            local tic = Instance.new("ImageLabel")
-                            tic.Name = "TglIcon"
-                            tic.AnchorPoint = Vector2.new(0.5, 0.5)
-                            tic.Position = UDim2.new(0.5, 0, 0.5, 0)
-                            tic.Size = UDim2.fromOffset(thumbS * Config.ToggleIconRatio, thumbS * Config.ToggleIconRatio)
-                            tic.BackgroundTransparency = 1
-                            tic.ImageColor3 = tg.IconColor or Config.ToggleIconColor
-                            tic.ScaleType = Enum.ScaleType.Fit
-                            tic.ZIndex = 5
-                            tic.Parent = thumb
-                            task.spawn(function()
-                                local lucide = loadLucide()
-                                if lucide then
-                                    local okI, asset = pcall(lucide.GetAsset, tg.Icon)
-                                    if okI and asset and asset.Url then
-                                        tic.Image = asset.Url
-                                        if asset.ImageRectOffset then tic.ImageRectOffset = asset.ImageRectOffset tic.ImageRectSize = asset.ImageRectSize end
-                                    end
-                                end
-                            end)
-                        end
-                        local function apply()
-                            local on = tg.Value
-                            local targetX = on and (trackW - pad - thumbS) or pad
-                            TweenService:Create(thumb, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                                Position = UDim2.new(0, targetX, 0.5, 0),
-                            }):Play()
-                            TweenService:Create(track, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                BackgroundColor3 = on and Config.ToggleOnColor or (tg.TrackColor or Config.ToggleTrackColor),
-                            }):Play()
-                        end
-                        apply()
-                        row.MouseButton1Click:Connect(function()
-                            if shutdown then return end
-                            tg.Value = not tg.Value
-                            apply()
-
-                            lastToggleInfo = {
-                                Title = tg.Title or "Toggle",
-                                Icon = tg.Icon,
-                                IconColor = tg.IconColor,
-                                Value = tg.Value,
-                            }
-                            if tg.ConfigKey then win._cfgSave(win, tg.ConfigKey, tg.Value) end
-                            if typeof(tg.Callback) == "function" then
-                                local okC, errC = pcall(tg.Callback, tg.Value, tg)
-                                if not okC then reportError("AddToggle Callback 报错: " .. tostring(errC)) end
-                            end
-                        end)
-                        return row
-                    end
-                    local function makeParagraph(p, order, rowH)
-                        local frame = Instance.new("Frame")
-                        frame.Name = "SubParagraph"
-                        frame.BackgroundColor3 = p.BackColor or Config.ParagraphBackColor
-                        frame.BackgroundTransparency = Config.ParagraphBackTransparency
-                        frame.Size = UDim2.new(1, 0, 0, rowH or Config.ParagraphRowHeight)
-                        frame.LayoutOrder = order
-                        frame.ZIndex = 3
-                        local corner = Instance.new("UICorner")
-                        corner.CornerRadius = Config.ParagraphCorner
-                        corner.Parent = frame
-                        local stroke = Instance.new("UIStroke")
-                        stroke.Color = darkenColor(frame.BackgroundColor3, Config.ParagraphDarken)
-                        stroke.Thickness = Config.ParagraphBorderThickness
-                        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                        stroke.Parent = frame
-                        local pad = Instance.new("UIPadding")
-                        pad.PaddingLeft = UDim.new(0, Config.ParagraphBackPad)
-                        pad.PaddingRight = UDim.new(0, Config.ParagraphBackPad)
-                        pad.Parent = frame
-                        local hl = Instance.new("UIListLayout")
-                        hl.FillDirection = Enum.FillDirection.Horizontal
-                        hl.HorizontalAlignment = Enum.HorizontalAlignment.Left
-                        hl.VerticalAlignment = Enum.VerticalAlignment.Center
-                        hl.SortOrder = Enum.SortOrder.LayoutOrder
-                        hl.Padding = UDim.new(0, Config.ParagraphIconGap)
-                        hl.Parent = frame
-                        local hasIco = (p.Icon ~= nil and p.Icon ~= "")
-                        if hasIco then
-                            local ic = Instance.new("ImageLabel")
-                            ic.Name = "ParaIcon"
-                            ic.Size = UDim2.fromOffset(Config.ParagraphIconSize, Config.ParagraphIconSize)
-                            ic.BackgroundTransparency = 1
-                            ic.ImageColor3 = p.IconColor or Config.ParagraphInfoColor
-                            ic.ScaleType = Enum.ScaleType.Fit
-                            ic.LayoutOrder = 1
-                            ic.ZIndex = 3
-                            ic.Parent = frame
-                            task.spawn(function()
-                                local lucide = loadLucide()
-                                if lucide then
-                                    local okP, asset = pcall(lucide.GetAsset, p.Icon)
-                                    if okP and asset and asset.Url then
-                                        ic.Image = asset.Url
-                                        if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
-                                    end
-                                end
-                            end)
-                            p._iconLbl = ic
-                        end
-                        local txt = Instance.new("Frame")
-                        txt.Name = "ParaText"
-                        txt.BackgroundTransparency = 1
-                        txt.Size = UDim2.new(1, hasIco and -(Config.ParagraphIconSize + Config.ParagraphIconGap) or 0, 1, 0)
-                        txt.LayoutOrder = 2
-                        txt.ZIndex = 3
-                        txt.Parent = frame
-                        local vl = Instance.new("UIListLayout")
-                        vl.FillDirection = Enum.FillDirection.Vertical
-                        vl.HorizontalAlignment = Enum.HorizontalAlignment.Left
-                        vl.VerticalAlignment = Enum.VerticalAlignment.Top
-                        vl.SortOrder = Enum.SortOrder.LayoutOrder
-                        vl.Padding = UDim.new(0, Config.ParagraphTextGap)
-                        vl.Parent = txt
-                        local txtPad = Instance.new("UIPadding")
-                        txtPad.PaddingTop = UDim.new(0, Config.ParagraphTitleDrop)
-                        txtPad.Parent = txt
-                        local titleLbl = Instance.new("TextLabel")
-                        titleLbl.Name = "ParaTitle"
-                        titleLbl.BackgroundTransparency = 1
-                        titleLbl.Size = UDim2.new(1, 0, 0, Config.ParagraphTitleSize + Config.ParagraphTitlePad)
-                        titleLbl.Text = p.Title or ""
-                        titleLbl.TextColor3 = Config.ParagraphTitleColor
-                        titleLbl.TextSize = Config.ParagraphTitleSize
-                        titleLbl.Font = Enum.Font.GothamBold
-                        titleLbl.RichText = true
-                        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-                        titleLbl.TextYAlignment = Enum.TextYAlignment.Center
-                        titleLbl.LayoutOrder = 1
-                        titleLbl.ZIndex = 3
-                        titleLbl.Parent = txt
-                        local infoH = measureTextHeight(p.Info or "", Config.ParagraphInfoSize,
-                            math.max(40, (rowH or Config.ParagraphRowHeight)))
-                        local infoLbl = Instance.new("TextLabel")
-                        infoLbl.Name = "ParaInfo"
-                        infoLbl.BackgroundTransparency = 1
-                        infoLbl.Size = UDim2.new(1, 0, 0, infoH)
-                        infoLbl.Text = p.Info or ""
-                        infoLbl.TextColor3 = Config.ParagraphInfoColor
-                        infoLbl.TextSize = Config.ParagraphInfoSize
-                        infoLbl.Font = Enum.Font.Gotham
-                        infoLbl.RichText = true
-                        infoLbl.TextWrapped = true
-                        infoLbl.TextXAlignment = Enum.TextXAlignment.Left
-                        infoLbl.TextYAlignment = Enum.TextYAlignment.Center
-                        infoLbl.LayoutOrder = 2
-                        infoLbl.ZIndex = 3
-                        infoLbl.Parent = txt
-                        p._titleLbl = titleLbl
-                        p._infoLbl = infoLbl
-                        p._iconLbl = hasIco and ic or nil
-                        p._frame = frame
-                        p._stroke = stroke
-                        return frame
-                    end
-
-                    local function makeLine(ln, order)
-                        local rowH = Config.LineRowHeight
-                        local frame = Instance.new("Frame")
-                        frame.Name = "SubLine"
-                        frame.BackgroundTransparency = 1
-                        frame.Size = UDim2.new(1, 0, 0, rowH)
-                        frame.LayoutOrder = order
-                        frame.ZIndex = 3
-                        local inset = ln.Inset or Config.LineInset
-                        local bar = Instance.new("Frame")
-                        bar.Name = "LineBar"
-                        bar.BackgroundColor3 = ln.Color or Config.LineColor
-                        bar.BorderSizePixel = 0
-                        bar.Size = UDim2.new(1, -(inset * 2), 0, ln.Thickness or Config.LineThickness)
-                        bar.Position = UDim2.new(0, inset, 0.5, 0)
-                        bar.AnchorPoint = Vector2.new(0, 0.5)
-                        bar.ZIndex = 3
-                        bar.Parent = frame
-
-                        ln._bar = bar
-                        ln._row = frame
-                        return frame
-                    end
-                    local function makeSlider(sl, order)
-                        if win._autoLoadConfig and sl.ConfigKey and win._configFolder then
-                            local sv = loadConfigValue(win._configFolder, sl.ConfigKey)
-                            if sv ~= nil and type(sv) == "number" then sl.Value = sv end
-                        end
-                        local rowH = Config.SliderRowHeight
-                        local frame = Instance.new("Frame")
-                        frame.Name = "SubSlider"
-                        frame.BackgroundTransparency = 1
-                        frame.Size = UDim2.new(1, 0, 0, rowH)
-                        frame.LayoutOrder = order
-                        frame.ZIndex = 3
-                        local titleW = measureTextWidth(sl.Title or "", Config.SliderTitleSize) + Config.SliderTitlePadX
-                        if titleW < Config.SliderTitleMinW then titleW = Config.SliderTitleMinW end
-                        local titleLbl = Instance.new("TextLabel")
-                        titleLbl.Name = "SliderTitle"
-                        titleLbl.BackgroundTransparency = 1
-                        titleLbl.Size = UDim2.new(0, titleW, 1, 0)
-                        titleLbl.Position = UDim2.new(0, 0, 0, 0)
-                        titleLbl.Text = sl.Title or ""
-                        titleLbl.TextColor3 = Config.SliderTitleColor
-                        titleLbl.TextSize = Config.SliderTitleSize
-                        titleLbl.Font = Enum.Font.GothamBold
-                        titleLbl.RichText = true
-                        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-                        titleLbl.TextYAlignment = Enum.TextYAlignment.Center
-                        titleLbl.ZIndex = 3
-                        titleLbl.Parent = frame
-                        local track = Instance.new("Frame")
-                        track.Name = "SliderTrack"
-                        track.BackgroundColor3 = Config.SliderTrackColor
-                        track.BackgroundTransparency = Config.SliderTrackTransparency
-                        track.Size = UDim2.new(1, -(titleW + Config.SliderTitleGap), 1, -Config.SliderTrackVPad * 2)
-                        track.Position = UDim2.new(0, titleW + Config.SliderTitleGap, 0, Config.SliderTrackVPad)
-                        track.ZIndex = 3
-                        local trackCorner = Instance.new("UICorner")
-                        trackCorner.CornerRadius = Config.SliderTrackCorner
-                        trackCorner.Parent = track
-                        track.Parent = frame
-                        local fill = Instance.new("Frame")
-                        fill.Name = "SliderFill"
-                        fill.BackgroundColor3 = sl.FillColor or Config.SliderFillColor
-                        fill.BackgroundTransparency = 0
-                        fill.Size = UDim2.new(0, 0, 1, 0)
-                        fill.ZIndex = 4
-                        local fillCorner = Instance.new("UICorner")
-                        fillCorner.CornerRadius = Config.SliderTrackCorner
-                        fillCorner.Parent = fill
-                        fill.Parent = track
-                        local function clampFrac(f)
-                            if f < 0 then f = 0 elseif f > 1 then f = 1 end
-                            return f
-                        end
-                        local function getRange() return sl.MaxValue - sl.MinValue end
-                        local function snapVal(v)
-                            local r = getRange()
-                            if r <= 0 then return sl.MinValue end
-                            if sl.Degree and sl.Degree > 0 then
-                                v = sl.MinValue + math.floor((v - sl.MinValue) / sl.Degree + 0.5) * sl.Degree
-                            end
-                            if v < sl.MinValue then v = sl.MinValue end
-                            if v > sl.MaxValue then v = sl.MaxValue end
-                            return v
-                        end
-                        local function valToFrac(v)
-                            local r = getRange()
-                            if r <= 0 then return 0 end
-                            return clampFrac((v - sl.MinValue) / r)
-                        end
-                        sl._refresh = function(animate)
-                            local f2 = valToFrac(sl.Value)
-                            if sl._tween then sl._tween:Cancel() end
-                            if animate then
-                                sl._tween = TweenService:Create(sl._fill, TweenInfo.new(Config.SliderAnimTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(f2, 0, 1, 0) })
-                                sl._tween:Play()
-                            else
-                                sl._fill.Size = UDim2.new(f2, 0, 1, 0)
-                            end
-                        end
-                        sl._applyFrac = function(f, animate)
-                            f = clampFrac(f)
-                            sl.Value = snapVal(sl.MinValue + f * getRange())
-                            sl._refresh(animate)
-                            if sl.ConfigKey then win._cfgSave(win, sl.ConfigKey, sl.Value) end
-                            if type(sl.OnChanged) == "function" then
-
-                                local okC, errC = pcall(sl.OnChanged, sl.Value, sl)
-                                if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
-                            end
-                        end
-                        sl.Value = sl.Value or sl.MinValue
-                        sl._frame = frame
-                        sl._track = track
-                        sl._fill = fill
-                        sl._titleLbl = titleLbl
-                        sl._refresh(false)
-                        local dragging = false
-                        local function pointFrac(input)
-                            local aw = sl._track.AbsoluteSize.X
-                            if aw <= 0 then return 0 end
-                            local x = (input.Position.X - sl._track.AbsolutePosition.X) / aw
-                            return clampFrac(x)
-                        end
-                        track.Active = true
-                        fill.Active = false
-                        track.InputBegan:Connect(function(input)
-                            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                                dragging = true
-                                sl._applyFrac(pointFrac(input), true)
-                                local moveConn
-                                moveConn = input.Changed:Connect(function()
-                                    if input.UserInputState == Enum.UserInputState.End then
-                                        dragging = false
-                                        if moveConn then moveConn:Disconnect() end
-                                    elseif input.Position then
-                                        sl._applyFrac(pointFrac(input), false)
-                                    end
-                                end)
-                            end
-                        end)
-                        return frame
-                    end
-                    local function makeDropdown(d, order)
-                        d.Multiple = d.Multiple and true or false
-                        if win._autoLoadConfig and d.ConfigKey and win._configFolder then
-                            local sv = loadConfigValue(win._configFolder, d.ConfigKey)
-                            if sv ~= nil then d.Selected = sv end
-                        end
-                        if not d.Multiple then
-                            d.Selected = (type(d.Selected) == "string" and d.Selected) or nil
-                        else
-                            if type(d.Selected) ~= "table" then d.Selected = {} end
-                        end
-                        local function isSelected(name)
-                            if d.Multiple then
-                                for _, s in ipairs(d.Selected) do if s == name then return true end end
-                                return false
-                            end
-                            return d.Selected == name
-                        end
-                        local function truncateToWidth(text, maxW)
-                            if text == "" then return text end
-                            if measureTextWidth(text, Config.DropdownCapsuleTextSize) <= maxW then return text end
-                            local chars = {}
-                            for _, cp in utf8.codes(text) do chars[#chars + 1] = utf8.char(cp) end
-                            local out = ""
-                            for i = 1, #chars do
-                                local cand = out .. chars[i]
-                                if measureTextWidth(cand .. "…", Config.DropdownCapsuleTextSize) > maxW then
-                                    return out .. "…"
-                                end
-                                out = cand
-                            end
-                            return out .. "…"
-                        end
-                        local function capsuleText()
-                            local maxW = Config.DropdownCapsuleW - Config.DropdownMenuPad * 2 - Config.DropdownArrowSize - 6
-                            if d.Multiple then
-                                local n = #d.Selected
-                                if n == 0 then return Config.DropdownCapsulePlaceholder end
-                                local joined = table.concat(d.Selected, ", ")
-                                if measureTextWidth(joined, Config.DropdownCapsuleTextSize) > maxW then
-                                    return "已选择" .. n .. "个"
-                                end
-                                return joined
-                            end
-                            if not d.Selected then return Config.DropdownCapsulePlaceholder end
-                            return truncateToWidth(d.Selected, maxW)
-                        end
-                        local function refreshCapsule()
-                            if d._label and d._label.Parent then d._label.Text = capsuleText() end
-                        end
-                        local function saveSel()
-                            if d.ConfigKey then win._cfgSave(win, d.ConfigKey, d.Selected) end
-                        end
-                        local function refreshHighlights()
-                            if not d._menuScroll then return end
-                            for _, ob in ipairs(d._menuScroll:GetChildren()) do
-                                if ob:IsA("TextButton") then
-                                    ob.BackgroundColor3 = isSelected(ob:GetAttribute("OptName")) and Config.DropdownOptionSelected or Config.DropdownMenuFill
-                                end
-                            end
-                        end
-                        local function applySelection(name)
-                            if d.Multiple then
-                                local idx = 0
-                                for i, s in ipairs(d.Selected) do if s == name then idx = i break end end
-                                if idx > 0 then table.remove(d.Selected, idx) else d.Selected[#d.Selected + 1] = name end
-                            else
-                                d.Selected = name
-                            end
-                            refreshCapsule()
-                            saveSel()
-                            refreshHighlights()
-                            if type(d.OnChanged) == "function" then
-                                local okC, errC = pcall(d.OnChanged, d.Selected, d)
-                                if not okC then reportError("AddDropdown OnChanged 报错: " .. tostring(errC)) end
-                            end
-                            if not d.Multiple and d._closeMenu then d._closeMenu(true) end
-                        end
-                        local frame = Instance.new("Frame")
-                        frame.Name = "SubDropdown"
-                        frame.BackgroundTransparency = 1
-                        frame.Size = UDim2.new(1, 0, 0, Config.DropdownRowHeight)
-                        frame.LayoutOrder = order
-                        frame.ZIndex = 3
-                        local titleW = measureTextWidth(d.Title or "", Config.DropdownTitleSize) + Config.DropdownTitlePadX
-                        if titleW < Config.DropdownTitleMinW then titleW = Config.DropdownTitleMinW end
-                        local titleLbl = Instance.new("TextLabel")
-                        titleLbl.Name = "DdTitle"
-                        titleLbl.BackgroundTransparency = 1
-                        titleLbl.Size = UDim2.new(0, titleW, 1, 0)
-                        titleLbl.Position = UDim2.new(0, 0, 0, 0)
-                        titleLbl.Text = d.Title or ""
-                        titleLbl.TextColor3 = Config.DropdownTitleColor
-                        titleLbl.TextSize = Config.DropdownTitleSize
-                        titleLbl.Font = Enum.Font.GothamBold
-                        titleLbl.RichText = true
-                        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-                        titleLbl.TextYAlignment = Enum.TextYAlignment.Center
-                        titleLbl.ZIndex = 3
-                        titleLbl.Parent = frame
-                        local capsule = Instance.new("TextButton")
-                        capsule.Name = "DdCapsule"
-                        capsule.AutoButtonColor = false
-                        capsule.AnchorPoint = Vector2.new(1, 0.5)
-                        capsule.Position = UDim2.new(1, 0, 0.5, 0)
-                        capsule.Size = UDim2.new(0, Config.DropdownCapsuleW, 0, Config.DropdownCapsuleH)
-                        capsule.BackgroundTransparency = 1
-                        capsule.Text = ""
-                        capsule.ZIndex = 3
-                        capsule.Parent = frame
-                        local capCorner = Instance.new("UICorner")
-                        capCorner.CornerRadius = UDim.new(0.5, 0)
-                        capCorner.Parent = capsule
-                        local capStroke = Instance.new("UIStroke")
-                        capStroke.Color = Config.DropdownCapsuleStroke
-                        capStroke.Thickness = Config.DropdownCapsuleStrokeThickness
-                        capStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                        capStroke.Parent = capsule
-                        local label = Instance.new("TextLabel")
-                        label.Name = "DdLabel"
-                        label.BackgroundTransparency = 1
-                        label.AnchorPoint = Vector2.new(0, 0.5)
-                        label.Position = UDim2.new(0, Config.DropdownMenuPad + 2, 0.5, 0)
-                        label.Size = UDim2.new(1, -(Config.DropdownMenuPad * 2 + Config.DropdownArrowSize + 6), 1, 0)
-                        label.Font = Enum.Font.Gotham
-                        label.TextColor3 = Config.DropdownCapsuleTextColor
-                        label.TextSize = Config.DropdownCapsuleTextSize
-                        label.TextXAlignment = Enum.TextXAlignment.Left
-                        label.TextYAlignment = Enum.TextYAlignment.Center
-                        label.ZIndex = 4
-                        label.Parent = capsule
-                        local arrow = Instance.new("ImageLabel")
-                        arrow.Name = "DdArrow"
-                        arrow.AnchorPoint = Vector2.new(1, 0.5)
-                        arrow.Position = UDim2.new(1, -Config.DropdownMenuPad - 2, 0.5, 0)
-                        arrow.Size = UDim2.fromOffset(Config.DropdownArrowSize, Config.DropdownArrowSize)
-                        arrow.BackgroundTransparency = 1
-                        arrow.ImageColor3 = Config.DropdownCapsuleStroke
-                        arrow.ScaleType = Enum.ScaleType.Fit
-                        arrow.ZIndex = 4
-                        arrow.Parent = capsule
-                        task.spawn(function()
-                            local lucide = loadLucide()
-                            if lucide then
-                                local okA, asset = pcall(lucide.GetAsset, "chevron-down")
-                                if okA and asset and asset.Url then
-                                    arrow.Image = asset.Url
-                                    if asset.ImageRectOffset then arrow.ImageRectOffset = asset.ImageRectOffset arrow.ImageRectSize = asset.ImageRectSize end
-                                end
-                            end
-                        end)
-
-                        local menuState = nil
-                        local outsideConn = nil
-                        local function openMenu()
-                            if menuState then return end
-                            if openDropdownClose then openDropdownClose() end
-                            local optList = d.Options or {}
-                            local count = #optList
-                            if count == 0 then return end
-                            local as = capsule.AbsoluteSize
-                            local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
-
-                            -- 关键：先在原父级里读出屏幕绝对坐标，再脱离到 ScreenGui。
-                            -- 不要去改 AnchorPoint/Position 做局部坐标换算——AbsolutePosition
-                            -- 已经把整条父链的偏移累加进去了，任何再叠加父级偏移的换算都会双重累加，
-                            -- 导致菜单展开后向右/向下跳一大段距离。
-                            local ap = capsule.AbsolutePosition
-                            local scrH = getViewportHeight()
-                            local edgeGap = Config.DropdownMenuPad + 4
-                            local capTop = ap.Y
-                            local capBottom = ap.Y + as.Y
-                            local belowSpace = scrH - capBottom - edgeGap
-                            local aboveSpace = capTop - edgeGap
-                            local openUp = (contentH > belowSpace) and (aboveSpace > belowSpace)
-                            local minH = Config.DropdownOptionH + Config.DropdownMenuPad * 2
-                            local avail = openUp and aboveSpace or belowSpace
-                            if avail < minH then avail = minH end
-                            local targetH = math.min(contentH, Config.DropdownMenuMaxH, avail)
-                            local needScroll = contentH > targetH
-                            local expandW = math.max(Config.DropdownMenuW, as.X)
-
-                            -- 右边缘与胶囊右边缘对齐
-                            local endX = ap.X + as.X - expandW
-                            local endY = openUp and (ap.Y + as.Y - targetH) or ap.Y
-                            -- 记录原始状态
-                            menuState = {
-                                parent = capsule.Parent,
-                                position = capsule.Position,
-                                size = capsule.Size,
-                                anchor = capsule.AnchorPoint,
-                                zindex = capsule.ZIndex,
-                                clips = capsule.ClipsDescendants,
-                                corner = capCorner.CornerRadius,
-                                bgColor = capsule.BackgroundColor3,
-
-                                baseX = ap.X,
-                                baseY = ap.Y,
-                                baseW = as.X,
-                                baseH = as.Y,
-                            }
-
-                            -- 脱离到 ScreenGui 顶层，避免被控件区的 ClipsDescendants 裁掉（选项不显示）
-                            capsule.ClipsDescendants = true
-                            capsule.ZIndex = Config.DropdownMenuZ
-                            capsule.BackgroundColor3 = Config.DropdownMenuFill
-                            -- AnchorPoint 归零后，直接用屏幕绝对坐标定位（IgnoreGuiInset=true，无 inset 偏移）
-                            capsule.AnchorPoint = Vector2.new(0, 0)
-                            capsule.Position = UDim2.fromOffset(endX, endY)
-                            capsule.Parent = screenGui
-                            capsule.Size = UDim2.fromOffset(expandW, targetH)
-
-                            label.Visible = false
-                            arrow.Visible = false
-
-                            local container
-                            if needScroll then
-                                local sc = Instance.new("ScrollingFrame")
-                                sc.Name = "DdScroll"
-                                sc.BackgroundTransparency = 1
-                                sc.BorderSizePixel = 0
-                                sc.Size = UDim2.new(1, 0, 1, 0)
-                                sc.CanvasSize = UDim2.new(0, 0, 0, contentH)
-                                sc.ScrollingDirection = Enum.ScrollingDirection.Y
-                                sc.ScrollBarThickness = 3
-                                sc.ZIndex = 2
-                                sc.Parent = capsule
-                                container = sc
-                                menuState.container = sc
-                            else
-                                container = capsule
-                            end
-                            local list = Instance.new("UIListLayout")
-                            list.FillDirection = Enum.FillDirection.Vertical
-                            list.SortOrder = Enum.SortOrder.LayoutOrder
-                            list.Padding = UDim.new(0, 0)
-                            list.Parent = container
-                            local pad = Instance.new("UIPadding")
-                            pad.PaddingTop = UDim.new(0, Config.DropdownMenuPad)
-                            pad.PaddingBottom = UDim.new(0, Config.DropdownMenuPad)
-                            pad.PaddingLeft = UDim.new(0, Config.DropdownMenuPad)
-                            pad.PaddingRight = UDim.new(0, Config.DropdownMenuPad)
-                            pad.Parent = container
-                            menuState.list = list
-                            menuState.pad = pad
-                            d._menuScroll = container
-                            for i, opt in ipairs(optList) do
-                                local ob = Instance.new("TextButton")
-                                ob.Name = "DdOption"
-                                ob.Size = UDim2.new(1, 0, 0, Config.DropdownOptionH)
-                                ob.BackgroundColor3 = isSelected(opt) and Config.DropdownOptionSelected or Config.DropdownMenuFill
-                                ob.BackgroundTransparency = 1
-                                ob.TextTransparency = 1
-                                ob.Text = opt
-                                ob.TextColor3 = Config.DropdownOptionTextColor
-                                ob.TextSize = Config.DropdownOptionTextSize
-                                ob.Font = Enum.Font.Gotham
-                                ob.TextXAlignment = Enum.TextXAlignment.Left
-                                ob.AutoButtonColor = false
-                                ob.LayoutOrder = i
-                                ob.ZIndex = 2
-                                ob:SetAttribute("OptName", opt)
-                                ob.Parent = container
-                                local obCorner = Instance.new("UICorner")
-                                obCorner.CornerRadius = UDim.new(0, 5)
-                                obCorner.Parent = ob
-                                ob.MouseButton1Click:Connect(function()
-                                    applySelection(opt)
-                                end)
-                                ob.MouseEnter:Connect(function()
-                                    if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownOptionHover }):Play() end
-                                end)
-                                ob.MouseLeave:Connect(function()
-                                    if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownMenuFill }):Play() end
-                                end)
-                            end
-                            local closed = false
-                            local function restore()
-                                if outsideConn then outsideConn:Disconnect() outsideConn = nil end
-                                if d._menuScroll == container then d._menuScroll = nil end
-                                d._closeMenu = nil
-                                local st = menuState
-                                menuState = nil
-
-                                for _, ob in ipairs(container:GetChildren()) do
-                                    if ob:IsA("TextButton") and ob.Name == "DdOption" then ob:Destroy() end
-                                end
-                                if st.list and st.list.Parent then st.list:Destroy() end
-                                if st.pad and st.pad.Parent then st.pad:Destroy() end
-                                if st.container and st.container.Parent then st.container:Destroy() end
-                                if st.parent and st.parent.Parent then
-                                    capsule.AnchorPoint = st.anchor
-                                    capsule.Position = st.position
-                                    capsule.Size = st.size
-                                    capsule.ZIndex = st.zindex
-                                    capsule.ClipsDescendants = st.clips
-                                    capsule.BackgroundColor3 = st.bgColor
-                                    capsule.Parent = st.parent
-                                    capCorner.CornerRadius = st.corner
-                                    label.Visible = true
-                                    arrow.Visible = true
-                                elseif capsule and capsule.Parent then
-
-                                    capsule:Destroy()
-                                end
-                            end
-                            local function closeMenu(animate)
-                                if closed then return end
-                                closed = true
-                                if openDropdownClose == closeMenu then openDropdownClose = nil end
-                                if not animate then restore() return end
-                                for _, ob in ipairs(container:GetChildren()) do
-                                    if ob:IsA("TextButton") then
-                                        TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
-                                    end
-                                end
-                                TweenService:Create(capsule, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-                                    Position = UDim2.fromOffset(menuState.baseX, menuState.baseY),
-                                    Size = UDim2.new(0, as.X, 0, as.Y),
-                                    BackgroundTransparency = 1,
-                                }):Play()
-                                TweenService:Create(capCorner, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { CornerRadius = menuState.corner }):Play()
-                                task.delay(Config.DropdownCollapseTime + 0.05, restore)
-                            end
-                            d._closeMenu = closeMenu
-                            openDropdownClose = closeMenu
-
-                            TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                                Position = UDim2.fromOffset(endX, endY),
-                                Size = UDim2.new(0, expandW, 0, targetH),
-                            }):Play()
-                            TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.DropdownMenuFillTransparency }):Play()
-                            TweenService:Create(capCorner, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { CornerRadius = UDim.new(0, Config.DropdownMenuCorner) }):Play()
-                            for i, ob in ipairs(container:GetChildren()) do
-                                if ob:IsA("TextButton") then
-                                    task.delay(Config.DropdownRevealTime + (i - 1) * Config.DropdownOptionStagger, function()
-                                        if closed or not ob.Parent then return end
-                                        TweenService:Create(ob, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 0, TextTransparency = 0 }):Play()
-                                    end)
-                                end
-                            end
-
-                            outsideConn = UserInputService.InputBegan:Connect(function(input)
-                                if closed then return end
-                                if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
-                                local p, cp, cs = input.Position, capsule.AbsolutePosition, capsule.AbsoluteSize
-                                if p and p.X >= cp.X and p.X <= cp.X + cs.X and p.Y >= cp.Y and p.Y <= cp.Y + cs.Y then return end
-                                closeMenu(true)
-                            end)
-                        end
-                        capsule.MouseButton1Click:Connect(function()
-                            if menuState then
-                                if d._closeMenu then d._closeMenu(true) end
-                            else
-                                openMenu()
-                            end
-                        end)
-                        d._refreshCapsule = refreshCapsule
-                        refreshCapsule()
-                        d._frame = frame
-                        d._capsule = capsule
-                        d._label = label
-                        d._titleLbl = titleLbl
-                        return frame
-                    end
-                    for _, st in ipairs(tab._subtitles) do
-                        local btns = st._buttons or {}
-                        local tgts = st._toggles or {}
-                        local pgrs = st._paragraphs or {}
-                        local slds = st._sliders or {}
-                        local ddns = st._dropdowns or {}
-                        local lns = st._lines or {}
-                        local paraW = math.max(60, (tabContentContainer and tabContentContainer.AbsoluteSize.X or 0)
-                            - Config.SubTitleBodyPadX * 2 - Config.ParagraphBackPad * 2)
-                        local itemH = {}
-                        for _ in ipairs(btns) do itemH[#itemH + 1] = Config.ButtonHeight end
-                        for _ in ipairs(tgts) do itemH[#itemH + 1] = Config.ButtonHeight end
-                        for _, pg in ipairs(pgrs) do itemH[#itemH + 1] = paragraphHeight(pg, paraW) end
-                        for _ in ipairs(slds) do itemH[#itemH + 1] = Config.SliderRowHeight end
-                        for _ in ipairs(ddns) do itemH[#itemH + 1] = Config.DropdownRowHeight end
-                        for _ in ipairs(lns) do itemH[#itemH + 1] = Config.LineRowHeight end
-                        local ccount = #itemH
-                        local sumH = 0
-                        for _, h in ipairs(itemH) do sumH = sumH + h end
-                        local contentH
-                        if ccount > 0 then
-                            contentH = Config.SubTitleBodyPadY * 2 + sumH + (ccount - 1) * Config.ButtonGap
-                        else
-                            contentH = 0
-                        end
-                        local fullH = headH + divGap + contentH
-                        local minH = headH + divGap
-                        local block = Instance.new("Frame")
-                        block.Name = "SubBlock"
-                        block.BackgroundTransparency = 1
-                        block.Size = UDim2.new(1, 0, 0, st.collapsed and minH or fullH)
-                        block.ClipsDescendants = true
-                        block.ZIndex = 2
-                        block.Parent = tabSubtitleList
-                        local div = Instance.new("Frame")
-                        div.Size = UDim2.new(1, 0, 0, 1)
-                        div.Position = UDim2.new(0, 0, 0, headH)
-                        div.BackgroundColor3 = Config.DividerColor
-                        div.BorderSizePixel = 0
-                        div.ZIndex = 2
-                        div.Parent = block
-                        local body = Instance.new("Frame")
-                        body.Name = "SubBody"
-                        body.Size = UDim2.new(1, 0, 0, contentH)
-                        body.Position = UDim2.new(0, 0, 0, headH + divGap)
-                        body.BackgroundColor3 = Config.SubTitleBodyFill
-                        body.BackgroundTransparency = 1
-                        body.BorderSizePixel = 0
-                        body.ZIndex = 1
-                        body.Parent = block
-                        local bc = Instance.new("UICorner")
-                        bc.CornerRadius = UDim.new(0, 6)
-                        bc.Parent = body
-                        if ccount > 0 then
-                            local bl = Instance.new("UIListLayout")
-                            bl.FillDirection = Enum.FillDirection.Vertical
-                            bl.SortOrder = Enum.SortOrder.LayoutOrder
-                            bl.Padding = UDim.new(0, Config.ButtonGap)
-                            bl.Parent = body
-                            local bp = Instance.new("UIPadding")
-                            bp.PaddingTop = UDim.new(0, Config.SubTitleBodyPadY)
-                            bp.PaddingBottom = UDim.new(0, Config.SubTitleBodyPadY)
-                            bp.PaddingLeft = UDim.new(0, Config.SubTitleBodyPadX)
-                            bp.PaddingRight = UDim.new(0, Config.SubTitleBodyPadX)
-                            bp.Parent = body
-                            for bi, bt in ipairs(btns) do
-                                makeButton(bt, bi).Parent = body
-                            end
-                            for ti, tg in ipairs(tgts) do
-                                makeToggle(tg, #btns + ti).Parent = body
-                            end
-                            for pi, pg in ipairs(pgrs) do
-                                local pIdx = #btns + #tgts + pi
-                                pg._rowH = itemH[pIdx]
-                                pg._paraW = paraW
-                                pg._block = block
-                                pg._body = body
-                                pg._bodyH = contentH
-                                pg._headH = headH
-                                pg._divGap = divGap
-                                pg._collapsed = st.collapsed
-                                makeParagraph(pg, pIdx, itemH[pIdx]).Parent = body
-                            end
-                            for si, sl in ipairs(slds) do
-                                makeSlider(sl, #btns + #tgts + #pgrs + si).Parent = body
-                            end
-                            for di, dd in ipairs(ddns) do
-                                makeDropdown(dd, #btns + #tgts + #pgrs + #slds + di).Parent = body
-                            end
-                            for li, ln in ipairs(lns) do
-                                makeLine(ln, #btns + #tgts + #pgrs + #slds + #ddns + li).Parent = body
-                            end
-                        end
-                        local hasIco = (st.Icon ~= nil and st.Icon ~= "")
-                        local tX = 0
-                        if hasIco then
-                            local hicon = Instance.new("ImageLabel")
-                            hicon.Name = "SubIcon"
-                            hicon.Size = UDim2.fromOffset(Config.SubTitleIconSize, Config.SubTitleIconSize)
-                            hicon.Position = UDim2.new(0, 0, 0, (headH - Config.SubTitleIconSize) / 2)
-                            hicon.BackgroundTransparency = 1
-                            hicon.ImageColor3 = st.IconColor or Config.SubTitleColor
-                            hicon.ScaleType = Enum.ScaleType.Fit
-                            hicon.ZIndex = 3
-                            hicon.Parent = block
-                            tX = Config.SubTitleIconSize + 8
-                            task.spawn(function()
-                                local lucide = loadLucide()
-                                if lucide then
-                                    local okI, asset = pcall(lucide.GetAsset, st.Icon)
-                                    if okI and asset and asset.Url then
-                                        hicon.Image = asset.Url
-                                        if asset.ImageRectOffset then hicon.ImageRectOffset = asset.ImageRectOffset hicon.ImageRectSize = asset.ImageRectSize end
-                                    end
-                                end
-                            end)
-                        end
-                        local htext = Instance.new("TextLabel")
-                        htext.Name = "SubText"
-                        htext.Size = UDim2.new(1, -(tX + Config.SubTitleArrowSize + 10), 0, headH)
-                        htext.Position = UDim2.new(0, tX, 0, 0)
-                        htext.BackgroundTransparency = 1
-                        htext.Text = st.Title
-                        htext.TextColor3 = Config.SubTitleColor
-                        htext.TextSize = Config.SubTitleTextSize
-                        htext.Font = Enum.Font.GothamBold
-                        htext.TextXAlignment = Enum.TextXAlignment.Left
-                        htext.TextYAlignment = Enum.TextYAlignment.Center
-                        htext.ZIndex = 3
-                        htext.Parent = block
-                        local arrow = Instance.new("ImageLabel")
-                        arrow.Name = "SubArrow"
-                        arrow.Size = UDim2.fromOffset(Config.SubTitleArrowSize, Config.SubTitleArrowSize)
-                        arrow.AnchorPoint = Vector2.new(1, 0.5)
-                        arrow.Position = UDim2.new(1, 0, 0, headH / 2)
-                        arrow.BackgroundTransparency = 1
-                        arrow.ImageColor3 = Config.SubTitleColor
-                        arrow.ScaleType = Enum.ScaleType.Fit
-                        arrow.Rotation = st.collapsed and Config.SubTitleArrowRotate or 0
-                        arrow.ZIndex = 3
-                        arrow.Parent = block
-                        task.spawn(function()
-                            local lucide = loadLucide()
-                            if lucide then
-                                local okA, asset = pcall(lucide.GetAsset, "chevron-down")
-                                if okA and asset and asset.Url then
-                                    arrow.Image = asset.Url
-                                    if asset.ImageRectOffset then arrow.ImageRectOffset = asset.ImageRectOffset arrow.ImageRectSize = asset.ImageRectSize end
-                                end
-                            end
-                        end)
-                        local hit = Instance.new("TextButton")
-                        hit.Size = UDim2.new(1, 0, 0, headH)
-                        hit.Position = UDim2.new(0, 0, 0, 0)
-                        hit.BackgroundTransparency = 1
-                        hit.Text = ""
-                        hit.AutoButtonColor = false
-                        hit.ZIndex = 4
-                        hit.Parent = block
-                        hit.MouseButton1Click:Connect(function()
-                            st.collapsed = not st.collapsed
-                            TweenService:Create(block, TweenInfo.new(Config.SubTitleCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                                Size = UDim2.new(1, 0, 0, st.collapsed and minH or fullH),
-                            }):Play()
-                            TweenService:Create(arrow, TweenInfo.new(Config.SubTitleCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                                Rotation = st.collapsed and Config.SubTitleArrowRotate or 0,
-                            }):Play()
-                        end)
-                    end
-                end
-                local function animateContentIn()
-                    if not tabContentContainer or not tabContentBase then return end
-                    local sc = tabContentContainer:FindFirstChild("TabScroll")
-                    if sc then sc.CanvasPosition = Vector2.new(0, 0) end
-                    tabContentContainer.GroupTransparency = 1
-                    tabContentContainer.Position = UDim2.new(tabContentBase.X.Scale, tabContentBase.X.Offset + 18, tabContentBase.Y.Scale, tabContentBase.Y.Offset)
-                    TweenService:Create(tabContentContainer, TweenInfo.new(Config.PageAnimTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                        GroupTransparency = 0,
-                        Position = tabContentBase,
-                    }):Play()
-                end
-                local function updateContentArea()
-                    local hasSel = (win._activeTab ~= 0)
-                    local tab = hasSel and win._tabs[win._activeTab] or nil
-                    local hasSub = (tab and tab._subtitles and #tab._subtitles > 0)
-                    if tabContentEmpty then tabContentEmpty.Visible = (not hasSel) end
-                    if tabContentNoCtrl then tabContentNoCtrl.Visible = (hasSel and not hasSub) end
-                    renderSubtitles(hasSub and tab or nil)
-                end
-                local function updateTabsHighlight()
-                    if not tabListContainer then return end
-                    for _, row in ipairs(tabListContainer:GetChildren()) do
-                        if row:IsA("TextButton") then
-                            local idx = row.LayoutOrder
-                            local active = (win._activeTab == idx)
-                            local nl = row:FindFirstChild("TabName")
-                            local ic2 = row:FindFirstChild("TabIcon")
-                            local sel = row:FindFirstChild("TabSel")
-                            if nl then TweenService:Create(nl, TweenInfo.new(0.15), { TextColor3 = active and Config.TabActiveColor or Config.TabInactiveColor }):Play() end
-                            if ic2 then
-                                local td = win._tabs[idx]
-                                local base = (td and td.IconColor) or Config.TabInactiveColor
-                                TweenService:Create(ic2, TweenInfo.new(0.15), { ImageColor3 = active and Config.TabActiveColor or base }):Play()
-                            end
-                            -- 选中指示器：每个 TabRow 自带一个 TabSel（Position 恒为 0,0，
-                            -- 因为它相对所在行定位），所以这里只做淡入淡出，
-                            -- 绝不能补间 Position —— 否则会向下偏移一个行高，看起来跑到下一个选项卡上。
-                            if sel then
-                                if active then
-                                    local first = not sel.Visible
-                                    if first then
-                                        sel.Position = UDim2.new(0, 0, 0, 0)
-                                        sel.BackgroundTransparency = 1
-                                    end
-                                    sel.Visible = true
-                                    sel.ZIndex = 2
-                                    TweenService:Create(sel, TweenInfo.new(
-                                        Config.TabSelFadeTime,
-                                        Enum.EasingStyle.Sine, Enum.EasingDirection.Out
-                                    ), {
-                                        BackgroundTransparency = Config.TabSelFillTransparency,
-                                    }):Play()
-                                else
-                                    if sel.Visible then
-                                        -- 先淡出，播完再隐藏，避免残留一帧；
-                                        -- 期间若被重新选中，Visible 会被置回 true，回调需再确认一次
-                                        local tw = TweenService:Create(sel, TweenInfo.new(
-                                            Config.TabSelFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
-                                        ), {
-                                            BackgroundTransparency = 1,
-                                        })
-                                        tw:Play()
-                                        tw.Completed:Connect(function(state)
-                                            if state == Enum.PlaybackState.Completed
-                                                and sel.Parent
-                                                and win._activeTab ~= idx then
-                                                sel.Visible = false
-                                            end
-                                        end)
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-
-                local playToggleStateAnimation = nil
-
-                local function collapsePanel(skipToggleAnim)
-                    if not expanded then return end
-                    titleGen = titleGen + 1
-                    cancelTitleTweens()
-                    if actionEnd then actionEnd() end
-                    local ll = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
-                    if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
-                    local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-                    local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                    local collapseFinished = false
-                    animateEdge(Config.IslandSize, Config.IslandPosition, Config.PanelExpandTime, Config.PanelBounce, function()
-                        edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                        edge.Position = UDim2.new(0.5, cx, 0, cy)
-                        winOpen = false
-                        collapseFinished = true
-                    end)
-                    TweenService:Create(islandTextContainer, TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                        Position = UDim2.new(Config.IslandPosition.X.Scale, cx, Config.IslandPosition.Y.Scale, cy),
-                    }):Play()
-                    for _, cf in ipairs(islandTextContainer:GetChildren()) do local lb = cf:FindFirstChildOfClass("TextLabel") if lb then lb.TextTransparency = 0 end end
-                    if closeBtn then closeBtn:Destroy() closeBtn = nil end
-                    if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
-                    if titleIcon then titleIcon:Destroy() titleIcon = nil end
-                    if infoLabel then infoLabel:Destroy() infoLabel = nil end
-                    clearBrand()
-                    destroyTabUI()
-                    win._rebuildTabs = nil
-                    expanded = false
-
-                    setIslandText(islandTextOverride or title, Config.TitleColor)
-                    interacting = false
-
-                    if skipToggleAnim then
-                        lastToggleInfo = nil
-                    elseif playToggleStateAnimation then
-                        -- 等收起动画播完再播开关状态动画，避免两者重叠打架
-                        task.spawn(function()
-                            local waited = 0
-                            while not collapseFinished and alive and waited < 2 do
-                                task.wait(0.02)
-                                waited = waited + 0.02
-                            end
-                            if not alive or shutdown then lastToggleInfo = nil return end
-                            playToggleStateAnimation()
-                        end)
-                    end
-                end
-
-                local lastPanelLayout = nil
-
-                local function buildTabUI(layout)
-        local titlePad = layout.titlePad
-                                local blockH = layout.blockH
-                                local m = layout.m
-                                local top = layout.top
-                                local sh = layout.sh
-                                destroyTabUI()
-                                local divY = titlePad + blockH + Config.HeaderDividerGap
-                                local div = Instance.new("Frame")
-                                div.Name = "HeaderDivider"
-                                div.Size = UDim2.new(1, -(titlePad * 2), 0, 1)
-                                div.Position = UDim2.new(0, titlePad, 0, divY)
-                                div.BackgroundColor3 = Config.DividerColor
-                                div.BorderSizePixel = 0
-                                div.ZIndex = 2
-                                div.Parent = contentRoot
-                                headerDivider = div
-                                local listTop = divY + Config.HeaderDividerGap
-                                local listW = Config.TabWidth
-                                if #win._tabs > 0 then
-                                    local listFrame = Instance.new("Frame")
-                                    listFrame.Name = "TabList"
-                                    listFrame.BackgroundTransparency = 1
-                                    listFrame.Position = UDim2.new(0, titlePad, 0, listTop)
-                                    listFrame.Size = UDim2.new(0, listW, 1, -(listTop + m))
-                                    listFrame.ZIndex = 2
-                                    listFrame.Parent = contentRoot
-                                    tabListContainer = listFrame
-                                    local sep = Instance.new("Frame")
-                                    sep.Name = "TabSeparator"
-                                    sep.Size = UDim2.new(0, 1, 1, -(listTop + m))
-                                    sep.Position = UDim2.new(0, titlePad + listW + Config.TabAreaGap / 2, 0, listTop)
-                                    sep.BackgroundColor3 = Config.DividerColor
-                                    sep.BorderSizePixel = 0
-                                    sep.ZIndex = 2
-                                    sep.Parent = contentRoot
-                                    tabSeparator = sep
-                                    local contentX = titlePad + listW + Config.TabAreaGap
-                                    local contentFrame = Instance.new("CanvasGroup")
-                                    contentFrame.Name = "TabContent"
-                                    contentFrame.BackgroundTransparency = 1
-                                    contentFrame.Position = UDim2.new(0, contentX, 0, listTop)
-
-                                    contentFrame.Size = UDim2.new(1, -(contentX + titlePad), 1, -listTop)
-                                    contentFrame.ClipsDescendants = true
-                                    contentFrame.ZIndex = 2
-                                    contentFrame.Parent = contentRoot
-                                    tabContentContainer = contentFrame
-                                    tabContentBase = contentFrame.Position
-                                    local function makeStateGroup(iconName, text)
-                                        local g = Instance.new("Frame")
-                                        g.Name = "StateGroup"
-                                        g.BackgroundTransparency = 1
-                                        g.AnchorPoint = Vector2.new(0.5, 0.5)
-                                        g.Position = UDim2.new(0.5, 0, 0.5, 0)
-                                        g.Size = UDim2.fromOffset(220, 130)
-                                        g.ZIndex = 3
-                                        g.Parent = contentFrame
-                                        local ic = Instance.new("ImageLabel")
-                                        ic.Name = "StateIcon"
-                                        ic.Size = UDim2.fromOffset(Config.ContentEmptyIconSize, Config.ContentEmptyIconSize)
-                                        ic.AnchorPoint = Vector2.new(0.5, 0)
-                                        ic.Position = UDim2.new(0.5, 0, 0, 0)
-                                        ic.BackgroundTransparency = 1
-                                        ic.ImageColor3 = Config.TabInactiveColor
-                                        ic.ScaleType = Enum.ScaleType.Fit
-                                        ic.ZIndex = 3
-                                        ic.Parent = g
-                                        local tx = Instance.new("TextLabel")
-                                        tx.Name = "StateText"
-                                        tx.AnchorPoint = Vector2.new(0.5, 0)
-                                        tx.Position = UDim2.new(0.5, 0, 0, Config.ContentEmptyIconSize + 14)
-                                        tx.Size = UDim2.new(1, 0, 0, 24)
-                                        tx.BackgroundTransparency = 1
-                                        tx.Text = text
-                                        tx.TextColor3 = Config.TabInactiveColor
-                                        tx.TextSize = Config.TabTextSize
-                                        tx.Font = Enum.Font.Gotham
-                                        tx.TextXAlignment = Enum.TextXAlignment.Center
-                                        tx.TextYAlignment = Enum.TextYAlignment.Center
-                                        tx.ZIndex = 3
-                                        tx.Parent = g
-                                        task.spawn(function()
-                                            local lucide = loadLucide()
-                                            if lucide then
-                                                local okE, asset = pcall(lucide.GetAsset, iconName)
-                                                if okE and asset and asset.Url then
-                                                    ic.Image = asset.Url
-                                                    if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
-                                                end
-                                            end
-                                        end)
-                                        return g
-                                    end
-                                    tabContentEmpty = makeStateGroup(Config.ContentEmptyIcon, Config.ContentEmptyText)
-                                    tabContentNoCtrl = makeStateGroup(Config.ContentNoCtrlIcon, Config.ContentNoCtrlText)
-                                    local scroll = Instance.new("ScrollingFrame")
-                                    scroll.Name = "TabScroll"
-                                    scroll.BackgroundTransparency = 1
-                                    scroll.BorderSizePixel = 0
-                                    scroll.Size = UDim2.new(1, 0, 1, 0)
-                                    scroll.Position = UDim2.new(0, 0, 0, 0)
-                                    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-                                    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-                                    scroll.ScrollingDirection = Enum.ScrollingDirection.Y
-                                    scroll.ScrollingEnabled = true
-                                    scroll.ScrollBarThickness = Config.ContentScrollBarThickness
-                                    scroll.ScrollBarImageTransparency = Config.ContentScrollBarTransparency
-                                    scroll.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
-                                    scroll.ClipsDescendants = true
-                                    scroll.ZIndex = 2
-                                    scroll.Parent = contentFrame
-                                    local subList = Instance.new("Frame")
-                                    subList.Name = "TabSubtitleList"
-                                    subList.BackgroundTransparency = 1
-                                    subList.Size = UDim2.new(1, 0, 0, 0)
-                                    subList.AutomaticSize = Enum.AutomaticSize.Y
-                                    subList.ZIndex = 2
-                                    subList.Parent = scroll
-                                    local subListLayout = Instance.new("UIListLayout")
-                                    subListLayout.FillDirection = Enum.FillDirection.Vertical
-                                    subListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-                                    subListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-                                    subListLayout.Padding = UDim.new(0, Config.SubTitleBlockGap)
-                                    subListLayout.Parent = subList
-                                    local subListPad = Instance.new("UIPadding")
-                                    subListPad.PaddingRight = UDim.new(0, Config.ContentScrollBarThickness + 2)
-                                    subListPad.Parent = subList
-                                    tabSubtitleList = subList
-                                    for i, tab in ipairs(win._tabs) do
-                                        local row = Instance.new("TextButton")
-                                        row.Name = "TabRow"
-                                        row.Size = UDim2.new(1, 0, 0, Config.TabRowHeight)
-                                        row.Position = UDim2.new(0, 0, 0, (i - 1) * (Config.TabRowHeight + Config.TabRowGap))
-                                        row.BackgroundTransparency = 1
-                                        row.Text = ""
-                                        row.AutoButtonColor = false
-                                        row.LayoutOrder = i
-                                        row.ZIndex = 3
-                                        row.Parent = listFrame
-                                        local sel = Instance.new("Frame")
-                                        sel.Name = "TabSel"
-                                        sel.Size = UDim2.new(1, 0, 1, 0)
-                                        sel.Position = UDim2.new(0, 0, 0, 0)
-                                        sel.BackgroundColor3 = Config.TabSelFill
-                                        sel.BackgroundTransparency = Config.TabSelFillTransparency
-                                        sel.BorderSizePixel = 0
-                                        sel.Visible = false
-                                        sel.ZIndex = 2
-                                        sel.Parent = row
-                                        local selCorner = Instance.new("UICorner")
-                                        selCorner.CornerRadius = Config.TabSelCorner
-                                        selCorner.Parent = sel
-                                        local selStroke = Instance.new("UIStroke")
-                                        selStroke.Color = Config.TabSelStroke
-                                        selStroke.Thickness = Config.TabSelStrokeThickness
-                                        selStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                                        selStroke.Parent = sel
-                                        local selGrad = Instance.new("UIGradient")
-                                        selGrad.Rotation = 135
-                                        selGrad.Color = ColorSequence.new({
-                                            ColorSequenceKeypoint.new(0, Color3.fromRGB(104, 106, 118)),
-                                            ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 28, 34)),
-                                        })
-                                        selGrad.Parent = sel
-                                        local hasIcon = (tab.Icon ~= nil and tab.Icon ~= "")
-                                        local ticon = nil
-                                        if hasIcon then
-                                            ticon = Instance.new("ImageLabel")
-                                            ticon.Name = "TabIcon"
-                                            ticon.Size = UDim2.fromOffset(Config.TabIconSize, Config.TabIconSize)
-                                            ticon.Position = UDim2.new(0, Config.TabRowPadX, 0.5, 0)
-                                            ticon.AnchorPoint = Vector2.new(0, 0.5)
-                                            ticon.BackgroundTransparency = 1
-                                            ticon.ImageColor3 = tab.IconColor or Config.TabInactiveColor
-                                            ticon.ImageTransparency = 1
-                                            ticon.ZIndex = 3
-                                            ticon.Parent = row
-                                        end
-                                        local tname = Instance.new("TextLabel")
-                                        tname.Name = "TabName"
-                                        tname.BackgroundTransparency = 1
-                                        tname.Text = tab.Title
-                                        tname.TextColor3 = Config.TabInactiveColor
-                                        tname.TextSize = Config.TabTextSize
-                                        tname.Font = Enum.Font.Gotham
-                                        tname.TextYAlignment = Enum.TextYAlignment.Center
-                                        tname.TextTransparency = 1
-                                        tname.ZIndex = 3
-                                        if hasIcon then
-                                            tname.Size = UDim2.new(1, -(Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap), 1, 0)
-                                            tname.Position = UDim2.new(0, Config.TabRowPadX + Config.TabIconSize + Config.TabTextGap, 0, 0)
-                                            tname.TextXAlignment = Enum.TextXAlignment.Left
-                                        else
-                                            tname.Size = UDim2.new(1, -(Config.TabRowPadX * 2), 1, 0)
-                                            tname.Position = UDim2.new(0, Config.TabRowPadX, 0, 0)
-                                            tname.TextXAlignment = Enum.TextXAlignment.Left
-                                        end
-                                        tname.Parent = row
-                                        task.delay(Config.PanelExpandTime + (i - 1) * Config.TabStagger, function()
-                                            if not expanded then return end
-                                            if ticon and ticon.Parent then TweenService:Create(ticon, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play() end
-                                            if tname and tname.Parent then TweenService:Create(tname, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
-                                        end)
-                                        row.MouseButton1Click:Connect(function()
-                                            if shutdown then return end
-                                            win._activeTab = i
-                                            updateTabsHighlight()
-                                            updateContentArea()
-                                            animateContentIn()
-                                        end)
-                                        if hasIcon then
-                                            task.spawn(function()
-                                                local lucide = loadLucide()
-                                                if lucide then
-                                                    local okA, asset = pcall(lucide.GetAsset, tab.Icon)
-                                                    if okA and asset and asset.Url then
-                                                        ticon.Image = asset.Url
-                                                        if asset.ImageRectOffset then ticon.ImageRectOffset = asset.ImageRectOffset ticon.ImageRectSize = asset.ImageRectSize end
-                                                    end
-                                                end
-                                            end)
-                                        end
-                                    end
-                                    updateTabsHighlight()
-                                    updateContentArea()
-                                else
-                                    local msg = "还没有任何选项卡"
-                                    local parts = {}
-                                    for _, cp in utf8.codes(msg) do parts[#parts + 1] = utf8.char(cp) end
-                                    local lbl = Instance.new("TextLabel")
-                                    lbl.Name = "TabEmpty"
-                                    lbl.BackgroundTransparency = 1
-                                    lbl.AnchorPoint = Vector2.new(0.5, 0.5)
-                                    lbl.Size = UDim2.fromOffset(listW, 0)
-                                    lbl.AutomaticSize = Enum.AutomaticSize.Y
-                                    lbl.Position = UDim2.new(0, titlePad + listW / 2, 0, (listTop + (sh - top - m)) / 2)
-                                    lbl.Text = table.concat(parts, "\n")
-                                    lbl.TextColor3 = Config.TabInactiveColor
-                                    lbl.TextSize = Config.TabTextSize
-                                    lbl.Font = Enum.Font.Gotham
-                                    lbl.TextXAlignment = Enum.TextXAlignment.Center
-                                    lbl.TextYAlignment = Enum.TextYAlignment.Center
-                                    lbl.ZIndex = 2
-                                    lbl.Parent = contentRoot
-                                    tabEmptyLabel = lbl
-                                end
-                end
-
-                local function buildCloseButton(onHoldConfirm)
-                            local btn = Instance.new("ImageButton")
-                            btn.Name = "PanelClose"
-                            btn.Size = UDim2.new(0, 20, 0, 20)
-                            btn.Position = UDim2.new(1, -26, 0, 6)
-                            btn.BackgroundTransparency = 1
-                            btn.ScaleType = Enum.ScaleType.Fit
-                            btn.ImageColor3 = Color3.new(1, 1, 1)
-                            btn.Parent = contentRoot
-                            local closeHold = nil
-                            -- 按下时刻的按钮有效性令牌：collapsePanel 会让本按钮立即失效，
-                            -- 防止「快速点击后立刻按住」在旧按钮上重启closeHold 计时器，
-                            -- 导致收起动画与二次确认动画同时播放。
-                            local pressGen = 0
-                            btn.InputBegan:Connect(function(bi)
-                                if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
-                                    if shutdown then return end
-                                    -- 面板已收起 / 二次确认中 / 按钮已被移除时，忽略本次按下
-                                    if not expanded or closeDialog or btn.Parent == nil then return end
-                                    pressGen = pressGen + 1
-                                    local myGen = pressGen
-                                    TweenService:Create(btn, TweenInfo.new(Config.CloseHoldTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Config.RedXColor }):Play()
-                                    if closeHold then safeCancel(closeHold) end
-                                    closeHold = task.delay(Config.CloseHoldTime, function()
-                                        closeHold = nil
-                                        -- 计时期间若发生过收起/二次确认，则本次长按作废
-                                        if myGen ~= pressGen then return end
-                                        if not expanded or closeDialog then return end
-                                        if onHoldConfirm then onHoldConfirm() end
-                                    end)
-                                end
-                            end)
-                            btn.InputEnded:Connect(function(bi)
-                                if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
-                                    TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageColor3 = Color3.new(1, 1, 1) }):Play()
-                                    if closeHold then
-                                        safeCancel(closeHold)
-                                        closeHold = nil
-                                        -- 已进入收起/二次确认流程时不再重复触发
-                                        if expanded and not closeDialog then
-                                            pressGen = pressGen + 1
-                                            collapsePanel()
-                                        end
-                                    end
-                                end
-                            end)
-                            task.spawn(function()
-                                local lucide = loadLucide()
-                                if lucide then
-                                    local ok, icon = pcall(lucide.GetAsset, "circle-x")
-                                    if ok and icon and icon.Url then
-                                        btn.Image = icon.Url
-                                        if icon.ImageRectOffset then btn.ImageRectOffset = icon.ImageRectOffset btn.ImageRectSize = icon.ImageRectSize end
-                                    end
-                                end
-                            end)
-                            closeBtn = btn
-                end
-
-local function buildHeaderDecor()
-  if not lastPanelLayout then return end
-                    if titleIcon then titleIcon:Destroy() end
-                    local iconS = Config.TitleIconSize
-                    local iconGap = Config.TitleIconGap
-                    local titleH = (islandTextContainer and islandTextContainer.Parent) and islandTextContainer.AbsoluteSize.Y or Config.TitleIconSize
-                    local infoH = Config.InfoBoxHeight
-                    local vGap = Config.InfoTopGap
-                    local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
-                    local top = lastPanelLayout.top
-                    local titlePad = lastPanelLayout.titlePad
-                    local m = lastPanelLayout.m
-                    local blockTop = top + titlePad
-                    local blockCY = blockTop + blockH / 2
-                    local iconLeft = m + titlePad + Config.TitleIconNudgeX
-                    local contentLeftX = iconLeft + iconS + iconGap
-                    local infoTop = blockTop + titleH + vGap - Config.InfoRise
-                    if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
-                    local ic = Instance.new("ImageLabel")
-                    ic.Name = "TitleIcon"
-                    ic.Size = UDim2.fromOffset(iconS, iconS)
-                    ic.AnchorPoint = Vector2.new(0.5, 0.5)
-                    ic.BackgroundTransparency = 1
-                    ic.ImageTransparency = 1
-                    ic.ImageColor3 = iconColor
-                    ic.ScaleType = Enum.ScaleType.Fit
-                    ic.Position = UDim2.new(0, iconLeft + iconS / 2, 0, blockCY)
-                    ic.Parent = screenGui
-                    titleIcon = ic
-                    if iconFromURL then
-                        ic.ScaleType = Enum.ScaleType.Crop
-                        if not iconColorSet then ic.ImageColor3 = Color3.new(1, 1, 1) end
-                    end
-                    task.spawn(function()
-                        -- 图标来源优先级：IconFromURL > Icon。
-                        -- 有 URL 时先显示持续旋转的 loader，下载完成后做交接动画；
-                        -- 下载失败则回退到 carton（不再回退到 Icon，符合“失败即 carton”）。
-                        local handoff = Config.TitleIconHandoffTime
-
-                        local function setFinal(img, rectOff, rectSize, tintWithIconColor)
-                            if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
-                            if not (ic and ic.Parent) then return end
-                            -- 交接：先把旋转归零再淡入真实图标，避免残留旋转角度
-                            ic.Rotation = 0
-                            ic.Image = img
-                            if rectOff then ic.ImageRectOffset = rectOff ic.ImageRectSize = rectSize end
-                            -- Lucide 系图标（Icon / carton 兜底）走 iconColor 染色，
-                            -- 避免继承 IconFromURL 分支为真实图片设置的纯白
-                            if tintWithIconColor then ic.ImageColor3 = iconColor end
-                            TweenService:Create(ic, TweenInfo.new(handoff, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                ImageTransparency = 0,
-                            }):Play()
-                        end
-                        -- 真实图标需等面板展开完成再交接，避免下载快时图标先于面板出现
-                        local function setFinalAfterExpand(img, rectOff, rectSize, tintWithIconColor)
-                            task.delay(Config.PanelExpandTime, function()
-                                setFinal(img, rectOff, rectSize, tintWithIconColor)
-                            end)
-                        end
-
-                        if iconFromURL then
-                            -- loader：立即可见并持续旋转，下载期间作为占位
-                            if not (ic and ic.Parent) then return end
-                            local loaderAsset = getLucideIcon(Config.TitleLoaderIcon)
-                            if loaderAsset then
-                                ic.Image = loaderAsset.Url
-                                if loaderAsset.ImageRectOffset then
-                                    ic.ImageRectOffset = loaderAsset.ImageRectOffset
-                                    ic.ImageRectSize = loaderAsset.ImageRectSize
-                                end
-                            end
-                            ic.ImageTransparency = 0
-                            -- 持续旋转：用 RepeatCount=-1 循环补间驱动，无需轮询；
-                            -- 补间持有引用，图标销毁时由外层 nil 判断收尾
-                            if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) end
-                            loaderSpinTween = TweenService:Create(ic, TweenInfo.new(
-                                Config.TitleLoaderSpinTime, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut,
-                                -1, false
-                            ), { Rotation = 360 })
-                            loaderSpinTween:Play()
-
-                            local assetId = loadIconFromURL(iconFromURL)
-                            if not (ic and ic.Parent) then return end
-                            if assetId then
-                                -- 成功：先淡出 loader，再淡入真实图标
-                                ic.Rotation = 0
-                                TweenService:Create(ic, TweenInfo.new(handoff * 0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                    ImageTransparency = 1,
-                                }):Play()
-                                task.delay(handoff * 0.5, function() setFinalAfterExpand(assetId) end)
-                            else
-                                -- 失败：回退 carton
-                                local failAsset = getLucideIcon(Config.TitleIconFailIcon)
-                                if failAsset then
-                                    ic.Rotation = 0
-                                    TweenService:Create(ic, TweenInfo.new(handoff * 0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                        ImageTransparency = 1,
-                                    }):Play()
-                                    task.delay(handoff * 0.5, function()
-                                        setFinalAfterExpand(failAsset.Url, failAsset.ImageRectOffset, failAsset.ImageRectSize, true)
-                                    end)
-                                else
-                                    ic.Rotation = 0
-                                    ic.ImageColor3 = iconColor
-                                    ic.ImageTransparency = 0
-                                end
-                            end
-                            return
-                        end
-
-                        -- 无 URL：直接用 Icon（Lucide）
-                        local asset = getLucideIcon(iconName)
-                        if asset then
-                            setFinalAfterExpand(asset.Url, asset.ImageRectOffset, asset.ImageRectSize, true)
-                        else
-                            ic.ImageTransparency = 0
-                        end
-                    end)
-                    if info ~= "" then
-                        if infoLabel then infoLabel:Destroy() end
-                        local il = Instance.new("TextLabel")
-                        il.Name = "InfoLabel"
-                        il.Size = UDim2.new(1, -(contentLeftX + titlePad), 0, infoH)
-                        il.AutomaticSize = Enum.AutomaticSize.Y
-                        il.AnchorPoint = Vector2.new(0, 0)
-                        il.BackgroundTransparency = 1
-                        il.BorderSizePixel = 0
-                        il.Text = info
-                        il.TextColor3 = Config.InfoColor
-                        il.TextTransparency = 1
-                        il.TextSize = Config.InfoTextSize
-                        il.Font = Enum.Font.Gotham
-                        il.TextWrapped = true
-                        il.TextXAlignment = Enum.TextXAlignment.Left
-                        il.TextYAlignment = Enum.TextYAlignment.Top
-                        il.Position = UDim2.new(0, contentLeftX + 40, 0, infoTop)
-                        il.Parent = screenGui
-                        infoLabel = il
-                    end
-                end
-
-                local iconTextBusy = false
-                local function playIconTextAnimation(text, iconName, iconColor)
-                    if not alive or not ready or shutdown then return end
-                    if iconTextBusy then return end
-                    if not text or #text == 0 then return end
-                    if iconName ~= nil and type(iconName) ~= "string" then return end
-                    iconTextBusy = true
-                    local wasExpanded = expanded
-
-                    if hintActive then clearHint(true) end
-                    if actionBusy and actionEnd then actionEnd(true) end
-
-                    if toggleAnimBusy then
-                        if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
-                        toggleAnimContainer = nil
-                        toggleAnimBusy = false
-                    end
-
-                    local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-                    local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-
-                    if wasExpanded then
-                        collapsePanel(true)
-                        task.wait(Config.PanelExpandTime * 0.5)
-                        -- 等待期间窗口可能被关闭/销毁，必须重新确认状态，
-                        -- 否则会继续往下建胖岛并留下状态污染
-                        if not alive or shutdown then
-                            iconTextBusy = false
-                            return
-                        end
-                    end
-                    expanded = false
-                    winOpen = false
-                    interacting = false
-
-                    local iconSize = Config.IconTextIconSize
-                    local textSize = Config.IconTextTextSize
-                    local tw = measureTextWidth(text, textSize)
-                    local iconW = iconName and iconSize or 0
-                    local contentW = iconW + (iconW > 0 and Config.IconTextGap or 0) + tw
-                    local targetW = math.max(Config.IconTextMinW, contentW + Config.IconTextPadX * 2)
-
-                    local hc = Instance.new("Frame")
-                    hc.Name = "IslandIconTextContainer"
-                    hc.Size = UDim2.new(1, 0, 1, 0)
-                    hc.BackgroundTransparency = 1
-                    hc.BorderSizePixel = 0
-                    hc.ClipsDescendants = true
-                    hc.ZIndex = 56
-                    hc.Parent = edge
-                    local hl = Instance.new("UIListLayout")
-                    hl.FillDirection = Enum.FillDirection.Horizontal
-                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                    hl.VerticalAlignment = Enum.VerticalAlignment.Center
-                    hl.SortOrder = Enum.SortOrder.LayoutOrder
-                    hl.Padding = UDim.new(0, iconW > 0 and Config.IconTextGap or 0)
-                    hl.Parent = hc
-
-                    if islandTextContainer and islandTextContainer.Parent then
-                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                            local lb = cf:FindFirstChildOfClass("TextLabel")
-                            if lb then TweenService:Create(lb, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
-                        end
-                    end
-                    local iconLbl = nil
-                    if iconName and iconName ~= "" then
-                        iconLbl = Instance.new("ImageLabel")
-                        iconLbl.Name = "IconTextIcon"
-                        iconLbl.BackgroundTransparency = 1
-                        iconLbl.Size = UDim2.fromOffset(iconSize, iconSize)
-                        iconLbl.ImageColor3 = iconColor or Config.SubTitleColor
-                        iconLbl.ImageTransparency = 1
-                        iconLbl.ScaleType = Enum.ScaleType.Fit
-                        iconLbl.LayoutOrder = 1
-                        iconLbl.ZIndex = 57
-                        iconLbl.Parent = hc
-                        task.spawn(function()
-                            local lucide = loadLucide()
-                            if not lucide then return end
-                            local okA, asset = pcall(lucide.GetAsset, iconName)
-                            if okA and asset and asset.Url then
-                                if not iconLbl or not iconLbl.Parent then return end
-                                iconLbl.Image = asset.Url
-                                if asset.ImageRectOffset then iconLbl.ImageRectOffset = asset.ImageRectOffset iconLbl.ImageRectSize = asset.ImageRectSize end
-                                TweenService:Create(iconLbl, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
-                            end
-                        end)
-                    end
-                    local txtLbl = Instance.new("TextLabel")
-                    txtLbl.Name = "IconTextLabel"
-                    txtLbl.BackgroundTransparency = 1
-                    txtLbl.Size = UDim2.fromOffset(tw, Config.IslandSize.Y.Offset)
-                    txtLbl.Text = text
-                    txtLbl.TextColor3 = Config.TitleColor
-                    txtLbl.TextTransparency = 1
-                    txtLbl.TextSize = textSize
-                    txtLbl.Font = Enum.Font.GothamBold
-                    txtLbl.RichText = true
-                    txtLbl.LayoutOrder = 2
-                    txtLbl.ZIndex = 57
-                    txtLbl.Parent = hc
-                    task.delay(0.12, function()
-                        if txtLbl and txtLbl.Parent then
-                            TweenService:Create(txtLbl, TweenInfo.new(0.26, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
-                        end
-                    end)
-
-                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                    edge.Position = islandRest
-                    animateEdge(
-                        UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
-                        UDim2.new(0.5, cx, 0, cy + (wasExpanded and 0 or 6)),
-                        Config.IconTextGrowTime,
-                        0
-                    )
-
-                    task.delay(Config.IconTextHoldTime, function()
-                        -- 无论后续走哪条分支，都必须先解除 busy 与销毁胖岛容器，
-                        -- 否则一次异常会让 iconTextBusy 永久为 true，后续调用全被静默吞掉
-                        iconTextBusy = false
-                        if not alive or shutdown then
-                            if hc and hc.Parent then hc:Destroy() end
-                            return
-                        end
-                        if hc and hc.Parent then hc:Destroy() end
-
-                        animateEdge(Config.IslandSize, islandRest, Config.IconTextRestoreTime, 0)
-
-                        setIslandText(islandTextOverride or title, Config.TitleColor)
-                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                            local lb = cf:FindFirstChildOfClass("TextLabel")
-                            if lb then TweenService:Create(lb, TweenInfo.new(Config.IconTextRestoreTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
-                        end
-
-                        if wasExpanded then
-                            task.delay(Config.IconTextGrowTime, function()
-                                -- 关键：此处不可因 expanded 已为 true 就 return。
-                                -- collapsePanel 已经跑完（面板已收起、Title/Info/TabList 已销毁），
-                                -- 若此处提前退出，面板就永远停在「收起且无内容」的状态。
-                                -- 正确做法是让本次恢复流程自行完成重建（下面会强制接管）。
-                                if not alive or shutdown then return end
-                                if expanded then
-                                    -- 用户在等待期间已手动展开：放弃本次恢复，
-                                    -- 但仍需把面板内容重建回来，避免用户看到空面板。
-                                    if lastPanelLayout then
-                                        buildTabUI(lastPanelLayout)
-                                        buildCloseButton(function() showCloseConfirm() end)
-                                        buildHeaderDecor()
-                                    end
-                                    return
-                                end
-                                expanded = true
-                                titleGen = titleGen + 1
-                                local myGen = titleGen
-                                islandScale.Scale = 1
-                                if islandTextContainer and islandTextContainer.Parent then
-                                    -- 面板态显示原始标题（收起态的 override 文字不该出现在面板里）
-                                    setIslandText(islandTextOverride or title, Config.TitleColor)
-                                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                        local lb = cf:FindFirstChildOfClass("TextLabel")
-                                        if lb then lb.TextTransparency = 1 end
-                                    end
-                                end
-                                edge.AnchorPoint = Vector2.new(0, 0)
-                                edge.Position = Config.IslandPosition
-                                local sw = screenGui.AbsoluteSize.X
-                                local sh = screenGui.AbsoluteSize.Y
-                                local m = Config.PanelMargin
-                                local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
-                                animateEdge(
-                                    UDim2.new(0, sw - m * 2, 0, sh - top - m),
-                                    UDim2.new(0, m, 0, top),
-                                    Config.PanelExpandTime
-                                )
-                                playBorderSweep()
-                                if lastPanelLayout then
-                                    buildTabUI(lastPanelLayout)
-                                    buildCloseButton(function() showCloseConfirm() end)
-                                    buildHeaderDecor()
-                                end
-                                task.delay(Config.PanelExpandTime, function() winOpen = true end)
-                                local rcList = islandTextContainer:FindFirstChildOfClass("UIListLayout")
-                                if rcList then rcList.HorizontalAlignment = Enum.HorizontalAlignment.Left end
-                                task.delay(Config.FadeInTime, function()
-                                    if not expanded or myGen ~= titleGen then return end
-                                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                        local lb = cf:FindFirstChildOfClass("TextLabel")
-                                        if lb then TweenService:Create(lb, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
-                                    end
-                                end)
-                            end)
-                        end
-                    end)
-                end
-
-                iconTextPlayer = playIconTextAnimation
-
-                local function buildCharLabel(ch, color, size)
-                    local frame = Instance.new("Frame")
-                    frame.Size = UDim2.new(0, 0, 1, 0)
-                    frame.AutomaticSize = Enum.AutomaticSize.X
-                    frame.BackgroundTransparency = 1
-                    frame.BorderSizePixel = 0
-                    local lb = Instance.new("TextLabel")
-                    lb.Size = UDim2.new(1, 0, 1, 0)
-                    lb.BackgroundTransparency = 1
-                    lb.Text = ch
-                    lb.TextColor3 = color
-                    lb.TextTransparency = 1
-                    lb.TextSize = size
-                    lb.Font = charFont(ch)
-                    lb.TextXAlignment = Enum.TextXAlignment.Center
-                    lb.TextYAlignment = Enum.TextYAlignment.Center
-                    lb.Parent = frame
-                    return frame, lb
-                end
-
-                playToggleStateAnimation = function()
-                    if not alive or not ready or shutdown then lastToggleInfo = nil return end
-                    if toggleAnimBusy or iconTextBusy or hintActive then lastToggleInfo = nil return end
-                    local info = lastToggleInfo
-                    if not info then return end
-                    -- 一次性消费：播完即清空，避免后续收起反复重播上次的开关状态动画
-                    lastToggleInfo = nil
-                    local on = info.Value == true
-                    local stateColor = on and Config.ToggleIslandOnColor or Config.ToggleIslandOffColor
-                    local stateText = on and "已开启" or "已关闭"
-                    local titleText = info.Title or "Toggle"
-
-                    -- 在图标 / 功能Title / 状态 三组之间插入等宽留白，
-                    -- 用空帧而非 ListLayout.Padding（否则会把「已开启」内部字符也撑开）
-                    -- 注意：parent 必须作为参数传入，本函数定义早于 local hc 声明，
-                    -- 直接用闭包 hc 会捕获到外层错误的 hc（Lua 词法作用域规定）
-                    local function addToggleSpacer(parent, order, w)
-                        local sp = Instance.new("Frame")
-                        sp.Name = "ToggleStateSpacer"
-                        sp.BackgroundTransparency = 1
-                        sp.BorderSizePixel = 0
-                        sp.Size = UDim2.new(0, w, 1, 0)
-                        sp.LayoutOrder = order
-                        sp.ZIndex = 56
-                        sp.Parent = parent
-                    end
-
-                    toggleAnimBusy = true
-
-                    if actionBusy and actionEnd then actionEnd(true) end
-
-                    local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-                    local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-
-                    local iconSize = Config.ToggleIslandIconSize
-                    local textSize = Config.ToggleIslandTextSize
-                    local iconW = (info.Icon and info.Icon ~= "") and iconSize or 0
-                    local gap = Config.ToggleIslandGap
-                    local titleW = measureTextWidth(titleText, textSize)
-                    local stateW = measureTextWidth(stateText, textSize)
-                    local inner = iconW + (iconW > 0 and gap or 0) + titleW + gap + stateW
-                    local targetW = math.max(Config.ToggleIslandMinW, inner + Config.ToggleIslandPadX * 2)
-
-                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                    edge.Position = islandRest
-                    animateEdge(
-                        UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
-                        UDim2.new(0.5, cx, 0, cy),
-                        Config.ToggleIslandGrowTime,
-                        0
-                    )
-
-                    if islandTextContainer and islandTextContainer.Parent then
-                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                            local lb = cf:FindFirstChildOfClass("TextLabel")
-                            if lb then TweenService:Create(lb, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
-                        end
-                    end
-
-                    local hc = Instance.new("Frame")
-                    hc.Name = "IslandToggleContainer"
-                    hc.Size = UDim2.new(1, 0, 1, 0)
-                    hc.BackgroundTransparency = 1
-                    hc.BorderSizePixel = 0
-                    hc.ClipsDescendants = true
-                    hc.ZIndex = 56
-                    hc.Parent = edge
-                    toggleAnimContainer = hc
-                    local hl = Instance.new("UIListLayout")
-                    hl.FillDirection = Enum.FillDirection.Horizontal
-                    -- 左右对称内边距 + 居中对齐：
-                    -- 内容宽度等于 inner，而灵动岛宽度 targetW = max(MinW, inner + PadX*2)，
-                    -- 用对称 padding + Center 可保证内容在两种情况下都真正居中
-                    -- （原实现是 Left 对齐 + 仅左 padding，内容窄于灵动岛时会全部贴死左侧）
-                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                    hl.VerticalAlignment = Enum.VerticalAlignment.Center
-                    hl.SortOrder = Enum.SortOrder.LayoutOrder
-                    -- 字符之间不加间距，「已开启」与名称之间也不分隔
-                    hl.Padding = UDim.new(0, 0)
-                    hl.Parent = hc
-
-                    -- 左右对称内边距：与 targetW 的 inner + PadX*2 计算一致，保证内容居中
-                    local bothPad = Instance.new("UIPadding")
-                    bothPad.PaddingLeft = UDim.new(0, Config.ToggleIslandPadX)
-                    bothPad.PaddingRight = UDim.new(0, Config.ToggleIslandPadX)
-                    bothPad.Parent = hc
-
-                    local step = Config.ToggleIslandStepTime
-                    local revealT = Config.ToggleIslandRevealTime
-                    local fadeT = Config.ToggleIslandFadeTime
-
-                    local revealList, fadeList = {}, {}
-
-                    if iconW > 0 then
-                        local iconImg, iconRectOff, iconRectSize = nil, nil, nil
-                        if iconW > 0 then
-                            task.spawn(function()
-                                local lucide = loadLucide()
-                                if not lucide then return end
-                                local okA, asset = pcall(lucide.GetAsset, info.Icon)
-                                if okA and asset and asset.Url then
-                                    iconImg = asset.Url
-                                    iconRectOff = asset.ImageRectOffset
-                                    iconRectSize = asset.ImageRectSize
-                                end
-                            end)
-                        end
-
-                        local ic = Instance.new("ImageLabel")
-                        ic.Name = "ToggleStateIcon"
-                        ic.BackgroundTransparency = 1
-                        ic.Size = UDim2.fromOffset(iconSize, iconSize)
-                        ic.ImageColor3 = stateColor
-                        ic.ImageTransparency = 1
-                        ic.ScaleType = Enum.ScaleType.Fit
-                        ic.LayoutOrder = 1
-                        ic.ZIndex = 57
-                        ic.Parent = hc
-                        if iconImg then
-                            ic.Image = iconImg
-                            if iconRectOff then ic.ImageRectOffset = iconRectOff ic.ImageRectSize = iconRectSize end
-                        end
-
-                        -- 图标资源就绪后才淡入，避免出现空白图标
-                        table.insert(revealList, { obj = ic, dist = 0, waitImg = true })
-                        table.insert(fadeList, { obj = ic, dist = 0 })
-
-                        -- 图标与功能Title 之间按句留出间距
-                        addToggleSpacer(hc, 1.5, gap)
-                    end
-
-                    do
-                        local titleItems = {}
-                        for _, item in ipairs(parseColoredChars(titleText, Config.TitleColor)) do
-                            if item.ch ~= " " then titleItems[#titleItems + 1] = item end
-                        end
-                        local n = #titleItems
-                        for i, item in ipairs(titleItems) do
-                            local frame, lb = buildCharLabel(item.ch, Config.TitleColor, textSize)
-                            frame.LayoutOrder = 2
-                            frame.ZIndex = 57
-                            frame.Parent = hc
-                            local dist = math.abs(i - (n + 1) / 2)
-                            table.insert(revealList, { obj = lb, dist = dist })
-                            table.insert(fadeList, { obj = lb, dist = dist })
-                        end
-
-                        -- 功能Title 与 状态 之间按句留出间距
-                        addToggleSpacer(hc, 2.5, gap)
-                    end
-
-                    do
-                        local stateItems = {}
-                        for _, item in ipairs(parseColoredChars(stateText, stateColor)) do
-                            if item.ch ~= " " then stateItems[#stateItems + 1] = item end
-                        end
-                        local n = #stateItems
-                        for i, item in ipairs(stateItems) do
-                            local frame, lb = buildCharLabel(item.ch, stateColor, textSize)
-                            frame.LayoutOrder = 3
-                            frame.ZIndex = 57
-                            frame.Parent = hc
-                            local dist = math.abs(i - (n + 1) / 2)
-                            table.insert(revealList, { obj = lb, dist = dist })
-                            table.insert(fadeList, { obj = lb, dist = dist })
-                        end
-                    end
-
-                    for _, e in ipairs(revealList) do
-                        local isText = e.obj:IsA("TextLabel")
-                        local md = math.max(e.dist, 0.001)
-                        task.delay(md * step, function()
-                            if not e.obj or not e.obj.Parent then return end
-                            if e.waitImg then
-                                -- 等图标资源就绪再淡入，最多等 0.8 秒
-                                local waited = 0
-                                while e.obj.Parent and e.obj.Image == "" and waited < 0.8 do
-                                    task.wait(0.05)
-                                    waited = waited + 0.05
-                                end
-                                if not e.obj or not e.obj.Parent then return end
-                                if e.obj.Image == "" then return end
-                            end
-                            if isText then
-                                TweenService:Create(e.obj, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
-                            else
-                                TweenService:Create(e.obj, TweenInfo.new(0.26, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
-                            end
-                        end)
-                    end
-
-                    task.delay(Config.ToggleIslandHoldTime, function()
-                        if not alive then return end
-                        -- 恢复阶段比展示阶段更紧凑：逐字间隔按系数缩放，
-                        -- 否则「字符数 × StepTime」会让长标题迟迟等不到原文字回来
-                        local rStep = step * (Config.ToggleIslandRestoreStepScale or 1)
-                        if hc and hc.Parent then
-                            -- 淡出与标题渐显同用缩放后的间隔，保持与 totalFade 的等待一致
-                            for _, e in ipairs(fadeList) do
-                                if not e.obj or not e.obj.Parent then return end
-                                local isText = e.obj:IsA("TextLabel")
-                                local md = math.max(e.dist, 0.001)
-                                task.delay(md * rStep, function()
-                                    if not e.obj or not e.obj.Parent then return end
-                                    if isText then
-                                        TweenService:Create(e.obj, TweenInfo.new(fadeT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
-                                    else
-                                        TweenService:Create(e.obj, TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
-                                    end
-                                end)
-                            end
-                        end
-
-                        animateEdge(Config.IslandSize, islandRest, Config.ToggleIslandRestoreTime, 0)
-
-                        local totalFade = #fadeList * rStep + fadeT + 0.1
-                        task.delay(totalFade, function()
-                            if not alive then return end
-                            if hc and hc.Parent then hc:Destroy() end
-
-                            setIslandText(islandTextOverride or title, Config.TitleColor)
-                            if islandTextContainer and islandTextContainer.Parent then
-                                -- 标题渐显：先全透明，再由中心向两侧逐字浮现
-                                local restoreChars = {}
-                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then
-                                        lb.TextTransparency = 1
-                                        restoreChars[#restoreChars + 1] = lb
-                                    end
-                                end
-                                local rc = #restoreChars
-                                for i, lb in ipairs(restoreChars) do
-                                    local dist = math.abs(i - (rc + 1) / 2)
-                                    task.delay(dist * rStep, function()
-                                        if not lb or not lb.Parent then return end
-                                        TweenService:Create(lb, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
-                                    end)
-                                end
-                                -- 标题渐显完成后再释放忙碌锁，避免下一次交互被吞
-                                task.delay(rc * rStep + revealT, function()
-                                    if toggleAnimBusy and toggleAnimContainer == hc then
-                                        toggleAnimBusy = false
-                                        toggleAnimContainer = nil
-                                    end
-                                end)
-                            else
-                                if toggleAnimBusy and toggleAnimContainer == hc then
-                                    toggleAnimBusy = false
-                                    toggleAnimContainer = nil
-                                end
-                            end
-                        end)
-                    end)
-                end
-
-                edge.InputBegan:Connect(function(input)
-                    if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
-                    if not ready then return end
-                    if interacting then return end
-                    if expanded then return end
-                    interacting = true
-                    holding = true
-                    dragStartX = input.Position.X
-
-                    if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
-                    dragBaseSize = hintActive and edge.Size or Config.IslandSize
-                    dragging = false
-                    TweenService:Create(islandScale, TweenInfo.new(Config.TapExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = Config.IslandTapScale }):Play()
-                    longPress = task.delay(Config.LongPressThreshold, function()
-                            if holding then
-
-if hintActive then clearHint(true) end
-
-                        -- 关键：长按展开前把edge 归位到标准收起态。
-                        -- 若此刻还有 hint / 拖拽复位补间在跑，它们会与展开用的 Heartbeat 动画
-                        -- 逐帧争抢 Size/Position，表现为展开动画概率性偏移。
-                        -- 这里先掐掉全部补间并强制写入确定的起点值。
-                        cancelEdgeTweens()
-                        resetIslandDrag()
-                        if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
-                        edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                        edge.Position = islandRest
-                        edge.Size = Config.IslandSize
-
-                        if toggleAnimBusy then
-                                    if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
-                                    toggleAnimContainer = nil
-                                    toggleAnimBusy = false
-                                end
-                                expanded = true
-                                titleGen = titleGen + 1
-                                local myTitleGen = titleGen
-                                islandScale.Scale = 1
-
-                            if islandTextContainer and islandTextContainer.Parent then
-                                setIslandText(title, Config.TitleColor)
-                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then lb.TextTransparency = 1 end
-                                end
-                            end
-                            edge.AnchorPoint = Vector2.new(0, 0)
-                            edge.Position = Config.IslandPosition
-                            local sw = screenGui.AbsoluteSize.X
-                            local sh = screenGui.AbsoluteSize.Y
-                            local m = Config.PanelMargin
-                            local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
-                            animateEdge(
-                                UDim2.new(0, sw - m * 2, 0, sh - top - m),
-                                UDim2.new(0, m, 0, top),
-                                Config.PanelExpandTime
-                            )
-                            playBorderSweep()
-                            task.delay(Config.PanelExpandTime, function() winOpen = true end)
-                            local titlePad = Config.HeaderPad
-                            local iconS = Config.TitleIconSize
-                            local iconGap = Config.TitleIconGap
-                            local titleH = islandTextContainer.AbsoluteSize.Y
-                            local infoH = Config.InfoBoxHeight
-                            local vGap = Config.InfoTopGap
-                            local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
-                            local blockTop = top + titlePad
-                            local blockCY = blockTop + blockH / 2
-                            local iconLeft = m + titlePad + Config.TitleIconNudgeX
-                            local contentLeftX = iconLeft + iconS + iconGap
-                            local titleTargetY = blockTop + titleH / 2 + Config.TitleDrop
-                            local infoTop = blockTop + titleH + vGap - Config.InfoRise
-                            local listLayout = islandTextContainer:FindFirstChildOfClass("UIListLayout")
-                            win._titleLeftX = contentLeftX
-                            win._titleY = titleTargetY
-                            local function fadeTitleLabels(t)
-                                cancelTitleTweens()
-                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then
-                                        local tw = TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = t })
-                                        table.insert(titleTweens, tw)
-                                        tw:Play()
-                                    end
-                                end
-                            end
-                            fadeTitleLabels(1)
-                            task.delay(Config.FadeInTime, function()
-                                if not expanded or myTitleGen ~= titleGen then return end
-                                if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
-
-                                local tipX = contentLeftX + islandTextContainer.AbsoluteSize.X / 2
-                                local slide = 40
-                                islandTextContainer.Position = UDim2.new(0, tipX + slide, 0, titleTargetY)
-                                TweenService:Create(islandTextContainer, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                    Position = UDim2.new(0, tipX, 0, titleTargetY),
-                                }):Play()
-                                fadeTitleLabels(0)
-                                task.delay(Config.InfoEnterDelay, function()
-                                    if not expanded or myTitleGen ~= titleGen then return end
-                                    if infoLabel and infoLabel.Parent then
-                                        TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                            Position = UDim2.new(0, contentLeftX, 0, infoTop),
-                                            TextTransparency = 0,
-                                        }):Play()
-                                    end
-                                end)
-                            end)
-                            lastPanelLayout = { titlePad = titlePad, blockH = blockH, m = m, top = top, sh = sh }
-                            win._rebuildTabs = function() buildTabUI(lastPanelLayout) end
-                            buildHeaderDecor()
-                            buildTabUI(lastPanelLayout)
-                            buildCloseButton(function() showCloseConfirm() end)
-
-                            local function setHeaderVisible(vis)
-                                local t = vis and 0 or 1
-                                if islandTextContainer and islandTextContainer.Parent then
-                                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                        local lb = cf:FindFirstChildOfClass("TextLabel")
-                                        if lb then TweenService:Create(lb, TweenInfo.new(0.22), { TextTransparency = t }):Play() end
-                                    end
-                                end
-                                if titleIcon then TweenService:Create(titleIcon, TweenInfo.new(0.22), { ImageTransparency = t }):Play() end
-                                if infoLabel then TweenService:Create(infoLabel, TweenInfo.new(0.22), { TextTransparency = t }):Play() end
-                                if closeBtn then TweenService:Create(closeBtn, TweenInfo.new(0.22), { ImageTransparency = t }):Play() closeBtn.Active = vis end
-                            end
-                            local function makePill(label, color)
-                                local b = Instance.new("TextButton")
-                                b.Size = UDim2.new(0, Config.CloseDialogBtnW, 0, Config.CloseDialogBtnH)
-                                b.BackgroundColor3 = color
-                                b.Text = label
-                                b.TextColor3 = Color3.new(1, 1, 1)
-                                b.TextSize = 16
-                                b.Font = Enum.Font.GothamBold
-                                b.AutoButtonColor = false
-                                b.ZIndex = 72
-                                local c = Instance.new("UICorner")
-                                c.CornerRadius = UDim.new(0.5, 0)
-                                c.Parent = b
-                                return b
-                            end
-                            local function runCloseSequence()
-                                shutdown = true
-                                if closeBtn then closeBtn:Destroy() closeBtn = nil end
-                                if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
-                    if titleIcon then titleIcon:Destroy() titleIcon = nil end
-                                if infoLabel then infoLabel:Destroy() infoLabel = nil end
-                                clearBrand()
-                                destroyTabUI()
-                                local cx2 = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-                                local cy2 = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-
-                                if islandTextContainer and islandTextContainer.Parent then
-                                    TweenService:Create(islandTextContainer, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                                        Position = UDim2.new(Config.IslandPosition.X.Scale, cx2, Config.IslandPosition.Y.Scale, cy2),
-                                    }):Play()
-                                end
-
-                                animateEdge(Config.IslandSize, Config.IslandPosition, 0.45, 0, function()
-                                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                                    edge.Position = UDim2.new(0.5, cx2, 0, cy2)
-                                    local list = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
-                                    if list then list.HorizontalAlignment = Enum.HorizontalAlignment.Center end
-                                    if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
-                                    islandTextContainer = createIslandText(Config.IslandText, Config.TitleColor, true)
-                                    TweenService:Create(stroke, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
-                                    silverStroke.Color = Config.RedXColor
-                                    TweenService:Create(silverStroke, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
-                                    if fillFrame and fillFrame.Parent then
-                                        TweenService:Create(fillFrame, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
-                                    end
-                                    task.delay(0.75, function()
-                                        explode()
-                                        if islandTextContainer and islandTextContainer.Parent then
-                                            for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                                local lb = cf:FindFirstChildOfClass("TextLabel")
-                                                if lb then TweenService:Create(lb, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
-                                            end
-                                        end
-                                        TweenService:Create(silverStroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
-                                        TweenService:Create(stroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
-                                        if fillFrame and fillFrame.Parent then
-                                            TweenService:Create(fillFrame, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
-                                        end
-                                        task.delay(1.0, function()
-                                            alive = false
-                                            unregisterLoadedWindow(title, win)
-                                            if screenGui and screenGui.Parent then screenGui:Destroy() end
-                                        end)
-                                    end)
-                                end)
-                            end
-showCloseConfirm = function()
-        if closeDialog or shutdown then return end
-                                setHeaderVisible(false)
-                                destroyTabUI()
-                                local dlg = Instance.new("Frame")
-                                dlg.Name = "CloseDialog"
-                                dlg.BackgroundColor3 = Config.CloseDialogFill
-                                dlg.BackgroundTransparency = Config.CloseDialogFillTransparency
-                                dlg.BorderSizePixel = 0
-                                dlg.Size = UDim2.new(1, 0, 1, 0)
-                                dlg.ZIndex = 70
-                                dlg.ClipsDescendants = true
-                                dlg.Parent = contentRoot
-                                local dc = Instance.new("UICorner")
-                                dc.CornerRadius = Config.CloseDialogCorner
-                                dc.Parent = dlg
-                                local txt = Instance.new("TextLabel")
-                                txt.BackgroundTransparency = 1
-                                txt.AnchorPoint = Vector2.new(0.5, 0)
-                                txt.Position = UDim2.new(0.5, 0, 0, Config.CloseDialogPad)
-                                txt.Size = UDim2.new(1, -Config.CloseDialogPad * 2, 0, 0)
-                                txt.AutomaticSize = Enum.AutomaticSize.Y
-                                txt.Text = "你要关闭 " .. (tostring(title):gsub("<[^>]*>", "")) .. " 吗？\n这将会关闭所有功能"
-                                txt.TextColor3 = Config.CloseDialogTextColor
-                                txt.TextSize = Config.CloseDialogTextSize
-                                txt.Font = Enum.Font.Gotham
-                                txt.TextWrapped = true
-                                txt.ZIndex = 71
-                                txt.Parent = dlg
-                                local bars = Instance.new("Frame")
-                                bars.BackgroundTransparency = 1
-                                bars.AnchorPoint = Vector2.new(0.5, 1)
-                                bars.Position = UDim2.new(0.5, 0, 1, -Config.CloseDialogPad)
-                                bars.Size = UDim2.new(1, -Config.CloseDialogPad * 2, 0, Config.CloseDialogBtnH)
-                                bars.ZIndex = 71
-                                bars.Parent = dlg
-                                local bl = Instance.new("UIListLayout")
-                                bl.FillDirection = Enum.FillDirection.Horizontal
-                                bl.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                                bl.VerticalAlignment = Enum.VerticalAlignment.Center
-                                bl.SortOrder = Enum.SortOrder.LayoutOrder
-                                bl.Padding = UDim.new(0, Config.CloseDialogBtnGap)
-                                bl.Parent = bars
-                                local cancelB = makePill("取消", Config.CloseCancelColor)
-                                cancelB.LayoutOrder = 1
-                                cancelB.Parent = bars
-                                cancelB.MouseButton1Click:Connect(function()
-                                    if closeDialog ~= dlg then return end
-                                    closeDialog = nil
-                                    dlg:Destroy()
-                                    setHeaderVisible(true)
-                                    buildTabUI(lastPanelLayout)
-                                    animateEdge(UDim2.new(0, sw - m * 2, 0, sh - top - m), UDim2.new(0, m, 0, top), Config.PanelExpandTime)
-                                end)
-                                local okBtn = makePill("确认", Config.CloseConfirmColor)
-                                okBtn.LayoutOrder = 2
-                                okBtn.Parent = bars
-                                okBtn.MouseButton1Click:Connect(function()
-                                    if closeDialog ~= dlg then return end
-                                    closeDialog = nil
-                                    dlg:Destroy()
-                                    runCloseSequence()
-                                end)
-                                closeDialog = dlg
-                                animateEdge(UDim2.new(0, Config.CloseDialogW, 0, Config.CloseDialogH), UDim2.new(0, (sw - Config.CloseDialogW) / 2, 0, (sh - Config.CloseDialogH) / 2), 0.35)
-                            end
-                        end
-                    end)
-                end)
-
-    -- 动画互斥：记录本次展开/收起动画的结束时刻，
-    -- 该时刻之前拒绝新的调用，避免两套动画同时改写 edge 的 Size/Position
-    --（会表现为面板偏移或内容错位）
-    local windowActionUntil = 0
-
-    --- 以编程方式展开面板（等价于长按灵动岛），带完整展开动画
-    local function doExpandPanel()
-        if not alive or shutdown or not ready then return false end
-        if expanded then return false end
-        if hintActive then clearHint(true) end
-        if actionBusy and actionEnd then actionEnd(true) end
-        if toggleAnimBusy then
-            if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
-            toggleAnimContainer = nil
-            toggleAnimBusy = false
-        end
-        -- 先把 edge 归位到标准收起态，避免与残留补间争抢
-        cancelEdgeTweens()
-        resetIslandDrag()
-        edge.AnchorPoint = Vector2.new(0.5, 0.5)
-        edge.Position = islandRest
-        edge.Size = Config.IslandSize
-
-        expanded = true
-        titleGen = titleGen + 1
-        local myTitleGen = titleGen
-        islandScale.Scale = 1
-
-        if islandTextContainer and islandTextContainer.Parent then
-            setIslandText(title, Config.TitleColor)
-            for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                local lb = cf:FindFirstChildOfClass("TextLabel")
-                if lb then lb.TextTransparency = 1 end
-            end
-        end
-        edge.AnchorPoint = Vector2.new(0, 0)
-        edge.Position = Config.IslandPosition
-        local sw = screenGui.AbsoluteSize.X
-        local sh = screenGui.AbsoluteSize.Y
-        local m = Config.PanelMargin
-        local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
-        animateEdge(
-            UDim2.new(0, sw - m * 2, 0, sh - top - m),
-            UDim2.new(0, m, 0, top),
-            Config.PanelExpandTime
-        )
-        playBorderSweep()
-        task.delay(Config.PanelExpandTime, function() winOpen = true end)
-
-        -- 头部布局与长按展开保持一致
-        local titlePad = Config.HeaderPad
-        local iconS = Config.TitleIconSize
-        local iconGap = Config.TitleIconGap
-        local titleH = islandTextContainer and islandTextContainer.Parent
-            and islandTextContainer.AbsoluteSize.Y or Config.TitleIconSize
-        local infoH = Config.InfoBoxHeight
-        local vGap = Config.InfoTopGap
-        local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
-        local blockTop = top + titlePad
-        local iconLeft = m + titlePad + Config.TitleIconNudgeX
-        local contentLeftX = iconLeft + iconS + iconGap
-        local titleTargetY = blockTop + titleH / 2 + Config.TitleDrop
-        local infoTop = blockTop + titleH + vGap - Config.InfoRise
-        local listLayout = islandTextContainer
-            and islandTextContainer:FindFirstChildOfClass("UIListLayout")
-        win._titleLeftX = contentLeftX
-        win._titleY = titleTargetY
-
-        local function fadeTitleLabels(t)
-            cancelTitleTweens()
-            for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                local lb = cf:FindFirstChildOfClass("TextLabel")
-                if lb then
-                    local tw = TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = t })
-                    table.insert(titleTweens, tw)
-                    tw:Play()
-                end
-            end
-        end
-        fadeTitleLabels(1)
-        task.delay(Config.FadeInTime, function()
-            if not expanded or myTitleGen ~= titleGen then return end
-            if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
-            local tipX = contentLeftX + islandTextContainer.AbsoluteSize.X / 2
-            islandTextContainer.Position = UDim2.new(0, tipX + 40, 0, titleTargetY)
-            TweenService:Create(islandTextContainer, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                Position = UDim2.new(0, tipX, 0, titleTargetY),
-            }):Play()
-            fadeTitleLabels(0)
-            task.delay(Config.InfoEnterDelay, function()
-                if not expanded or myTitleGen ~= titleGen then return end
-                if infoLabel and infoLabel.Parent then
-                    TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                        Position = UDim2.new(0, contentLeftX, 0, infoTop),
-                        TextTransparency = 0,
-                    }):Play()
-                end
-            end)
-        end)
-
-        lastPanelLayout = { titlePad = titlePad, blockH = blockH, m = m, top = top, sh = sh }
-        win._rebuildTabs = function() buildTabUI(lastPanelLayout) end
-        buildHeaderDecor()
-        buildTabUI(lastPanelLayout)
-        buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
-        return true
-    end
-
-    --- 以编程方式收起面板（等价于点收起按钮），带收起动画
-    local function doCollapsePanel()
-        if not alive or shutdown then return false end
- if not expanded then return false end
-        collapsePanel()
-        return true
-    end
-
-    -- SetWindowAction(true) 展开面板，SetWindowAction(false) 收起面板。
-    -- 动画进行中调用会被拒绝（返回 false），避免两套动画互相打架。
-    win.SetWindowAction = function(self, open)
-        if self ~= nil and type(self) == "table" and self ~= win and self.SetWindowAction == nil then
-            open = self
-        end
-        if type(open) ~= "boolean" then
-            reportError("SetWindowAction 参数必须是 boolean（true 展开 / false 收起），已忽略")
-            return false
-        end
-        if not alive or shutdown then return false end
-        if not ready then return false end
-        if windowActionUntil > 0 and os.clock() < windowActionUntil then
-            reportError("SetWindowAction 忽略：面板动画进行中，请稍后再试")
-            return false
-        end
-        local ok
-        if open then
-            ok = doExpandPanel()
-        else
-            ok = doCollapsePanel()
-        end
-        if not ok then return false end
-        -- 锁到本次动画彻底结束（展开含标题/Info 错峰入场）
-        local dur = open
-            and (Config.PanelExpandTime + Config.FadeInTime + Config.InfoEnterDelay + 0.1)
-            or (Config.PanelExpandTime + 0.1)
-        windowActionUntil = os.clock() + dur
-        return true
-    end
-                edge.InputEnded:Connect(function(input)
-                    if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
-                    if not interacting then return end
-                    holding = false
-                    local wasDragging = dragging
-                    if longPress then safeCancel(longPress) longPress = nil end
-                    resetIslandDrag()
-                    if expanded then
-                        interacting = false
-                    else
-                        TweenService:Create(islandScale, TweenInfo.new(Config.TapShrinkTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-                        if hintActive then
-                            clearHint()
-                        elseif not wasDragging then
-
-                            registerIslandTap()
-                        end
-                        interacting = false
-                    end
-                end)
+                if runIslandEntrySetup then runIslandEntrySetup() end
             end)
         end)
     end)
