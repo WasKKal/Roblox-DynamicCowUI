@@ -88,6 +88,15 @@ local Config = {
     HintHoldTime = 1.5,
     HintRevealStep = 0.04,
     HintRevealTime = 0.3,
+    -- ChangeIconText：大图标 + 文字的胖岛展示
+    IconTextHoldTime = 2,-- 持续时长（秒）
+    IconTextIconSize = 26,                -- 左侧大图标尺寸
+    IconTextTextSize = 17,                -- 右侧文字尺寸
+    IconTextGap = 12,                     -- 图标与文字间距
+    IconTextPadX = 22,                    -- 左右内边距
+    IconTextMinW = 220,                   -- 胖岛最小宽度
+    IconTextGrowTime = 0.35,              -- 展开/复原时长
+    IconTextRestoreTime = 0.35,           -- 复原后回归Title 的淡入时长
     LongPressThreshold = 0.5,
     IslandDragThreshold = 8,
     IslandDragDamp = 0.55,
@@ -1001,6 +1010,8 @@ function Library.CreateWindow(opts)
     local shutdown = false
     local ready = false
     local actionEnd = nil
+    -- ChangeIconText 的动画播放器，在补间/长按闭包内定义，此处桥接给 win.DynamicIslandAction
+    local iconTextPlayer = nil
     -- actionBusy 需在使用处（playHintAnimation，位于 runIslandAction 之前）之前声明，
     -- 否则该闭包读取的是全局同名变量（恒为 nil），提示动画无法打断进行中的通知。
     local actionBusy = false
@@ -1029,7 +1040,11 @@ function Library.CreateWindow(opts)
         brandLbl = nil
     end
 
+    -- 记录当前生效的 animateEdge 连接：新动画启动时先断开旧的，
+    -- 否则上一段逐帧补间会在其时长内持续覆写 edge.Size/Position，把新动画"压回去"
+    local edgeAnimConn = nil
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
+        if edgeAnimConn then pcall(function() edgeAnimConn:Disconnect() end) edgeAnimConn = nil end
         local s0 = edge.Size
         local p0 = edge.Position
         local c1 = over or Config.PanelBounce
@@ -1045,11 +1060,13 @@ function Library.CreateWindow(opts)
             edge.Position = UDim2.new(L(p0.X.Scale, targetPos.X.Scale), L(p0.X.Offset, targetPos.X.Offset), L(p0.Y.Scale, targetPos.Y.Scale), L(p0.Y.Offset, targetPos.Y.Offset))
             if t >= 1 then
                 if conn then conn:Disconnect() end
+                if edgeAnimConn == conn then edgeAnimConn = nil end
                 edge.Size = targetSize
                 edge.Position = targetPos
                 if onDone then onDone() end
             end
         end)
+        edgeAnimConn = conn
     end
 
     local function playBorderSweep()
@@ -2713,6 +2730,175 @@ function Library.CreateWindow(opts)
                     interacting = false
                 end
 
+                -- ChangeIconText：大图标 + 文字的胖岛展示。
+                -- 展开态：先把面板收起，再把岛撑成胖岛；
+                -- 收起态：直接向下展开成胖岛。
+                -- 两者后续一致：持续 IconTextHoldTime 秒后复原到展开前的状态。
+                local iconTextBusy = false
+                local function playIconTextAnimation(text, iconName, iconColor)
+                    if not alive or not ready or shutdown then return end
+                    if iconTextBusy then return end
+                    if not text or #text == 0 then return end
+                    if iconName ~= nil and type(iconName) ~= "string" then return end
+                    iconTextBusy = true
+                    local wasExpanded = expanded
+                    -- 进行中的通知/提示先打断，避免与胖岛动画抢灵动岛
+                    if hintActive then clearHint(true) end
+                    if actionBusy and actionEnd then actionEnd(true) end
+
+                    local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+                    local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+                    -- 展开态先收起面板（collapsePanel 内部已把文字重建为 Title）
+                    if wasExpanded then
+                        collapsePanel()
+                        task.wait(Config.PanelExpandTime * 0.5)
+                    end
+                    expanded = false
+                    winOpen = false
+                    interacting = false
+
+                    -- 胖岛内容：左侧大图标 + 右侧文字
+                    local iconSize = Config.IconTextIconSize
+                    local textSize = Config.IconTextTextSize
+                    local tw = measureTextWidth(text, textSize)
+                    local iconW = iconName and iconSize or 0
+                    local contentW = iconW + (iconW > 0 and Config.IconTextGap or 0) + tw
+                    local targetW = math.max(Config.IconTextMinW, contentW + Config.IconTextPadX * 2)
+
+                    local hc = Instance.new("Frame")
+                    hc.Name = "IslandIconTextContainer"
+                    hc.Size = UDim2.new(1, 0, 1, 0)
+                    hc.BackgroundTransparency = 1
+                    hc.BorderSizePixel = 0
+                    hc.ClipsDescendants = true
+                    hc.ZIndex = 56
+                    hc.Parent = edge
+                    local hl = Instance.new("UIListLayout")
+                    hl.FillDirection = Enum.FillDirection.Horizontal
+                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                    hl.VerticalAlignment = Enum.VerticalAlignment.Center
+                    hl.SortOrder = Enum.SortOrder.LayoutOrder
+                    hl.Padding = UDim.new(0, iconW > 0 and Config.IconTextGap or 0)
+                    hl.Parent = hc
+                    -- 原文字淡出（胖岛期间不与图标文字并存）
+                    if islandTextContainer and islandTextContainer.Parent then
+                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                            local lb = cf:FindFirstChildOfClass("TextLabel")
+                            if lb then TweenService:Create(lb, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+                        end
+                    end
+                    local iconLbl = nil
+                    if iconName and iconName ~= "" then
+                        iconLbl = Instance.new("ImageLabel")
+                        iconLbl.Name = "IconTextIcon"
+                        iconLbl.BackgroundTransparency = 1
+                        iconLbl.Size = UDim2.fromOffset(iconSize, iconSize)
+                        iconLbl.ImageColor3 = iconColor or Config.SubTitleColor
+                        iconLbl.ImageTransparency = 1
+                        iconLbl.ScaleType = Enum.ScaleType.Fit
+                        iconLbl.LayoutOrder = 1
+                        iconLbl.ZIndex = 57
+                        iconLbl.Parent = hc
+                        task.spawn(function()
+                            local lucide = loadLucide()
+                            if not lucide then return end
+                            local okA, asset = pcall(lucide.GetAsset, iconName)
+                            if okA and asset and asset.Url then
+                                if not iconLbl or not iconLbl.Parent then return end
+                                iconLbl.Image = asset.Url
+                                if asset.ImageRectOffset then iconLbl.ImageRectOffset = asset.ImageRectOffset iconLbl.ImageRectSize = asset.ImageRectSize end
+                                TweenService:Create(iconLbl, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+                            end
+                        end)
+                    end
+                    local txtLbl = Instance.new("TextLabel")
+                    txtLbl.Name = "IconTextLabel"
+                    txtLbl.BackgroundTransparency = 1
+                    txtLbl.Size = UDim2.fromOffset(tw, Config.IslandSize.Y.Offset)
+                    txtLbl.Text = text
+                    txtLbl.TextColor3 = Config.TitleColor
+                    txtLbl.TextTransparency = 1
+                    txtLbl.TextSize = textSize
+                    txtLbl.Font = Enum.Font.GothamBold
+                    txtLbl.RichText = true
+                    txtLbl.LayoutOrder = 2
+                    txtLbl.ZIndex = 57
+                    txtLbl.Parent = hc
+                    task.delay(0.12, function()
+                        if txtLbl and txtLbl.Parent then
+                            TweenService:Create(txtLbl, TweenInfo.new(0.26, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                        end
+                    end)
+
+                    -- 撑成胖岛（收起态是"向下展开"：顶边下移 + 变宽；展开态已收起，仅变宽）
+                    -- 用 animateEdge 而非 TweenService：它与 collapsePanel/展开动画共用互斥通道，
+                    -- 不会互相逐帧覆写尺寸
+                    edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                    edge.Position = islandRest
+                    animateEdge(
+                        UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
+                        UDim2.new(0.5, cx, 0, cy + (wasExpanded and 0 or 6)),
+                        Config.IconTextGrowTime,
+                        0
+                    )
+
+                    -- 持续 IconTextHoldTime 秒后复原
+                    task.delay(Config.IconTextHoldTime, function()
+                        if not alive then return end
+                        if hc and hc.Parent then hc:Destroy() end
+                        iconTextBusy = false
+                        -- 复原为正常灵动岛，并让标题重新淡入
+                        animateEdge(Config.IslandSize, islandRest, Config.IconTextRestoreTime, 0)
+                        -- 恢复文字：ChangeText 的自定义文字优先，否则 Title
+                        setIslandText(islandTextOverride or title, Config.TitleColor)
+                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                            local lb = cf:FindFirstChildOfClass("TextLabel")
+                            if lb then TweenService:Create(lb, TweenInfo.new(Config.IconTextRestoreTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                        end
+                        -- 回到展开态时把面板重新展开，恢复调用前的样子
+                        if wasExpanded then
+                            task.delay(Config.IconTextGrowTime, function()
+                                if not alive or expanded then return end
+                                expanded = true
+                                titleGen = titleGen + 1
+                                local myGen = titleGen
+                                islandScale.Scale = 1
+                                if islandTextContainer and islandTextContainer.Parent then
+                                    setIslandText(title, Config.TitleColor)
+                                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                                        if lb then lb.TextTransparency = 1 end
+                                    end
+                                end
+                                edge.AnchorPoint = Vector2.new(0, 0)
+                                edge.Position = Config.IslandPosition
+                                local sw = screenGui.AbsoluteSize.X
+                                local sh = screenGui.AbsoluteSize.Y
+                                local m = Config.PanelMargin
+                                local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
+                                animateEdge(
+                                    UDim2.new(0, sw - m * 2, 0, sh - top - m),
+                                    UDim2.new(0, m, 0, top),
+                                    Config.PanelExpandTime
+                                )
+                                playBorderSweep()
+                                task.delay(Config.PanelExpandTime, function() winOpen = true end)
+                                local rcList = islandTextContainer:FindFirstChildOfClass("UIListLayout")
+                                if rcList then rcList.HorizontalAlignment = Enum.HorizontalAlignment.Left end
+                                task.delay(Config.FadeInTime, function()
+                                    if not expanded or myGen ~= titleGen then return end
+                                    for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                        local lb = cf:FindFirstChildOfClass("TextLabel")
+                                        if lb then TweenService:Create(lb, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                                    end
+                                end)
+                            end)
+                        end
+                    end)
+                end
+                -- 暴露到外层，供 win.DynamicIslandAction.ChangeIconText 调用
+                iconTextPlayer = playIconTextAnimation
+
                 edge.InputBegan:Connect(function(input)
                     if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
                     if not ready then return end
@@ -4036,6 +4222,23 @@ function Library.CreateWindow(opts)
         end,
         ShowNotify = function(a, b)
             runIslandAction(resolveTextArg(a, b))
+        end,
+        -- 签名 ChangeIconText(Text, Icon, IconColor)
+        -- 同时兼容 obj.ChangeIconText(...) 与 obj:ChangeIconText(...)
+        -- Icon 为 Lucide 图标名，IconColor 为图标染色（缺省用副标题色）
+        ChangeIconText = function(a, b, c, d)
+            local text, icon, iconColor
+            if type(a) == "string" then
+                text, icon, iconColor = a, b, c
+            else
+                text, icon, iconColor = b, c, d
+            end
+            if type(text) ~= "string" or #text == 0 then return end
+            if icon ~= nil and type(icon) ~= "string" then return end
+            if icon ~= nil and #icon == 0 then icon = nil end
+            if iconColor ~= nil and typeof(iconColor) ~= "Color3" then return end
+            if not iconTextPlayer then return end
+            iconTextPlayer(text, icon, iconColor)
         end,
     }, { __call = function(self) return self end })
     win.ShowNotify = function(a, b)
