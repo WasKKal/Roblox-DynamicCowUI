@@ -3166,7 +3166,8 @@ function Library.CreateWindow(a, ...)
                     hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
                     hl.VerticalAlignment = Enum.VerticalAlignment.Center
                     hl.SortOrder = Enum.SortOrder.LayoutOrder
-                    hl.Padding = UDim.new(0, gap)
+                    -- 字符之间不加间距（保持词组紧凑），仅在图标/名称/状态词之间留 gap
+                    hl.Padding = UDim.new(0, 0)
                     hl.Parent = hc
 
                     local step = Config.ToggleIslandStepTime
@@ -3237,6 +3238,17 @@ function Library.CreateWindow(a, ...)
                             local frame, lb = buildCharLabel(item.ch, stateColor, textSize)
                             frame.LayoutOrder = 3
                             frame.ZIndex = 57
+                            -- 状态词整体左移一个 gap，与 Toggle 名称形成视觉分组
+                            if i == 1 then
+                                local spacer = Instance.new("Frame")
+                                spacer.Name = "StateSpacer"
+                                spacer.Size = UDim2.new(0, gap, 1, 0)
+                                spacer.BackgroundTransparency = 1
+                                spacer.BorderSizePixel = 0
+                                spacer.LayoutOrder = 2.5
+                                spacer.ZIndex = 57
+                                spacer.Parent = hc
+                            end
                             frame.Parent = hc
                             local dist = math.abs(i - (n + 1) / 2)
                             table.insert(revealList, { obj = lb, dist = dist })
