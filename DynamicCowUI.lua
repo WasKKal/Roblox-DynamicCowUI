@@ -183,6 +183,10 @@ local Config = {
     TabSelStroke = Color3.new(1, 1, 1),
     TabSelStrokeThickness = 1,
     TabSelCorner = UDim.new(0, 8),
+    -- 选中指示器切换动画
+    TabSelMoveTime = 0.26,      -- 指示器滑向新选项卡的时长
+    TabSelFadeTime = 0.18,      -- 淡入/淡出时长
+    TabSelEasingStyle = Enum.EasingStyle.Quart,
     SubTitleRowHeight = 30,
     SubTitleIconSize = 20,
     SubTitleTextSize = 16,
@@ -2978,7 +2982,46 @@ function Library.CreateWindow(a, ...)
                                 local base = (td and td.IconColor) or Config.TabInactiveColor
                                 TweenService:Create(ic2, TweenInfo.new(0.15), { ImageColor3 = active and Config.TabActiveColor or base }):Play()
                             end
-                            if sel then sel.Visible = active end
+                            -- 选中指示器改为补间移动 + 淡入淡出：
+                            -- 从上一个选中行滑到当前行，取消选中则淡出隐藏。
+                            -- 行是绝对定位（Y = (i-1)*(TabRowHeight+TabRowGap)），故直接补间 sel.Position。
+                            if sel then
+                                local targetY = (idx - 1) * (Config.TabRowHeight + Config.TabRowGap)
+                                if active then
+                                    local first = not sel.Visible
+                                    if first then
+                                        sel.Position = UDim2.new(0, 0, 0, targetY)
+                                        sel.BackgroundTransparency = 1
+                                    end
+                                    sel.Visible = true
+                                    sel.ZIndex = 2
+                                    TweenService:Create(sel, TweenInfo.new(
+                                        first and Config.TabSelFadeTime or Config.TabSelMoveTime,
+                                        Config.TabSelEasingStyle, Enum.EasingDirection.Out
+                                    ), {
+                                        Position = UDim2.new(0, 0, 0, targetY),
+                                        BackgroundTransparency = Config.TabSelFillTransparency,
+                                    }):Play()
+                                else
+                                    if sel.Visible then
+                                        -- 先淡出，播完再隐藏，避免残留一帧；
+                                        -- 期间若被重新选中，Visible 会被置回 true，回调需再确认一次
+                                        local tw = TweenService:Create(sel, TweenInfo.new(
+                                            Config.TabSelFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
+                                        ), {
+                                            BackgroundTransparency = 1,
+                                        })
+                                        tw:Play()
+                                        tw.Completed:Connect(function(state)
+                                            if state == Enum.PlaybackState.Completed
+                                                and sel.Parent
+                                                and win._activeTab ~= idx then
+                                                sel.Visible = false
+                                            end
+                                        end)
+                                    end
+                                end
+                            end
                         end
                     end
                 end
