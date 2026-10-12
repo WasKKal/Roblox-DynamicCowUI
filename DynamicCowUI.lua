@@ -342,40 +342,93 @@ local function ensureConfigFolder(folder)
     return true
 end
 
-local function saveConfigValue(folder, key, value)
-    if type(folder) ~= "string" or #folder == 0 then return false end
-    if type(key) ~= "string" or #key == 0 then return false end
-    local path = "DynamicCowUI/Config/" .. folder .. "/" .. key .. ".json"
-    local ok, json = pcall(function()
-        return game:GetService("HttpService"):JSONEncode({ Value = value })
-    end)
+-- 配置持久化：整个 Folder 只维护一个 Config.json，
+-- 不再按 ConfigKey 拆成 <key>.json（否则控件越多文件越多，且互相覆盖难以原子写）。
+-- 内存缓存 + 读时懒加载 + 同步落盘：Slider 拖动这类高频写入也只碰一个小文件。
+local CONFIG_FILE_NAME = "Config.json"
+
+local function configFolderPath(folder)
+    if type(folder) ~= "string" or #folder == 0 then return nil end
+    return "DynamicCowUI/Config/" .. folder
+end
+
+local function configValuePath(folder)
+    local dir = configFolderPath(folder)
+    if not dir then return nil end
+    return dir .. "/" .. CONFIG_FILE_NAME
+end
+
+local configCache = {}
+
+local function readConfigTable(folder)
+    local cached = configCache[folder]
+    if cached then return cached end
+    local data = {}
+    local path = configValuePath(folder)
+    if path and isfile and isfile(path) then
+        local ok, content = pcall(readfile, path)
+        if ok and content then
+            local ok2, decoded = pcall(function() return game:GetService("HttpService"):JSONDecode(content) end)
+            if ok2 and type(decoded) == "table" then data = decoded end
+        end
+    end
+    configCache[folder] = data
+    return data
+end
+
+local function writeConfigTable(folder, data)
+    local path = configValuePath(folder)
+    if not path then return false end
+    configCache[folder] = data
+    local ok, json = pcall(function() return game:GetService("HttpService"):JSONEncode(data) end)
     if not (ok and json) then return false end
+    local dir = configFolderPath(folder)
     pcall(function()
         if isfolder and not isfolder("DynamicCowUI/Config") then makefolder("DynamicCowUI/Config") end
-        if isfolder and not isfolder("DynamicCowUI/Config/" .. folder) then makefolder("DynamicCowUI/Config/" .. folder) end
+        if isfolder and not isfolder(dir) then makefolder(dir) end
         writefile(path, json)
     end)
     return true
 end
 
+-- 读取单个 key 的已保存值（AutoLoadConfig 路径使用）
 local function loadConfigValue(folder, key)
     if type(folder) ~= "string" or #folder == 0 then return nil end
     if type(key) ~= "string" or #key == 0 then return nil end
-    local path = "DynamicCowUI/Config/" .. folder .. "/" .. key .. ".json"
-    if not (isfile and isfile(path)) then return nil end
-    local ok, content = pcall(readfile, path)
-    if not (ok and content) then return nil end
-    local ok2, data = pcall(function() return game:GetService("HttpService"):JSONDecode(content) end)
-    if ok2 and data and data.Value ~= nil then return data.Value end
-    return nil
+    local data = readConfigTable(folder)
+    local v = data[key]
+    if v == nil then return nil end
+    return v
 end
 
+-- 写入单个 key：读改写同一个 Config.json
+local function saveConfigValue(folder, key, value)
+    if type(folder) ~= "string" or #folder == 0 then return false end
+    if type(key) ~= "string" or #key == 0 then return false end
+    local data = readConfigTable(folder)
+    data[key] = value
+    return writeConfigTable(folder, data)
+end
+
+-- 命名配置档案：只有显式传入非默认 name 时才单独建档；
+-- name 为空或 "Config" 时复用合并后的 Config.json，保证与逐 key 自动保存同一份数据。
 local function configFilePath(folder, name)
-    return "DynamicCowUI/Config/" .. folder .. "/" .. name .. ".json"
+    local dir = configFolderPath(folder)
+    if not dir then return nil end
+    if type(name) ~= "string" or #name == 0 or name == "Config" then
+        return dir .. "/" .. CONFIG_FILE_NAME
+    end
+    return dir .. "/" .. name .. ".json"
 end
 
 local function loadConfigFile(folder, name)
     local path = configFilePath(folder, name)
+    if not path then return {} end
+    if type(name) ~= "string" or #name == 0 or name == "Config" then
+        local ok, data = pcall(readConfigTable, folder)
+        if ok and type(data) == "table" then return data end
+        return {}
+    end
     if not (isfile and isfile(path)) then return {} end
     local ok, content = pcall(readfile, path)
     if not (ok and content) then return {} end
@@ -386,13 +439,16 @@ end
 
 local function writeConfigFile(folder, name, data)
     if type(folder) ~= "string" or #folder == 0 then return false end
-    if type(name) ~= "string" or #name == 0 then return false end
+    if type(name) ~= "string" or #name == 0 or name == "Config" then
+        return writeConfigTable(folder, data)
+    end
     local path = configFilePath(folder, name)
     local ok, json = pcall(function() return game:GetService("HttpService"):JSONEncode(data) end)
     if not (ok and json) then return false end
+    local dir = configFolderPath(folder)
     pcall(function()
         if isfolder and not isfolder("DynamicCowUI/Config") then makefolder("DynamicCowUI/Config") end
-        if isfolder and not isfolder("DynamicCowUI/Config/" .. folder) then makefolder("DynamicCowUI/Config/" .. folder) end
+        if isfolder and not isfolder(dir) then makefolder(dir) end
         writefile(path, json)
     end)
     return true
@@ -426,6 +482,7 @@ function Library.CreateWindow(a, ...)
     local iconColorSet = false
     local configFolder = nil
     local autoLoadConfig = true
+    local autoSaveConfig = true
     local lenient = false
     local function rejectSignature(reason)
         if lenient then
@@ -502,6 +559,13 @@ function Library.CreateWindow(a, ...)
                     reportError("CreateWindow AutoLoadConfig 非法（收到 " .. type(opts.AutoLoadConfig) .. "），已忽略")
                 else
                     autoLoadConfig = opts.AutoLoadConfig
+                end
+            end
+        if opts.AutoSaveConfig ~= nil then
+                if type(opts.AutoSaveConfig) ~= "boolean" then
+                    reportError("CreateWindow AutoSaveConfig 非法（收到 " .. type(opts.AutoSaveConfig) .. "），已忽略")
+                else
+                    autoSaveConfig = opts.AutoSaveConfig
                 end
             end
         end
@@ -1161,6 +1225,14 @@ function Library.CreateWindow(a, ...)
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
     win._configFolder = configFolder
     win._autoLoadConfig = autoLoadConfig
+    win._autoSaveConfig = autoSaveConfig
+    -- AutoSaveConfig=false 时，用户改动控件不再自动落盘；
+    -- 需要持久化时显式调用 win:SaveConfig()。
+    win._cfgSave = function(self, key, value)
+        if not self._autoSaveConfig then return false end
+        if not self._configFolder or type(key) ~= "string" or #key == 0 then return false end
+        return saveConfigValue(self._configFolder, key, value)
+    end
     win._cfgIndex = {}
     if win._configFolder then ensureConfigFolder(win._configFolder) end
     local titleIcon = nil
@@ -2078,9 +2150,7 @@ function Library.CreateWindow(a, ...)
                                 IconColor = tg.IconColor,
                                 Value = tg.Value,
                             }
-                            if tg.ConfigKey and win._configFolder then
-                                saveConfigValue(win._configFolder, tg.ConfigKey, tg.Value)
-                            end
+                            if tg.ConfigKey then win._cfgSave(win, tg.ConfigKey, tg.Value) end
                             if typeof(tg.Callback) == "function" then
                                 local okC, errC = pcall(tg.Callback, tg.Value, tg)
                                 if not okC then reportError("AddToggle Callback 报错: " .. tostring(errC)) end
@@ -2300,9 +2370,7 @@ function Library.CreateWindow(a, ...)
                             f = clampFrac(f)
                             sl.Value = snapVal(sl.MinValue + f * getRange())
                             sl._refresh(animate)
-                            if sl.ConfigKey and win._configFolder then
-                                saveConfigValue(win._configFolder, sl.ConfigKey, sl.Value)
-                            end
+                            if sl.ConfigKey then win._cfgSave(win, sl.ConfigKey, sl.Value) end
                             if type(sl.OnChanged) == "function" then
 
                                 local okC, errC = pcall(sl.OnChanged, sl.Value, sl)
@@ -2392,7 +2460,7 @@ function Library.CreateWindow(a, ...)
                             if d._label and d._label.Parent then d._label.Text = capsuleText() end
                         end
                         local function saveSel()
-                            if d.ConfigKey and win._configFolder then saveConfigValue(win._configFolder, d.ConfigKey, d.Selected) end
+                            if d.ConfigKey then win._cfgSave(win, d.ConfigKey, d.Selected) end
                         end
                         local function refreshHighlights()
                             if not d._menuScroll then return end
@@ -4180,9 +4248,7 @@ if hintActive then clearHint(true) end
                 }
                 tg.Set = function(self4, v)
                     self4.Value = v and true or false
-                    if self4.ConfigKey and win._configFolder then
-                        saveConfigValue(win._configFolder, self4.ConfigKey, self4.Value)
-                    end
+                    if self4.ConfigKey then win._cfgSave(win, self4.ConfigKey, self4.Value) end
                     if win._rebuildTabs then win._rebuildTabs() end
                 end
                 tg.GetValue = function(self4)
@@ -4387,9 +4453,7 @@ if hintActive then clearHint(true) end
                         self4.Value = v
                     end
                     if self4._refresh then self4._refresh(animate ~= false) end
-                    if self4.ConfigKey and win._configFolder then
-                        saveConfigValue(win._configFolder, self4.ConfigKey, self4.Value)
-                    end
+                    if self4.ConfigKey then win._cfgSave(win, self4.ConfigKey, self4.Value) end
                     if type(self4.OnChanged) == "function" then
                         local okC, errC = pcall(self4.OnChanged, self4.Value, self4)
                         if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
@@ -4493,7 +4557,7 @@ if hintActive then clearHint(true) end
                         self4.Selected = (type(v) == "string" and v) or nil
                     end
                     if self4._refreshCapsule then self4._refreshCapsule() end
-                    if self4.ConfigKey and win._configFolder then saveConfigValue(win._configFolder, self4.ConfigKey, self4.Selected) end
+                    if self4.ConfigKey then win._cfgSave(win, self4.ConfigKey, self4.Selected) end
                     if self4._menuScroll then
                         for _, ob in ipairs(self4._menuScroll:GetChildren()) do
                             if ob:IsA("TextButton") then
@@ -4541,9 +4605,12 @@ if hintActive then clearHint(true) end
         if self._rebuildTabs then self._rebuildTabs() end
         return tab
     end
+    -- name 为空时回落到默认档案 "Config"，即合并后的 Config.json，
+    -- 这样 SaveConfig() 无参调用即可落盘，无需再发明一个名字
     local function normCfgName(name)
         name = tostring(name or "")
         name = name:gsub("%.json$", "")
+        if #name == 0 then name = "Config" end
         return name
     end
     win.MakeConfig = function(self, name)
