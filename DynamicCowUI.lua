@@ -227,6 +227,7 @@ local Config = {
     SliderTrackTransparency = 0.35,
     SliderTrackCorner = UDim.new(0, 8),
     SliderFillColor = Color3.fromRGB(120, 160, 255),
+    -- 滑块已改为仅用填充条表示进度，不再绘制白色圆球手柄（以下两项保留仅为兼容旧脚本引用）
     SliderThumbColor = Color3.fromRGB(245, 245, 248),
     SliderThumbSize = 16,
     SliderAnimTime = 0.3,
@@ -245,6 +246,8 @@ local Config = {
     DropdownCapsulePlaceholder = "未选择",
     DropdownMenuW = 200,
     DropdownMenuMaxH = 220,
+    -- 展开后圆角（胶囊原本是 0.5 全圆，展开时收直为固定圆角，避免大面板变椭圆）
+    DropdownMenuCorner = 12,
     DropdownOptionH = 30,
     DropdownMenuPad = 6,
     DropdownMenuFill = Color3.fromRGB(24, 24, 30),
@@ -258,7 +261,8 @@ local Config = {
     DropdownRevealTime = 0.22,
     DropdownOptionStagger = 0.05,
     DropdownCollapseTime = 0.2,
-    DropdownMenuZ = 200,
+    -- 展开时胶囊被提到 screenGui 顶层使用该层级，需高于所有面板元素（滚动容器/灵动岛/提示/通知/确认弹窗）
+    DropdownMenuZ = 300,
     DropdownArrowSize = 12,
 }
 
@@ -1890,17 +1894,6 @@ function Library.CreateWindow(opts)
                         fillCorner.CornerRadius = Config.SliderTrackCorner
                         fillCorner.Parent = fill
                         fill.Parent = track
-                        local thumb = Instance.new("Frame")
-                        thumb.Name = "SliderThumb"
-                        thumb.BackgroundColor3 = Config.SliderThumbColor
-                        thumb.Size = UDim2.fromOffset(Config.SliderThumbSize, Config.SliderThumbSize)
-                        thumb.AnchorPoint = Vector2.new(0.5, 0.5)
-                        thumb.Position = UDim2.new(0, 0, 0.5, 0)
-                        thumb.ZIndex = 5
-                        local thumbCorner = Instance.new("UICorner")
-                        thumbCorner.CornerRadius = UDim.new(1, 0)
-                        thumbCorner.Parent = thumb
-                        thumb.Parent = track
                         local function clampFrac(f)
                             if f < 0 then f = 0 elseif f > 1 then f = 1 end
                             return f
@@ -1930,7 +1923,6 @@ function Library.CreateWindow(opts)
                             else
                                 sl._fill.Size = UDim2.new(f2, 0, 1, 0)
                             end
-                            if sl._thumb then sl._thumb.Position = UDim2.new(f2, 0, 0.5, 0) end
                         end
                         sl._applyFrac = function(f, animate)
                             f = clampFrac(f)
@@ -1948,7 +1940,6 @@ function Library.CreateWindow(opts)
                         sl._frame = frame
                         sl._track = track
                         sl._fill = fill
-                        sl._thumb = thumb
                         sl._titleLbl = titleLbl
                         sl._refresh(false)
                         local dragging = false
@@ -1960,7 +1951,6 @@ function Library.CreateWindow(opts)
                         end
                         track.Active = true
                         fill.Active = false
-                        thumb.Active = false
                         track.InputBegan:Connect(function(input)
                             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                                 dragging = true
@@ -2129,63 +2119,76 @@ function Library.CreateWindow(opts)
                                 end
                             end
                         end)
+                        -- 展开：直接让右侧胶囊自身变形为选项面板
+                        -- （不创建任何额外的菜单框架/全屏蒙版；展开时把胶囊搬到 screenGui 顶层并抬高 ZIndex，
+                        --   这样既能盖住滚动容器，也能自然溢出滚动区域，不会被祖先 ClipsDescendants 裁剪）
+                        local menuState = nil
+                        local outsideConn = nil
                         local function openMenu()
+                            if menuState then return end
                             if openDropdownClose then openDropdownClose() end
-                            local ap = capsule.AbsolutePosition
-                            local as = capsule.AbsoluteSize
                             local optList = d.Options or {}
                             local count = #optList
                             if count == 0 then return end
-                            local neededH = math.min(count * Config.DropdownOptionH + Config.DropdownMenuPad * 2, Config.DropdownMenuMaxH)
-                            local mask = Instance.new("TextButton")
-                            mask.Name = "DdMask"
-                            mask.Size = UDim2.new(1, 0, 1, 0)
-                            mask.BackgroundTransparency = 1
-                            mask.Text = ""
-                            mask.AutoButtonColor = false
-                            mask.ZIndex = Config.DropdownMenuZ - 1
-                            mask.Parent = screenGui
-                            local menu = Instance.new("Frame")
-                            menu.Name = "DdMenu"
-                            menu.BackgroundColor3 = Config.DropdownMenuFill
-                            menu.BackgroundTransparency = 1
-                            menu.BorderSizePixel = 0
-                            menu.AnchorPoint = Vector2.new(1, 0)
-                            menu.Position = UDim2.new(0, ap.X + as.X, 0, ap.Y)
-                            menu.Size = UDim2.new(0, as.X, 0, as.Y)
-                            menu.ClipsDescendants = true
-                            menu.ZIndex = Config.DropdownMenuZ
-                            menu.Parent = screenGui
-                            local mc = Instance.new("UICorner")
-                            mc.CornerRadius = UDim.new(0.5, 0)
-                            mc.Parent = menu
-                            local ms = Instance.new("UIStroke")
-                            ms.Color = Config.DropdownMenuStroke
-                            ms.Thickness = Config.DropdownMenuStrokeThickness
-                            ms.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                            ms.Parent = menu
-                            local scroll = Instance.new("ScrollingFrame")
-                            scroll.Name = "DdScroll"
-                            scroll.BackgroundTransparency = 1
-                            scroll.BorderSizePixel = 0
-                            scroll.Size = UDim2.new(1, 0, 1, 0)
-                            scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-                            scroll.ScrollingDirection = Enum.ScrollingDirection.Y
-                            scroll.ScrollBarThickness = 3
-                            scroll.ZIndex = Config.DropdownMenuZ + 1
-                            scroll.Parent = menu
-                            local sl2 = Instance.new("UIListLayout")
-                            sl2.FillDirection = Enum.FillDirection.Vertical
-                            sl2.SortOrder = Enum.SortOrder.LayoutOrder
-                            sl2.Padding = UDim.new(0, 0)
-                            sl2.Parent = scroll
-                            local sp = Instance.new("UIPadding")
-                            sp.PaddingTop = UDim.new(0, Config.DropdownMenuPad)
-                            sp.PaddingBottom = UDim.new(0, Config.DropdownMenuPad)
-                            sp.PaddingLeft = UDim.new(0, Config.DropdownMenuPad)
-                            sp.PaddingRight = UDim.new(0, Config.DropdownMenuPad)
-                            sp.Parent = scroll
-                            d._menuScroll = scroll
+                            local ap = capsule.AbsolutePosition
+                            local as = capsule.AbsoluteSize
+                            local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
+                            local needScroll = contentH > Config.DropdownMenuMaxH
+                            local targetH = needScroll and Config.DropdownMenuMaxH or contentH
+                            local expandW = math.max(Config.DropdownMenuW, as.X)
+                            menuState = {
+                                parent = capsule.Parent,
+                                position = capsule.Position,
+                                size = capsule.Size,
+                                anchor = capsule.AnchorPoint,
+                                zindex = capsule.ZIndex,
+                                clips = capsule.ClipsDescendants,
+                                corner = capCorner.CornerRadius,
+                                bgColor = capsule.BackgroundColor3,
+                            }
+                            -- 胶囊迁移到顶层并提升层级：以右上角为锚点向左下方长大
+                            capsule.AnchorPoint = Vector2.new(1, 0)
+                            capsule.Position = UDim2.new(0, ap.X + as.X, 0, ap.Y)
+                            capsule.Size = UDim2.new(0, as.X, 0, as.Y)
+                            capsule.ClipsDescendants = true
+                            capsule.ZIndex = Config.DropdownMenuZ
+                            capsule.BackgroundColor3 = Config.DropdownMenuFill
+                            capsule.Parent = screenGui
+                            -- 胶囊内的文字/箭头让位给选项列表（Visible=false 的控件不参与 UIListLayout 布局）
+                            label.Visible = false
+                            arrow.Visible = false
+                            -- 选项容器：默认就是胶囊本身；仅当条目超出最大高度时才需要一个不可见的滚动容器
+                            local container
+                            if needScroll then
+                                local sc = Instance.new("ScrollingFrame")
+                                sc.Name = "DdScroll"
+                                sc.BackgroundTransparency = 1
+                                sc.BorderSizePixel = 0
+                                sc.Size = UDim2.new(1, 0, 1, 0)
+                                sc.CanvasSize = UDim2.new(0, 0, 0, contentH)
+                                sc.ScrollingDirection = Enum.ScrollingDirection.Y
+                                sc.ScrollBarThickness = 3
+                                sc.ZIndex = 2
+                                sc.Parent = capsule
+                                container = sc
+                                menuState.container = sc
+                            else
+                                container = capsule
+                            end
+                            local list = Instance.new("UIListLayout")
+                            list.FillDirection = Enum.FillDirection.Vertical
+                            list.SortOrder = Enum.SortOrder.LayoutOrder
+                            list.Padding = UDim.new(0, 0)
+                            list.Parent = container
+                            local pad = Instance.new("UIPadding")
+                            pad.PaddingTop = UDim.new(0, Config.DropdownMenuPad)
+                            pad.PaddingBottom = UDim.new(0, Config.DropdownMenuPad)
+                            pad.PaddingLeft = UDim.new(0, Config.DropdownMenuPad)
+                            pad.PaddingRight = UDim.new(0, Config.DropdownMenuPad)
+                            pad.Parent = container
+                            menuState.list = list
+                            menuState.pad = pad
+                            d._menuScroll = container
                             for i, opt in ipairs(optList) do
                                 local ob = Instance.new("TextButton")
                                 ob.Name = "DdOption"
@@ -2200,9 +2203,12 @@ function Library.CreateWindow(opts)
                                 ob.TextXAlignment = Enum.TextXAlignment.Left
                                 ob.AutoButtonColor = false
                                 ob.LayoutOrder = i
-                                ob.ZIndex = Config.DropdownMenuZ + 2
+                                ob.ZIndex = 2
                                 ob:SetAttribute("OptName", opt)
-                                ob.Parent = scroll
+                                ob.Parent = container
+                                local obCorner = Instance.new("UICorner")
+                                obCorner.CornerRadius = UDim.new(0, 5)
+                                obCorner.Parent = ob
                                 ob.MouseButton1Click:Connect(function()
                                     applySelection(opt)
                                 end)
@@ -2213,39 +2219,57 @@ function Library.CreateWindow(opts)
                                     if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownMenuFill }):Play() end
                                 end)
                             end
-                            scroll.CanvasSize = UDim2.new(0, 0, 0, count * Config.DropdownOptionH + Config.DropdownMenuPad * 2)
                             local closed = false
+                            local function restore()
+                                if outsideConn then outsideConn:Disconnect() outsideConn = nil end
+                                if d._menuScroll == container then d._menuScroll = nil end
+                                d._closeMenu = nil
+                                local st = menuState
+                                menuState = nil
+                                -- 选项面板直接由胶囊承载时，选项本身就是胶囊的子控件，必须显式清理，避免下次展开时累积
+                                for _, ob in ipairs(container:GetChildren()) do
+                                    if ob:IsA("TextButton") and ob.Name == "DdOption" then ob:Destroy() end
+                                end
+                                if st.list and st.list.Parent then st.list:Destroy() end
+                                if st.pad and st.pad.Parent then st.pad:Destroy() end
+                                if st.container and st.container.Parent then st.container:Destroy() end
+                                if st.parent and st.parent.Parent then
+                                    capsule.AnchorPoint = st.anchor
+                                    capsule.Position = st.position
+                                    capsule.Size = st.size
+                                    capsule.ZIndex = st.zindex
+                                    capsule.ClipsDescendants = st.clips
+                                    capsule.BackgroundColor3 = st.bgColor
+                                    capsule.Parent = st.parent
+                                    capCorner.CornerRadius = st.corner
+                                    label.Visible = true
+                                    arrow.Visible = true
+                                elseif capsule and capsule.Parent then
+                                    -- 原位父级已被销毁（切换选项卡 / 收起面板 / 关闭窗口），直接销毁胶囊避免残留在屏幕上
+                                    capsule:Destroy()
+                                end
+                            end
                             local function closeMenu(animate)
                                 if closed then return end
                                 closed = true
                                 if openDropdownClose == closeMenu then openDropdownClose = nil end
-                                if d._menuScroll == scroll then d._menuScroll = nil end
-                                d._closeMenu = nil
-                                local function finish()
-                                    if mask and mask.Parent then mask:Destroy() end
-                                    if menu and menu.Parent then menu:Destroy() end
-                                end
-                                if animate then
-                                    for _, ob in ipairs(scroll:GetChildren()) do
-                                        if ob:IsA("TextButton") then
-                                            TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
-                                        end
+                                if not animate then restore() return end
+                                for _, ob in ipairs(container:GetChildren()) do
+                                    if ob:IsA("TextButton") then
+                                        TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
                                     end
-                                    TweenService:Create(menu, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Size = UDim2.new(0, as.X, 0, as.Y), BackgroundTransparency = 1 }):Play()
-                                    TweenService:Create(ms, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Transparency = 1 }):Play()
-                                    task.delay(Config.DropdownCollapseTime + 0.05, finish)
-                                else
-                                    finish()
                                 end
+                                TweenService:Create(capsule, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Size = UDim2.new(0, as.X, 0, as.Y), BackgroundTransparency = 1 }):Play()
+                                TweenService:Create(capCorner, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { CornerRadius = menuState.corner }):Play()
+                                task.delay(Config.DropdownCollapseTime + 0.05, restore)
                             end
                             d._closeMenu = closeMenu
-                            mask.MouseButton1Click:Connect(function()
-                                closeMenu(true)
-                            end)
                             openDropdownClose = closeMenu
-                            TweenService:Create(menu, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, Config.DropdownMenuW, 0, neededH) }):Play()
-                            TweenService:Create(menu, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.DropdownMenuFillTransparency }):Play()
-                            for i, ob in ipairs(scroll:GetChildren()) do
+                            -- 展开动画：胶囊变形长大 + 填充渐显 + 圆角收直
+                            TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, expandW, 0, targetH) }):Play()
+                            TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.DropdownMenuFillTransparency }):Play()
+                            TweenService:Create(capCorner, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { CornerRadius = UDim.new(0, Config.DropdownMenuCorner) }):Play()
+                            for i, ob in ipairs(container:GetChildren()) do
                                 if ob:IsA("TextButton") then
                                     task.delay(Config.DropdownRevealTime + (i - 1) * Config.DropdownOptionStagger, function()
                                         if closed or not ob.Parent then return end
@@ -2253,9 +2277,21 @@ function Library.CreateWindow(opts)
                                     end)
                                 end
                             end
+                            -- 点击面板外任意位置收起（改用 UserInputService 监听，不再创建全屏蒙版框架）
+                            outsideConn = UserInputService.InputBegan:Connect(function(input)
+                                if closed then return end
+                                if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                                local p, cp, cs = input.Position, capsule.AbsolutePosition, capsule.AbsoluteSize
+                                if p and p.X >= cp.X and p.X <= cp.X + cs.X and p.Y >= cp.Y and p.Y <= cp.Y + cs.Y then return end
+                                closeMenu(true)
+                            end)
                         end
                         capsule.MouseButton1Click:Connect(function()
-                            openMenu()
+                            if menuState then
+                                if d._closeMenu then d._closeMenu(true) end
+                            else
+                                openMenu()
+                            end
                         end)
                         d._refreshCapsule = refreshCapsule
                         refreshCapsule()
