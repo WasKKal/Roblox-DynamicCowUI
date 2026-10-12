@@ -201,15 +201,21 @@ local Config = {
     ActionFlashTime = 0.3,
     ActionFlashHold = 0.25,
     ActionInterruptExit = 0.18,
-    ParagraphIconSize = 20,
+    ParagraphIconSize = 18,
     ParagraphIconGap = 8,
-    ParagraphTitleSize = 15,
+    ParagraphTitleSize = 14,
     ParagraphTitleColor = Color3.new(1, 1, 1),
-    ParagraphInfoSize = 13,
+    ParagraphInfoSize = 12,
     ParagraphInfoColor = Color3.fromRGB(190, 195, 200),
-    ParagraphTextGap = 3,
-    ParagraphRowHeight = 52,
-    ParagraphTitlePad = 4,
+    ParagraphTextGap = 2,
+    ParagraphRowHeight = 48,
+    ParagraphTitlePad = 2,
+    ParagraphCorner = UDim.new(0, 8),
+    ParagraphBackColor = Color3.fromRGB(34, 34, 42),
+    ParagraphBackTransparency = 0.25,
+    ParagraphBorderThickness = 1,
+    ParagraphBackPad = 8,
+    ParagraphDarken = 0.1,
 }
 
 local Library = {}
@@ -222,6 +228,16 @@ local function reportError(msg)
     if type(Library.OnError) == "function" then
         pcall(Library.OnError, msg)
     end
+end
+
+local function darkenColor(c, amt)
+    local r = c.R - amt
+    local g = c.G - amt
+    local b = c.B - amt
+    if r < 0 then r = 0 end
+    if g < 0 then g = 0 end
+    if b < 0 then b = 0 end
+    return Color3.new(r, g, b)
 end
 
 function Library.CreateWindow(opts)
@@ -759,6 +775,14 @@ function Library.CreateWindow(opts)
     local titleIcon = nil
     local infoLabel = nil
     local brandLbl = nil
+    local titleGen = 0
+    local titleTweens = {}
+    local function cancelTitleTweens()
+        for _, tw in ipairs(titleTweens) do
+            pcall(function() tw:Cancel() end)
+        end
+        titleTweens = {}
+    end
 
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
         local s0 = edge.Size
@@ -1561,10 +1585,23 @@ function Library.CreateWindow(opts)
                     local function makeParagraph(p, order)
                         local frame = Instance.new("Frame")
                         frame.Name = "SubParagraph"
-                        frame.BackgroundTransparency = 1
+                        frame.BackgroundColor3 = p.BackColor or Config.ParagraphBackColor
+                        frame.BackgroundTransparency = Config.ParagraphBackTransparency
                         frame.Size = UDim2.new(1, 0, 0, Config.ParagraphRowHeight)
                         frame.LayoutOrder = order
                         frame.ZIndex = 3
+                        local corner = Instance.new("UICorner")
+                        corner.CornerRadius = Config.ParagraphCorner
+                        corner.Parent = frame
+                        local stroke = Instance.new("UIStroke")
+                        stroke.Color = darkenColor(frame.BackgroundColor3, Config.ParagraphDarken)
+                        stroke.Thickness = Config.ParagraphBorderThickness
+                        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                        stroke.Parent = frame
+                        local pad = Instance.new("UIPadding")
+                        pad.PaddingLeft = UDim.new(0, Config.ParagraphBackPad)
+                        pad.PaddingRight = UDim.new(0, Config.ParagraphBackPad)
+                        pad.Parent = frame
                         local hl = Instance.new("UIListLayout")
                         hl.FillDirection = Enum.FillDirection.Horizontal
                         hl.HorizontalAlignment = Enum.HorizontalAlignment.Left
@@ -1641,6 +1678,8 @@ function Library.CreateWindow(opts)
                         p._titleLbl = titleLbl
                         p._infoLbl = infoLbl
                         p._iconLbl = hasIco and ic or nil
+                        p._frame = frame
+                        p._stroke = stroke
                         return frame
                     end
                     for _, st in ipairs(tab._subtitles) do
@@ -1828,6 +1867,8 @@ function Library.CreateWindow(opts)
 
                 local function collapsePanel()
                     if not expanded then return end
+                    titleGen = titleGen + 1
+                    cancelTitleTweens()
                     if actionEnd then actionEnd() end
                     local ll = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
                     if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
@@ -1865,10 +1906,12 @@ function Library.CreateWindow(opts)
                     dragging = false
                     TweenService:Create(islandScale, TweenInfo.new(Config.TapExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Scale = Config.IslandTapScale }):Play()
                     longPress = task.delay(Config.LongPressThreshold, function()
-                        if holding then
-                            if hintActive then clearHint() end
-                            expanded = true
-                            islandScale.Scale = 1
+                            if holding then
+                                if hintActive then clearHint() end
+                                expanded = true
+                                titleGen = titleGen + 1
+                                local myTitleGen = titleGen
+                                islandScale.Scale = 1
                             edge.AnchorPoint = Vector2.new(0, 0)
                             edge.Position = Config.IslandPosition
                             local sw = screenGui.AbsoluteSize.X
@@ -1901,14 +1944,19 @@ function Library.CreateWindow(opts)
                             win._titleLeftX = contentLeftX
                             win._titleY = titleTargetY
                             local function fadeTitleLabels(t)
+                                cancelTitleTweens()
                                 for _, cf in ipairs(islandTextContainer:GetChildren()) do
                                     local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = t }):Play() end
+                                    if lb then
+                                        local tw = TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = t })
+                                        table.insert(titleTweens, tw)
+                                        tw:Play()
+                                    end
                                 end
                             end
                             fadeTitleLabels(1)
                             task.delay(Config.FadeInTime, function()
-                                if not expanded then return end
+                                if not expanded or myTitleGen ~= titleGen then return end
                                 if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
                                 local slide = 40
                                 islandTextContainer.Position = UDim2.new(0, titleTargetX + slide, 0, titleTargetY)
@@ -1917,7 +1965,7 @@ function Library.CreateWindow(opts)
                                 }):Play()
                                 fadeTitleLabels(0)
                                 task.delay(Config.InfoEnterDelay, function()
-                                    if not expanded then return end
+                                    if not expanded or myTitleGen ~= titleGen then return end
                                     if infoLabel and infoLabel.Parent then
                                         TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
                                             Position = UDim2.new(0, contentLeftX, 0, infoTop),
@@ -2547,6 +2595,7 @@ function Library.CreateWindow(opts)
                     if popts.Info ~= nil and type(popts.Info) ~= "string" then error("AddParagraph Info 非法") end
                     if popts.Icon ~= nil and type(popts.Icon) ~= "string" then error("AddParagraph Icon 非法") end
                     if popts.IconColor ~= nil and typeof(popts.IconColor) ~= "Color3" then error("AddParagraph IconColor 非法") end
+                    if popts.BackColor ~= nil and typeof(popts.BackColor) ~= "Color3" then error("AddParagraph BackColor 非法") end
                 end)
                 if not okP then
                     reportError("AddParagraph 异常: " .. tostring(emP))
@@ -2558,6 +2607,7 @@ function Library.CreateWindow(opts)
                     Info = popts.Info or "",
                     Icon = popts.Icon,
                     IconColor = popts.IconColor,
+                    BackColor = popts.BackColor,
                 }
                 pg.SetTitle = function(self4, v)
                     self4.Title = v and tostring(v) or ""
@@ -2575,6 +2625,15 @@ function Library.CreateWindow(opts)
                     if typeof(v) == "Color3" then
                         self4.IconColor = v
                         if self4._iconLbl and self4._iconLbl.Parent then self4._iconLbl.ImageColor3 = v end
+                    end
+                end
+                pg.SetBackColor = function(self4, v)
+                    if typeof(v) == "Color3" then
+                        self4.BackColor = v
+                        if self4._frame and self4._frame.Parent then
+                            self4._frame.BackgroundColor3 = v
+                            if self4._stroke and self4._stroke.Parent then self4._stroke.Color = darkenColor(v, Config.ParagraphDarken) end
+                        end
                     end
                 end
                 table.insert(self3._paragraphs, pg)
