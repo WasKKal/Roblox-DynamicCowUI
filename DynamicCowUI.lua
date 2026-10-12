@@ -800,6 +800,18 @@ function Library.CreateWindow(opts)
         return w
     end
 
+    -- 视口高度（用于判断下拉菜单向下还是向上展开）：
+    -- 优先取相机视口，其次 ScreenGui.AbsoluteSize，最后兜底 720，避免取到 0 导致方向判断失效
+    local function getViewportHeight()
+        local ok, cam = pcall(function() return workspace and workspace.CurrentCamera end)
+        if ok and cam and cam.ViewportSize and cam.ViewportSize.Y and cam.ViewportSize.Y > 0 then
+            return cam.ViewportSize.Y
+        end
+        local h = screenGui and screenGui.AbsoluteSize and screenGui.AbsoluteSize.Y
+        if h and h > 0 then return h end
+        return 720
+    end
+
     local function createIslandText(text, color, instant)
         text = text or Config.IslandText
         color = color or Config.IslandTextColor
@@ -1388,9 +1400,14 @@ function Library.CreateWindow(opts)
                 local islandRest = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
                 -- skipRestore=true 表示调用方即将自行接管灵动岛几何（例如长按展开面板），
                 -- 此时不能再把 AnchorPoint/Position/Size 拉回提示前的状态，否则会与展开动画互相打架
+                -- 安全取消计时器：句柄可能指向「正在运行的自己」（回调里取消自己会抛 cannot cancel thread）
+                local function safeCancelTimer(handle)
+                    if not handle then return end
+                    pcall(task.cancel, handle)
+                end
                 local function clearHint(skipRestore)
-                    if tapWindowTmr then task.cancel(tapWindowTmr) tapWindowTmr = nil end
-                    if hintTmr then task.cancel(hintTmr) hintTmr = nil end
+                    safeCancelTimer(tapWindowTmr) tapWindowTmr = nil
+                    safeCancelTimer(hintTmr) hintTmr = nil
                     if hintContainer and hintContainer.Parent then hintContainer:Destroy() end
                     hintContainer = nil
                     if not skipRestore and hintActive and edge and edge.Parent and hintBaseSize and not expanded then
@@ -1480,8 +1497,9 @@ function Library.CreateWindow(opts)
                         end)
                     end
                     hintContainer = hc
-                    if hintTmr then task.cancel(hintTmr) end
+                    safeCancelTimer(hintTmr)
                     hintTmr = task.delay(Config.HintHoldTime, function()
+                        hintTmr = nil   -- 先置空：否则 clearHint 会尝试取消正在运行的自己
                         if hintActive then clearHint() end
                     end)
                 end
@@ -2149,10 +2167,9 @@ function Library.CreateWindow(opts)
                             local as = capsule.AbsoluteSize
                             local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
                             -- 按剩余空间动态决定展开方向：
-                            --   下方放得下 → 右上角为锚点，向左下方展开
-                            --   下方放不下且上方更宽裕 → 右下角为锚点，向左上方展开（避免溢出屏幕底部）
-                            local scrH = screenGui.AbsoluteSize.Y
-                            if not scrH or scrH <= 0 then scrH = 720 end   -- 兜底：极端情况下避免方向判断失效
+                            --   下方放得下 → 顶边对齐，向左下方展开
+                            --   下方放不下且上方更宽裕 → 底边对齐，向左上方展开（避免溢出屏幕底部）
+                            local scrH = getViewportHeight()
                             local edgeGap = Config.DropdownMenuPad + 4
                             local capTop = ap.Y
                             local capBottom = ap.Y + as.Y
@@ -2165,6 +2182,9 @@ function Library.CreateWindow(opts)
                             local targetH = math.min(contentH, Config.DropdownMenuMaxH, avail)
                             local needScroll = contentH > targetH
                             local expandW = math.max(Config.DropdownMenuW, as.X)
+                            -- 展开目标：右边缘始终与胶囊右边缘对齐；向下展开固定顶边，向上展开固定底边
+                            local endX = ap.X + as.X - expandW
+                            local endY = openUp and (ap.Y + as.Y - targetH) or ap.Y
                             menuState = {
                                 parent = capsule.Parent,
                                 position = capsule.Position,
@@ -2174,15 +2194,17 @@ function Library.CreateWindow(opts)
                                 clips = capsule.ClipsDescendants,
                                 corner = capCorner.CornerRadius,
                                 bgColor = capsule.BackgroundColor3,
+                                -- 记录迁移到 screenGui 后的「绝对左上角 + 原始宽高」，收起时按此还原动画
+                                baseX = ap.X,
+                                baseY = ap.Y,
+                                baseW = as.X,
+                                baseH = as.Y,
                             }
-                            -- 胶囊迁移到顶层并提升层级：向下展开时锚定右上角，向上展开时锚定右下角
-                            if openUp then
-                                capsule.AnchorPoint = Vector2.new(1, 1)
-                                capsule.Position = UDim2.new(0, ap.X + as.X, 0, ap.Y + as.Y)
-                            else
-                                capsule.AnchorPoint = Vector2.new(1, 0)
-                                capsule.Position = UDim2.new(0, ap.X + as.X, 0, ap.Y)
-                            end
+                            -- 迁移到顶层并提升层级：
+                            -- 用「绝对左上角 + AnchorPoint(0,0)」精确对齐（起始位置只依赖 ap，不受重设锚点影响），
+                            -- 随后位置与尺寸一起补间，从根本上避免展开瞬间的位置瞬移。
+                            capsule.AnchorPoint = Vector2.new(0, 0)
+                            capsule.Position = UDim2.fromOffset(ap.X, ap.Y)
                             capsule.Size = UDim2.new(0, as.X, 0, as.Y)
                             capsule.ClipsDescendants = true
                             capsule.ZIndex = Config.DropdownMenuZ
@@ -2293,14 +2315,21 @@ function Library.CreateWindow(opts)
                                         TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
                                     end
                                 end
-                                TweenService:Create(capsule, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { Size = UDim2.new(0, as.X, 0, as.Y), BackgroundTransparency = 1 }):Play()
+                                TweenService:Create(capsule, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+                                    Position = UDim2.fromOffset(menuState.baseX, menuState.baseY),
+                                    Size = UDim2.new(0, as.X, 0, as.Y),
+                                    BackgroundTransparency = 1,
+                                }):Play()
                                 TweenService:Create(capCorner, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { CornerRadius = menuState.corner }):Play()
                                 task.delay(Config.DropdownCollapseTime + 0.05, restore)
                             end
                             d._closeMenu = closeMenu
                             openDropdownClose = closeMenu
-                            -- 展开动画：胶囊变形长大 + 填充渐显 + 圆角收直
-                            TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = UDim2.new(0, expandW, 0, targetH) }):Play()
+                            -- 展开动画：位置与尺寸一起补间（胶囊从原位置平滑长大）+ 填充渐显 + 圆角收直
+                            TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                                Position = UDim2.fromOffset(endX, endY),
+                                Size = UDim2.new(0, expandW, 0, targetH),
+                            }):Play()
                             TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.DropdownMenuFillTransparency }):Play()
                             TweenService:Create(capCorner, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { CornerRadius = UDim.new(0, Config.DropdownMenuCorner) }):Play()
                             for i, ob in ipairs(container:GetChildren()) do
