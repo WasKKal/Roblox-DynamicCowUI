@@ -128,6 +128,7 @@ local Config = {
     IslandFinalTransparency = 0.4,
     ErrorText = "格式错误",
     ErrorTextColor = Color3.fromRGB(255, 80, 80),
+    MultiErrorText = "出现多个错误 前往控制台",
     RedXColor = Color3.fromRGB(255, 60, 60),
 
     ParticleCount = 26,
@@ -1439,7 +1440,7 @@ function Library.CreateWindow(opts)
     local errorSeqBusy = false
     local function playErrorSequence(customText)
         if errorSeqBusy then
-            if type(customText) == "string" and #customText > 0 then errText = customText end
+            errText = Config.MultiErrorText
             return
         end
         errorSeqBusy = true
@@ -4326,7 +4327,7 @@ function Library.CreateWindow(opts)
     end
     win.Error = function(self, customText)
         if not alive then return end
-        reportError("触发错误销毁动画（" .. (customText or "格式错误") .. " + 红 X + 爆炸）")
+        reportError((type(customText) == "string" and #customText > 0) and customText or Config.ErrorText)
         task.spawn(playErrorSequence, customText)
     end
     win._closeNow = function(self)
