@@ -19,6 +19,7 @@
 - **🎛 可主题化** —— 顶部 `Config` 表集中管理配色、尺寸、时长、缓动
 - **🛡 防御式入参校验** —— 控件签名逐项校验，非法入参走错误动画而非静默崩溃
 - **🧷 同 Title 去重** —— 脚本重复执行不会叠开多套灵动岛，关闭时自动清空 loaded 状态
+- **🔀 多脚本动态接管** —— 多个不同 Title 脚本共存时，面板内一键切换并带接管入场动画与二次确认
 - **🎬 编程控制面板开合** —— `SetWindowAction(bool)` 带动画展开/收起，动画期间调用自动拒绝
 
 ---
@@ -100,7 +101,7 @@ sub:AddDropdown({
 })
 ```
 
-完整示例见仓库中的 [`DynamicCowUI_Example.lua`](./DynamicCowUI_Example.lua)。
+完整示例见仓库中的 [`DynamicCowUI_Example.lua`](./DynamicCowUI_Example.lua)（基础控件综合用法）与 [`DynamicCowUI_Example2.lua`](./DynamicCowUI_Example2.lua)（不同 Title / 选项卡 / 控件，演示多脚本切换按钮）。两个示例使用不同 `Title`，同时运行即可在面板内看到切换按钮。
 
 ---
 
@@ -129,6 +130,7 @@ sub:AddDropdown({
 | `AutoLoadConfig` | `boolean` | 启动时读回配置，默认 `true` |
 | `AutoSaveConfig` | `boolean` | 控件改动自动落盘，默认 `true`；设为 `false` 需显式调用 `win:SaveConfig()` |
 | `AllowDuplicate` | `boolean` | 默认 `false`：同一个 `Title` 重复执行脚本时不再新开窗口，直接返回已存在的窗口句柄 |
+| `ForceEntryAnimation` | `boolean` | 高级选项，默认 `false`。设为 `true` 时强制走标准灵动岛入场动画（脚本切换接管流程内部使用，一般无需手动设置） |
 
 ### 窗口方法
 
@@ -171,6 +173,28 @@ Library.UnloadWindow("MyHub")        --> 关闭并清空 loaded，返回 true
 | `Library.UnloadWindow(title)` | 主动关闭并注销指定 Title，返回是否成功 |
 | `Library.SetWindowAction(bool)` | 等价于 `win:SetWindowAction(bool)` |
 | `Library.GetWindowAction()` | 等价于 `win:GetWindowAction()` |
+
+### 多脚本切换（动态接管）
+
+当同一时刻存在**多个不同 `Title`** 的脚本窗口时，每个已展开面板的右上角（关闭按钮左侧）会出现一枚 **切换按钮**（图标 `arrow-right-left`）。
+
+> 仅当检测到「其它已加载脚本」时按钮才可用；只有一个脚本时按钮自动隐藏，不影响单脚本体验。
+
+点击切换按钮会弹出**二次确认菜单**，列出当前所有其它已加载脚本（超宽下拉，可滚动）；选择其一并确认后：
+
+1. 面板内容渐隐，播放「正在载入脚本…」loader；
+2. 灵动岛接管动画（中心标题上移 / 缩小 / 渐隐 + 彩虹边框收束）；
+3. 以目标脚本的内容**重新构建并自动展开**面板，复用既有过渡时长。
+
+```lua
+-- 两个不同 Title 的脚本同时运行即自动获得切换能力，无需额外代码
+Library:CreateWindow({ Title = "TrashHub复活版", ... })   -- 脚本 A
+Library:CreateWindow({ Title = "CowTools 工具箱", ... })   -- 脚本 B
+
+-- 任意窗口面板上都会出现切换按钮，点击后在已加载脚本间互切
+```
+
+相关配置集中在 `Config` 表的 `Switch*` 系列（见 [主题定制](#-主题定制)）。
 
 ### 分区控件
 
@@ -238,6 +262,25 @@ Config.LongPressThreshold -- 长按阈值
 Config.DefaultTitleIcon  -- 默认标题图标
 Config.TitleLoaderIcon   -- 加载中旋转图标
 Config.TitleIconFailIcon -- 图标加载失败兜底
+
+-- 多脚本切换（检测到其它已加载 UI 时的接管动画）
+Config.SwitchTitleMoveTime     -- 中心标题 上移+缩小+渐隐 时长
+Config.SwitchTitleScale        -- 中心标题 缩小到的比例
+Config.SwitchBorderFadeTime    -- 彩虹边框收束后渐隐时长
+Config.SwitchFadeOutTime       -- 面板自动展开后元素渐隐时长
+Config.SwitchHoldTime          -- loader 与提示文字停留时长
+Config.SwitchLoaderFadeTime    -- loader 与提示文字渐隐时长
+Config.SwitchLoadingText       -- 切换时提示文字（默认「正在切换脚本」）
+Config.SwitchConfirmLoadingText-- 确认后重新载入提示文字（默认「正在载入脚本…」）
+Config.SwitchButtonIcon        -- 切换按钮图标（默认 「arrow-right-left」）
+Config.SwitchDialogW / H       -- 二次确认菜单尺寸（默认 720×250）
+Config.SwitchDialogTitle       -- 二次确认标题（默认「你要切换哪一个脚本？」）
+Config.SwitchDropdownH / MaxH  -- 下拉菜单 高度 / 最大高度
+Config.SwitchDropdownItemH     -- 下拉条目高度
+Config.SwitchDropdownFill      -- 下拉背景色
+Config.SwitchDropdownActiveColor -- 选中态高亮色
+Config.SwitchDropdownTextColor -- 下拉文字色
+Config.SwitchDialogConfirmColor  -- 确认按钮配色
 ```
 
 ---
@@ -246,10 +289,11 @@ Config.TitleIconFailIcon -- 图标加载失败兜底
 
 ```
 Roblox-DynamicCowUI/
-├── DynamicCowUI.lua          # 主库（单文件，包含全部逻辑）
-├── DynamicCowUI_Example.lua# 完整用法示例
-├── icon.png                  # 示例图标
-├── LICENSE                   # 自定义 MIT 开源协议
+├── DynamicCowUI.lua           # 主库（单文件，包含全部逻辑）
+├── DynamicCowUI_Example.lua   # 示例 1：基础控件综合用法（TrashHub 主题）
+├── DynamicCowUI_Example2.lua  # 示例 2：不同 Title / 选项卡 / 控件（CowTools 主题），演示多脚本切换
+├── icon.png                   # 示例图标
+├── LICENSE                    # 自定义 MIT 开源协议
 └── README.md
 ```
 
