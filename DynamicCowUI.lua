@@ -633,6 +633,9 @@ function Library.CreateWindow(opts)
     -- 造成 alive 恒为 nil（渐变流光动画被直接 return 冻结）与 errText 为 nil（错误动画显示默认文字）。
     local alive = true
     local errText = Config.ErrorText
+    -- 灵动岛自定义文字（仅对「收起状态」的灵动岛生效）
+    -- ChangeText 只写这里，绝不覆盖窗口 title：面板标题 / 关闭确认弹窗 / 通知结束后的还原都仍读取 title
+    local islandTextOverride = nil
 
     local flowSpeed = Config.FlowSpeedFast
     RunService.Heartbeat:Connect(function(deltaTime)
@@ -1158,7 +1161,7 @@ function Library.CreateWindow(opts)
                             end
                             task.delay(Config.IslandHandoffFade, function()
                                 if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
-                                islandTextContainer = createIslandText(title, Config.TitleColor, true)
+                                islandTextContainer = createIslandText(islandTextOverride or title, Config.TitleColor, true)
                                 ready = true
                             end)
                         end)
@@ -2519,7 +2522,8 @@ function Library.CreateWindow(opts)
                     destroyTabUI()
                     win._rebuildTabs = nil
                     expanded = false
-                    setIslandText(title, Config.TitleColor)
+                    -- 收起态显示：自定义文字优先，否则窗口 Title
+                    setIslandText(islandTextOverride or title, Config.TitleColor)
                     interacting = false
                 end
 
@@ -2541,6 +2545,16 @@ function Library.CreateWindow(opts)
                                 titleGen = titleGen + 1
                                 local myTitleGen = titleGen
                                 islandScale.Scale = 1
+                            -- 面板标题始终读取窗口 Title：自定义灵动岛文字只在收起态生效。
+                            -- 展开前先把容器文字重建为 Title（新字先置全透明，交给下面的渐隐/渐显接管），
+                            -- 这样下方标题宽度测量也基于 Title，而不是残留的自定义文字。
+                            if islandTextContainer and islandTextContainer.Parent then
+                                setIslandText(title, Config.TitleColor)
+                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                                    if lb then lb.TextTransparency = 1 end
+                                end
+                            end
                             edge.AnchorPoint = Vector2.new(0, 0)
                             edge.Position = Config.IslandPosition
                             local sw = screenGui.AbsoluteSize.X
@@ -2557,7 +2571,6 @@ function Library.CreateWindow(opts)
                             local titlePad = Config.HeaderPad
                             local iconS = Config.TitleIconSize
                             local iconGap = Config.TitleIconGap
-                            local titleW = islandTextContainer.AbsoluteSize.X
                             local titleH = islandTextContainer.AbsoluteSize.Y
                             local infoH = Config.InfoBoxHeight
                             local vGap = Config.InfoTopGap
@@ -2566,7 +2579,6 @@ function Library.CreateWindow(opts)
                             local blockCY = blockTop + blockH / 2
                             local iconLeft = m + titlePad + Config.TitleIconNudgeX
                             local contentLeftX = iconLeft + iconS + iconGap
-                            local titleTargetX = contentLeftX + titleW / 2
                             local titleTargetY = blockTop + titleH / 2 + Config.TitleDrop
                             local infoTop = blockTop + titleH + vGap - Config.InfoRise
                             local listLayout = islandTextContainer:FindFirstChildOfClass("UIListLayout")
@@ -2587,10 +2599,12 @@ function Library.CreateWindow(opts)
                             task.delay(Config.FadeInTime, function()
                                 if not expanded or myTitleGen ~= titleGen then return end
                                 if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
+                                -- 文字重建为 Title 后容器宽度可能与测量时不同（自动尺寸下一帧才刷新），此处按实际宽度重算居中点
+                                local tipX = contentLeftX + islandTextContainer.AbsoluteSize.X / 2
                                 local slide = 40
-                                islandTextContainer.Position = UDim2.new(0, titleTargetX + slide, 0, titleTargetY)
+                                islandTextContainer.Position = UDim2.new(0, tipX + slide, 0, titleTargetY)
                                 TweenService:Create(islandTextContainer, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                                    Position = UDim2.new(0, titleTargetX, 0, titleTargetY),
+                                    Position = UDim2.new(0, tipX, 0, titleTargetY),
                                 }):Play()
                                 fadeTitleLabels(0)
                                 task.delay(Config.InfoEnterDelay, function()
@@ -2688,7 +2702,8 @@ function Library.CreateWindow(opts)
                                     contentFrame.Name = "TabContent"
                                     contentFrame.BackgroundTransparency = 1
                                     contentFrame.Position = UDim2.new(0, contentX, 0, listTop)
-                                    contentFrame.Size = UDim2.new(1, -(contentX + titlePad), 1, -(listTop + m))
+                                    -- 控件区域向下延长到面板底边框：原先额外减去 PanelMargin 会在滑动容器底部留出空隙
+                                    contentFrame.Size = UDim2.new(1, -(contentX + titlePad), 1, -listTop)
                                     contentFrame.ClipsDescendants = true
                                     contentFrame.ZIndex = 2
                                     contentFrame.Parent = contentRoot
@@ -3689,7 +3704,7 @@ function Library.CreateWindow(opts)
                 task.delay(et + 0.03, function()
                     if myGen ~= actionGen then return end
                     if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
-                    islandTextContainer = createIslandText(title, Config.TitleColor, true)
+                    islandTextContainer = createIslandText(islandTextOverride or title, Config.TitleColor, true)
                     actionBusy = false
                 end)
             end
@@ -3732,10 +3747,14 @@ function Library.CreateWindow(opts)
     win.DynamicIslandAction = setmetatable({
         ChangeText = function(a, b)
             local text = resolveTextArg(a, b)
-            if type(text) ~= "string" or #text == 0 then return end
-            title = text
+            -- 传空串 / nil 表示清除自定义文字，收起态还原为窗口 Title
+            if text == nil or #text == 0 then
+                islandTextOverride = nil
+            else
+                islandTextOverride = text
+            end
             if not alive or expanded then return end
-            setIslandText(text, Config.TitleColor)
+            setIslandText(islandTextOverride or title, Config.TitleColor)
         end,
         ShowNotify = function(a, b)
             runIslandAction(resolveTextArg(a, b))
