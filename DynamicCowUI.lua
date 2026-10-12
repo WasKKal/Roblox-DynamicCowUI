@@ -1621,7 +1621,7 @@ function Library.CreateWindow(a, ...)
             Config.ShrinkTime, Enum.EasingStyle.Quint, Enum.EasingDirection.Out
         ), {
             CornerRadius = Config.IslandCornerRadius,
-        })
+        }):Play()
         local titleShrinkTween = TweenService:Create(titleScale, TweenInfo.new(
             Config.TitleShrinkTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
         ), {
