@@ -121,6 +121,9 @@ local Config = {
     ToggleIslandRevealTime = 0.26,
     ToggleIslandFadeTime = 0.24,
     ToggleIslandStepTime = 0.055,
+    -- 恢复原标题阶段的逐字间隔缩放：标题渐显的等待总长是「字符数 × StepTime」，
+    -- 标题越长等得越久。乘以该系数可整体加速恢复，设为 0 则所有字同时浮现。
+    ToggleIslandRestoreStepScale = 0.45,
     ToggleIslandOnColor = Color3.fromRGB(70, 160, 255),
     ToggleIslandOffColor = Color3.fromRGB(255, 96, 96),
     LongPressThreshold = 0.5,
@@ -467,6 +470,42 @@ local function writeConfigFile(folder, name, data)
     return true
 end
 
+-- 同 Title 去重注册表：key = Title，value = 窗口句柄。
+-- 同一个脚本被重复执行（execute 多次 / 多次 require）时，避免同一个 Title
+-- 反复创建出多个灵动岛互相叠在一起。窗口真正销毁时会把条目清掉，
+-- 这样关闭 UI 后再次执行脚本仍能正常重新加载。
+local loadedWindows = {}
+local loadedOrder = {}
+
+local function registerLoadedWindow(title, win)
+    if loadedWindows[title] then
+        return false
+    end
+    loadedWindows[title] = win
+    loadedOrder[#loadedOrder + 1] = title
+    if win then
+        win._loadedTitle = title
+    end
+    return true
+end
+
+local function unregisterLoadedWindow(title, win)
+    -- 仅当登记的确实是同一个窗口时才清，避免旧窗口的延迟销毁
+    -- 把新窗口刚登记的条目误删
+    if title == nil then return end
+    if win ~= nil and loadedWindows[title] ~= nil and loadedWindows[title] ~= win then
+        return
+    end
+    if loadedWindows[title] == nil then return end
+    loadedWindows[title] = nil
+    for i = #loadedOrder, 1, -1 do
+        if loadedOrder[i] == title then
+            table.remove(loadedOrder, i)
+            break
+        end
+    end
+end
+
 -- 兼容冒号调用：Library:CreateWindow({...}) 会把 Library 作为首参传入
 local function shiftSelf(a, ...)
     if a == Library then
@@ -583,10 +622,27 @@ function Library.CreateWindow(a, ...)
             end
         end
     end
-    if isError then
-        title = Config.ErrorText
+if isError then
+title = Config.ErrorText
         if opts._error ~= true then reportError(errReason) end
     end
+
+    -- 同 Title 去重：脚本被重复执行时不要把同一个 Title 的灵动岛
+    -- 叠着重开一份。这里直接返回已存在的窗口（第二次执行依旧能拿到
+    -- 有效句柄继续操作），并给出提示。
+    -- opts.AllowDuplicate == true 可以强制再开一份（一般不需要）。
+    local allowDuplicate = type(opts) == "table" and opts.AllowDuplicate == true
+    if not allowDuplicate then
+        local existing = loadedWindows[title]
+        if existing ~= nil then
+            reportError("检测到 Title「" .. tostring(title) .. "」的界面已加载，本次不再重复创建")
+            if type(existing) == "table" and existing.GetWindowAction then
+                pcall(function() existing:_flashLoadedHint() end)
+            end
+            return existing
+        end
+    end
+
     if isfolder and isfolder("lucide-icon-latest") then
         pcall(delfolder, "lucide-icon-latest")
     end
@@ -1532,6 +1588,7 @@ function Library.CreateWindow(a, ...)
                             TweenService:Create(stroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                             task.delay(1.0, function()
                                 alive = false
+                                unregisterLoadedWindow(title, win)
                                 if screenGui and screenGui.Parent then screenGui:Destroy() end
                             end)
                         end)
@@ -1699,6 +1756,7 @@ function Library.CreateWindow(a, ...)
             TweenService:Create(stroke, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
             task.delay(1.0, function()
                 alive = false
+                unregisterLoadedWindow(title, win)
                 if screenGui and screenGui.Parent then screenGui:Destroy() end
             end)
         end)
@@ -3122,7 +3180,7 @@ function Library.CreateWindow(a, ...)
                 local lastPanelLayout = nil
 
                 local function buildTabUI(layout)
-                                local titlePad = layout.titlePad
+        local titlePad = layout.titlePad
                                 local blockH = layout.blockH
                                 local m = layout.m
                                 local top = layout.top
@@ -3429,8 +3487,8 @@ function Library.CreateWindow(a, ...)
                             closeBtn = btn
                 end
 
-                local function buildHeaderDecor()
-                    if not lastPanelLayout then return end
+local function buildHeaderDecor()
+  if not lastPanelLayout then return end
                     if titleIcon then titleIcon:Destroy() end
                     local iconS = Config.TitleIconSize
                     local iconGap = Config.TitleIconGap
@@ -3980,12 +4038,16 @@ function Library.CreateWindow(a, ...)
 
                     task.delay(Config.ToggleIslandHoldTime, function()
                         if not alive then return end
+                        -- 恢复阶段比展示阶段更紧凑：逐字间隔按系数缩放，
+                        -- 否则「字符数 × StepTime」会让长标题迟迟等不到原文字回来
+                        local rStep = step * (Config.ToggleIslandRestoreStepScale or 1)
                         if hc and hc.Parent then
+                            -- 淡出与标题渐显同用缩放后的间隔，保持与 totalFade 的等待一致
                             for _, e in ipairs(fadeList) do
                                 if not e.obj or not e.obj.Parent then return end
                                 local isText = e.obj:IsA("TextLabel")
                                 local md = math.max(e.dist, 0.001)
-                                task.delay(md * step, function()
+                                task.delay(md * rStep, function()
                                     if not e.obj or not e.obj.Parent then return end
                                     if isText then
                                         TweenService:Create(e.obj, TweenInfo.new(fadeT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
@@ -3998,7 +4060,7 @@ function Library.CreateWindow(a, ...)
 
                         animateEdge(Config.IslandSize, islandRest, Config.ToggleIslandRestoreTime, 0)
 
-                        local totalFade = #fadeList * step + fadeT + 0.1
+                        local totalFade = #fadeList * rStep + fadeT + 0.1
                         task.delay(totalFade, function()
                             if not alive then return end
                             if hc and hc.Parent then hc:Destroy() end
@@ -4017,13 +4079,13 @@ function Library.CreateWindow(a, ...)
                                 local rc = #restoreChars
                                 for i, lb in ipairs(restoreChars) do
                                     local dist = math.abs(i - (rc + 1) / 2)
-                                    task.delay(dist * step, function()
+                                    task.delay(dist * rStep, function()
                                         if not lb or not lb.Parent then return end
                                         TweenService:Create(lb, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
                                     end)
                                 end
                                 -- 标题渐显完成后再释放忙碌锁，避免下一次交互被吞
-                                task.delay(rc * step + revealT, function()
+                                task.delay(rc * rStep + revealT, function()
                                     if toggleAnimBusy and toggleAnimContainer == hc then
                                         toggleAnimBusy = false
                                         toggleAnimContainer = nil
@@ -4225,13 +4287,14 @@ if hintActive then clearHint(true) end
                                         end
                                         task.delay(1.0, function()
                                             alive = false
+                                            unregisterLoadedWindow(title, win)
                                             if screenGui and screenGui.Parent then screenGui:Destroy() end
                                         end)
                                     end)
                                 end)
                             end
-                            showCloseConfirm = function()
-                                if closeDialog or shutdown then return end
+showCloseConfirm = function()
+        if closeDialog or shutdown then return end
                                 setHeaderVisible(false)
                                 destroyTabUI()
                                 local dlg = Instance.new("Frame")
@@ -4299,6 +4362,153 @@ if hintActive then clearHint(true) end
                         end
                     end)
                 end)
+
+    -- 动画互斥：记录本次展开/收起动画的结束时刻，
+    -- 该时刻之前拒绝新的调用，避免两套动画同时改写 edge 的 Size/Position
+    --（会表现为面板偏移或内容错位）
+    local windowActionUntil = 0
+
+    --- 以编程方式展开面板（等价于长按灵动岛），带完整展开动画
+    local function doExpandPanel()
+        if not alive or shutdown or not ready then return false end
+        if expanded then return false end
+        if hintActive then clearHint(true) end
+        if actionBusy and actionEnd then actionEnd(true) end
+        if toggleAnimBusy then
+            if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
+            toggleAnimContainer = nil
+            toggleAnimBusy = false
+        end
+        -- 先把 edge 归位到标准收起态，避免与残留补间争抢
+        cancelEdgeTweens()
+        resetIslandDrag()
+        edge.AnchorPoint = Vector2.new(0.5, 0.5)
+        edge.Position = islandRest
+        edge.Size = Config.IslandSize
+
+        expanded = true
+        titleGen = titleGen + 1
+        local myTitleGen = titleGen
+        islandScale.Scale = 1
+
+        if islandTextContainer and islandTextContainer.Parent then
+            setIslandText(title, Config.TitleColor)
+            for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                local lb = cf:FindFirstChildOfClass("TextLabel")
+                if lb then lb.TextTransparency = 1 end
+            end
+        end
+        edge.AnchorPoint = Vector2.new(0, 0)
+        edge.Position = Config.IslandPosition
+        local sw = screenGui.AbsoluteSize.X
+        local sh = screenGui.AbsoluteSize.Y
+        local m = Config.PanelMargin
+        local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
+        animateEdge(
+            UDim2.new(0, sw - m * 2, 0, sh - top - m),
+            UDim2.new(0, m, 0, top),
+            Config.PanelExpandTime
+        )
+        playBorderSweep()
+        task.delay(Config.PanelExpandTime, function() winOpen = true end)
+
+        -- 头部布局与长按展开保持一致
+        local titlePad = Config.HeaderPad
+        local iconS = Config.TitleIconSize
+        local iconGap = Config.TitleIconGap
+        local titleH = islandTextContainer and islandTextContainer.Parent
+            and islandTextContainer.AbsoluteSize.Y or Config.TitleIconSize
+        local infoH = Config.InfoBoxHeight
+        local vGap = Config.InfoTopGap
+        local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
+        local blockTop = top + titlePad
+        local iconLeft = m + titlePad + Config.TitleIconNudgeX
+        local contentLeftX = iconLeft + iconS + iconGap
+        local titleTargetY = blockTop + titleH / 2 + Config.TitleDrop
+        local infoTop = blockTop + titleH + vGap - Config.InfoRise
+        local listLayout = islandTextContainer
+            and islandTextContainer:FindFirstChildOfClass("UIListLayout")
+        win._titleLeftX = contentLeftX
+        win._titleY = titleTargetY
+
+        local function fadeTitleLabels(t)
+            cancelTitleTweens()
+            for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                local lb = cf:FindFirstChildOfClass("TextLabel")
+                if lb then
+                    local tw = TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = t })
+                    table.insert(titleTweens, tw)
+                    tw:Play()
+                end
+            end
+        end
+        fadeTitleLabels(1)
+        task.delay(Config.FadeInTime, function()
+            if not expanded or myTitleGen ~= titleGen then return end
+            if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
+            local tipX = contentLeftX + islandTextContainer.AbsoluteSize.X / 2
+            islandTextContainer.Position = UDim2.new(0, tipX + 40, 0, titleTargetY)
+            TweenService:Create(islandTextContainer, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                Position = UDim2.new(0, tipX, 0, titleTargetY),
+            }):Play()
+            fadeTitleLabels(0)
+            task.delay(Config.InfoEnterDelay, function()
+                if not expanded or myTitleGen ~= titleGen then return end
+                if infoLabel and infoLabel.Parent then
+                    TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                        Position = UDim2.new(0, contentLeftX, 0, infoTop),
+                        TextTransparency = 0,
+                    }):Play()
+                end
+            end)
+        end)
+
+        lastPanelLayout = { titlePad = titlePad, blockH = blockH, m = m, top = top, sh = sh }
+        win._rebuildTabs = function() buildTabUI(lastPanelLayout) end
+        buildHeaderDecor()
+        buildTabUI(lastPanelLayout)
+        buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
+        return true
+    end
+
+    --- 以编程方式收起面板（等价于点收起按钮），带收起动画
+    local function doCollapsePanel()
+        if not alive or shutdown then return false end
+ if not expanded then return false end
+        collapsePanel()
+        return true
+    end
+
+    -- SetWindowAction(true) 展开面板，SetWindowAction(false) 收起面板。
+    -- 动画进行中调用会被拒绝（返回 false），避免两套动画互相打架。
+    win.SetWindowAction = function(self, open)
+        if self ~= nil and type(self) == "table" and self ~= win and self.SetWindowAction == nil then
+            open = self
+        end
+        if type(open) ~= "boolean" then
+            reportError("SetWindowAction 参数必须是 boolean（true 展开 / false 收起），已忽略")
+            return false
+        end
+        if not alive or shutdown then return false end
+        if not ready then return false end
+        if windowActionUntil > 0 and os.clock() < windowActionUntil then
+            reportError("SetWindowAction 忽略：面板动画进行中，请稍后再试")
+            return false
+        end
+        local ok
+        if open then
+            ok = doExpandPanel()
+        else
+            ok = doCollapsePanel()
+        end
+        if not ok then return false end
+        -- 锁到本次动画彻底结束（展开含标题/Info 错峰入场）
+        local dur = open
+            and (Config.PanelExpandTime + Config.FadeInTime + Config.InfoEnterDelay + 0.1)
+            or (Config.PanelExpandTime + 0.1)
+        windowActionUntil = os.clock() + dur
+        return true
+    end
                 edge.InputEnded:Connect(function(input)
                     if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
                     if not interacting then return end
@@ -4858,8 +5068,11 @@ if hintActive then clearHint(true) end
         reportError((type(customText) == "string" and #customText > 0) and customText or Config.ErrorText)
         task.spawn(playErrorSequence, customText)
     end
-    win._closeNow = function(self)
+win._closeNow = function(self)
         alive = false
+        -- 关闭 UI 必须清空该Title 的 loaded 状态，
+        -- 否则同一脚本再次执行时会被去重机制误判为「已加载」
+        unregisterLoadedWindow(self and self._loadedTitle or nil, self)
         if self.ScreenGui and self.ScreenGui.Parent then
             pcall(function() self.ScreenGui:Destroy() end)
         end
@@ -5025,8 +5238,9 @@ if hintActive then clearHint(true) end
         end
     end
     win.GetWindowAction = function()
-        return winOpen and "WindowOpen" or "WindowClose"
+    return winOpen and "WindowOpen" or "WindowClose"
     end
+
 
     local function resolveTextArg(a, b)
         if type(a) == "string" then return a end
@@ -5073,10 +5287,33 @@ if hintActive then clearHint(true) end
         if a == win then a = b end
         runIslandAction(resolveTextArg(a, b))
     end
+    -- 重复执行同 Title 脚本时，给已存在的窗口一个轻量提示，
+    -- 让用户知道「不是没反应，而是已经在运行了」
+    win._flashLoadedHint = function()
+        runIslandAction("界面已加载")
+    end
+    -- 主动关闭并注销（供外部在不需要走二次确认时调用）
+    win.Unload = function(self)
+        local t = self and self._loadedTitle or nil
+        if self and type(self) == "table" and self._closeNow then
+            pcall(function() self:_closeNow() end)
+        end
+        unregisterLoadedWindow(t, self)
+        return true
+    end
+
+    -- 登记到同 Title 注册表（放在所有校验通过、即将返回 win 之前）
+    registerLoadedWindow(title, win)
+
     Library._lastWin = win
     Library.DynamicIslandAction = win.DynamicIslandAction
     Library.GetWindowAction = function()
-        return win:GetWindowAction()
+ return win:GetWindowAction()
+    end
+    Library.SetWindowAction = function(a, b)
+        if a == Library then return win:SetWindowAction(b) end
+        if type(a) == "boolean" then return win:SetWindowAction(a) end
+        return win:SetWindowAction(a, b)
     end
     Library.ShowNotify = function(a, b)
         if a == Library then a = b end
@@ -5086,5 +5323,41 @@ if hintActive then clearHint(true) end
 end
 
 Library._demoWin = Library.CreateWindow({ _error = true })
+
+-- ============ 同 Title 去重：查询 / 主动卸载 ============
+-- 返回该Title 当前已加载的窗口句柄，未加载则返回 nil
+function Library.GetLoadedWindow(title)
+    if type(title) ~= "string" or #title == 0 then return nil end
+    local w = loadedWindows[title]
+    if w ~= nil and type(w) == "table" and w._loadedTitle == nil then
+        -- 窗口已被销毁但条目残留（理论上不会发生），顺手清掉
+        loadedWindows[title] = nil
+        return nil
+    end
+    return w
+end
+
+-- 该 Title 是否已加载
+function Library.IsLoaded(title)
+    return Library.GetLoadedWindow(title) ~= nil
+end
+
+-- 主动关闭并注销指定 Title 的窗口（跳过二次确认动画）
+function Library.UnloadWindow(title)
+    local w = Library.GetLoadedWindow(title)
+    if w == nil then return false end
+    pcall(function() w:_closeNow() end)
+    unregisterLoadedWindow(title, w)
+    return true
+end
+
+-- 当前已加载的所有 Title（按加载顺序）
+function Library.GetLoadedTitles()
+    local out = {}
+    for i, t in ipairs(loadedOrder) do
+        if loadedWindows[t] ~= nil then out[#out + 1] = t end
+    end
+    return out
+end
 
 return Library
