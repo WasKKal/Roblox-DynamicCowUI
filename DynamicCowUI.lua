@@ -624,6 +624,12 @@ function Library.CreateWindow(opts)
         TextTransparency = 0,
     }):Play()
 
+    -- 注意：alive/errText 必须在使用它们的闭包定义之前声明。
+    -- 早期版本的局部声明位于下方（原 897 行附近），导致上方的闭包词法上只能捕获全局同名变量（恒为 nil），
+    -- 造成 alive 恒为 nil（渐变流光动画被直接 return 冻结）与 errText 为 nil（错误动画显示默认文字）。
+    local alive = true
+    local errText = Config.ErrorText
+
     local flowSpeed = Config.FlowSpeedFast
     RunService.Heartbeat:Connect(function(deltaTime)
         if not alive then return end
@@ -857,6 +863,7 @@ function Library.CreateWindow(opts)
         return container
     end
 
+    local islandTextContainer = nil
     local function setIslandText(text, color)
         text = text or Config.IslandText
         color = color or Config.TitleColor
@@ -893,11 +900,12 @@ function Library.CreateWindow(opts)
 
     local expanded = false
     local winOpen = false
-    local islandTextContainer = nil
-    local alive = true
     local shutdown = false
     local ready = false
     local actionEnd = nil
+    -- actionBusy 需在使用处（playHintAnimation，位于 runIslandAction 之前）之前声明，
+    -- 否则该闭包读取的是全局同名变量（恒为 nil），提示动画无法打断进行中的通知。
+    local actionBusy = false
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
     win._configFolder = configFolder
     win._autoLoadConfig = autoLoadConfig
@@ -1227,7 +1235,7 @@ function Library.CreateWindow(opts)
     end
 
     local function playErrorSequence(customText)
-        local errText = (type(customText) == "string" and #customText > 0) and customText or Config.ErrorText
+        errText = (type(customText) == "string" and #customText > 0) and customText or Config.ErrorText
         expanded = false
         winOpen = false
         flowSpeed = 0
@@ -1937,6 +1945,11 @@ function Library.CreateWindow(opts)
                             end
                         end
                         sl.Value = sl.Value or sl.MinValue
+                        sl._frame = frame
+                        sl._track = track
+                        sl._fill = fill
+                        sl._thumb = thumb
+                        sl._titleLbl = titleLbl
                         sl._refresh(false)
                         local dragging = false
                         local function pointFrac(input)
@@ -1963,11 +1976,6 @@ function Library.CreateWindow(opts)
                                 end)
                             end
                         end)
-                        sl._frame = frame
-                        sl._track = track
-                        sl._fill = fill
-                        sl._thumb = thumb
-                        sl._titleLbl = titleLbl
                         return frame
                     end
                     local function makeDropdown(d, order)
@@ -3516,7 +3524,6 @@ function Library.CreateWindow(opts)
         end
     end
 
-    local actionBusy = false
     local actionGen = 0
     local function runIslandAction(text)
         if not alive then return end
