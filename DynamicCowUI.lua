@@ -4073,7 +4073,7 @@ function Library.CreateWindow(opts)
                 local ok5, em5 = pcall(function()
                     if type(sopts) ~= "table" then error("AddSlider 入参不是 table") end
                     if sopts.Title == nil or type(sopts.Title) ~= "string" or #sopts.Title == 0 then error("AddSlider Title 非法") end
-                    if sopts.Degree == nil or type(sopts.Degree) ~= "number" then error("AddSlider Degree 非法") end
+                    if sopts.Degree ~= nil and type(sopts.Degree) ~= "number" then error("AddSlider Degree 非法") end
                     if sopts.MinValue == nil or type(sopts.MinValue) ~= "number" then error("AddSlider MinValue 非法") end
                     if sopts.MaxValue == nil or type(sopts.MaxValue) ~= "number" then error("AddSlider MaxValue 非法") end
                     if sopts.MinValue >= sopts.MaxValue then error("AddSlider MinValue 必须小于 MaxValue") end
@@ -4293,6 +4293,7 @@ function Library.CreateWindow(opts)
         end
         return writeConfigFile(self._configFolder, name, data)
     end
+    win.SaveConfig = win.MakeConfig
     win.LoadConfig = function(self, name)
         name = normCfgName(name)
         if not self._configFolder or #name == 0 then
