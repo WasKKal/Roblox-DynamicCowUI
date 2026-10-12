@@ -398,7 +398,18 @@ local function writeConfigFile(folder, name, data)
     return true
 end
 
-function Library.CreateWindow(opts)
+-- 兼容冒号调用：Library:CreateWindow({...}) 会把 Library 作为首参传入
+local function shiftSelf(a, ...)
+    if a == Library then
+        local n = select("#", ...)
+        if n == 0 then return nil end
+        return (select(1, ...))
+    end
+    return a
+end
+
+function Library.CreateWindow(a, ...)
+    local opts = shiftSelf(a, ...)
     opts = opts or {}
     if Library._demoWin and not Library._demoWin._added then
         pcall(function() Library._demoWin:_closeNow() end)
@@ -4601,10 +4612,14 @@ function Library.CreateWindow(opts)
             setIslandTextAnimated(islandTextOverride or title, Config.TitleColor)
         end,
         ShowNotify = function(a, b)
+            if a == win.DynamicIslandAction then a = b end
             runIslandAction(resolveTextArg(a, b))
         end,
 
         ChangeIconText = function(a, b, c, d)
+            if a == win.DynamicIslandAction then
+                a, b, c, d = b, c, d, nil
+            end
             local text, icon, iconColor
             if type(a) == "string" then
                 text, icon, iconColor = a, b, c
@@ -4620,6 +4635,7 @@ function Library.CreateWindow(opts)
         end,
     }, { __call = function(self) return self end })
     win.ShowNotify = function(a, b)
+        if a == win then a = b end
         runIslandAction(resolveTextArg(a, b))
     end
     Library._lastWin = win
@@ -4628,6 +4644,7 @@ function Library.CreateWindow(opts)
         return win:GetWindowAction()
     end
     Library.ShowNotify = function(a, b)
+        if a == Library then a = b end
         runIslandAction(resolveTextArg(a, b))
     end
     return win
