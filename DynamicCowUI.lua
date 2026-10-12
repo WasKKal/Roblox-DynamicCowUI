@@ -3119,7 +3119,16 @@ function Library.CreateWindow(opts)
                                 destroyTabUI()
                                 local cx2 = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                                 local cy2 = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                                animateEdge(Config.IslandSize, Config.IslandPosition, 0.45, 0.2, function()
+                                -- 岛内文字与灵动岛同步回到岛心：否则复位过程中文字会停在面板标题处，
+                                -- 直到动画结束被销毁重建的瞬间才突然跳到岛心，形成一次明显抖动
+                                -- （此处不改HorizontalAlignment：展开态标题是左对齐，起手改居中会先跳一次）
+                                if islandTextContainer and islandTextContainer.Parent then
+                                    TweenService:Create(islandTextContainer, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                                        Position = UDim2.new(Config.IslandPosition.X.Scale, cx2, Config.IslandPosition.Y.Scale, cy2),
+                                    }):Play()
+                                end
+                                -- over 传 0：复位末段不再有overshoot 回摆，动画收在精确静止值上
+                                animateEdge(Config.IslandSize, Config.IslandPosition, 0.45, 0, function()
                                     edge.AnchorPoint = Vector2.new(0.5, 0.5)
                                     edge.Position = UDim2.new(0.5, cx2, 0, cy2)
                                     local list = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
