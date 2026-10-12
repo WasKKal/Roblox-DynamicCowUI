@@ -255,7 +255,7 @@ local Config = {
     ParagraphBorderThickness = 1,
     ParagraphBackPad = 8,
     ParagraphDarken = 0.1,
-    ParagraphTitleDrop = 4,
+    ParagraphTitleDrop = 8,
     SliderRowHeight = 34,
     SliderTitleSize = 14,
     SliderTitleColor = Color3.new(1, 1, 1),
@@ -3173,7 +3173,7 @@ function Library.CreateWindow(a, ...)
 
                     -- 左侧内边距，让图标不贴灵动岛边缘
                     local leftPad = Instance.new("UIPadding")
-                    leftPad.PaddingLeft = Instance.new("UDim", 0, Config.ToggleIslandPadX)
+                    leftPad.PaddingLeft = UDim.new(0, Config.ToggleIslandPadX)
                     leftPad.Parent = hc
 
                     local step = Config.ToggleIslandStepTime
