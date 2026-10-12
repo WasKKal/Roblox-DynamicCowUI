@@ -70,6 +70,10 @@ local Config = {
     BallHoldTime = 1.5,
     IslandText = "DynamicCow",
     IslandTextColor = Color3.fromRGB(0, 255, 120),
+    -- 灵动岛文字变化动画：仅变化的字符先渐绿，切换为新文字后恢复原色
+    IslandTextChangeColor = Color3.fromRGB(0, 255, 120),
+    IslandTextChangeTintTime = 0.18,
+    IslandTextChangeRestoreTime = 0.45,
     IslandTextSize = 20,
     CJKFont = Enum.Font.GothamMedium,
     TitleLeftShift = 10,
@@ -917,6 +921,67 @@ function Library.CreateWindow(opts)
                 charLabel.Parent = charFrame
             end
         end
+    end
+
+    -- 读取当前灵动岛容器内「按显示顺序排列」的字符（跳过空格），供文字变化动画做逐字比对
+    local function currentIslandChars()
+        local arr = {}
+        if not (islandTextContainer and islandTextContainer.Parent) then return arr end
+        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+            if cf:IsA("Frame") then
+                local lb = cf:FindFirstChildOfClass("TextLabel")
+                if lb then arr[#arr + 1] = { frame = cf, label = lb, ch = lb.Text } end
+            end
+        end
+        return arr
+    end
+
+    -- 灵动岛文字变化动画：只对「发生变化的那一段字符」生效
+    --   旧字符先渐绿 → 切换为新文字（新变化字符同样以绿色出现）→ 恢复原色
+    local function setIslandTextAnimated(newText, color)
+        color = color or Config.TitleColor
+        local oldChars = currentIslandChars()
+        local newItems = {}
+        for _, item in ipairs(parseColoredChars(newText, color)) do
+            if item.ch ~= " " then newItems[#newItems + 1] = item end
+        end
+        -- 容器还没建立 / 字符数量不一致时直接重建
+        if #oldChars == 0 or #newItems == 0 then
+            setIslandText(newText, color)
+            return
+        end
+        -- 求公共前后缀，定位变化区间 [p+1, len-s]
+        local on, nn = #oldChars, #newItems
+        local p = 0
+        while p < on and p < nn and oldChars[p + 1].ch == newItems[p + 1].ch do p = p + 1 end
+        local s = 0
+        while s < (on - p) and s < (nn - p) and oldChars[on - s].ch == newItems[nn - s].ch do s = s + 1 end
+        if p == on and p == nn then return end   -- 文字没有变化
+        local green = Config.IslandTextChangeColor
+        local tint = Config.IslandTextChangeTintTime
+        local restore = Config.IslandTextChangeRestoreTime
+        -- 1) 旧的差异字符渐绿
+        for i = p + 1, on - s do
+            local lb = oldChars[i] and oldChars[i].label
+            if lb and lb.Parent then
+                TweenService:Create(lb, TweenInfo.new(tint, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextColor3 = green }):Play()
+            end
+        end
+        -- 2) 切换为新文字，让新的差异字符以绿色出现后恢复原色
+        task.delay(tint, function()
+            if not alive then return end
+            if not (islandTextContainer and islandTextContainer.Parent) then return end
+            setIslandText(newText, color)
+            local nowChars = currentIslandChars()
+            for i = p + 1, nn - s do
+                local lb = nowChars[i] and nowChars[i].label
+                if lb and lb.Parent then
+                    lb.TextColor3 = green
+                    local target = newItems[i] and newItems[i].color or color
+                    TweenService:Create(lb, TweenInfo.new(restore, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextColor3 = target }):Play()
+                end
+            end
+        end)
     end
 
     local expanded = false
@@ -3820,7 +3885,8 @@ function Library.CreateWindow(opts)
                 islandTextOverride = text
             end
             if not alive or expanded then return end
-            setIslandText(islandTextOverride or title, Config.TitleColor)
+            -- 变化的那段字符带「渐绿 → 切换 → 恢复原色」动画
+            setIslandTextAnimated(islandTextOverride or title, Config.TitleColor)
         end,
         ShowNotify = function(a, b)
             runIslandAction(resolveTextArg(a, b))
