@@ -108,7 +108,7 @@ local Config = {
     ToggleIslandTextSize = 16,
     ToggleIslandGap = 14,
     ToggleIslandPadX = 20,
-    ToggleIslandMinW = 280,
+    ToggleIslandMinW = 160,
     ToggleIslandRevealTime = 0.26,
     ToggleIslandFadeTime = 0.24,
     ToggleIslandStepTime = 0.055,
@@ -3597,18 +3597,22 @@ function Library.CreateWindow(a, ...)
                     toggleAnimContainer = hc
                     local hl = Instance.new("UIListLayout")
                     hl.FillDirection = Enum.FillDirection.Horizontal
-                    -- 图标固定在最左侧，内容整体左对齐
-                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Left
+                    -- 左右对称内边距 + 居中对齐：
+                    -- 内容宽度等于 inner，而灵动岛宽度 targetW = max(MinW, inner + PadX*2)，
+                    -- 用对称 padding + Center 可保证内容在两种情况下都真正居中
+                    -- （原实现是 Left 对齐 + 仅左 padding，内容窄于灵动岛时会全部贴死左侧）
+                    hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
                     hl.VerticalAlignment = Enum.VerticalAlignment.Center
                     hl.SortOrder = Enum.SortOrder.LayoutOrder
                     -- 字符之间不加间距，「已开启」与名称之间也不分隔
                     hl.Padding = UDim.new(0, 0)
                     hl.Parent = hc
 
-                    -- 左侧内边距，让图标不贴灵动岛边缘
-                    local leftPad = Instance.new("UIPadding")
-                    leftPad.PaddingLeft = UDim.new(0, Config.ToggleIslandPadX)
-                    leftPad.Parent = hc
+                    -- 左右对称内边距：与 targetW 的 inner + PadX*2 计算一致，保证内容居中
+                    local bothPad = Instance.new("UIPadding")
+                    bothPad.PaddingLeft = UDim.new(0, Config.ToggleIslandPadX)
+                    bothPad.PaddingRight = UDim.new(0, Config.ToggleIslandPadX)
+                    bothPad.Parent = hc
 
                     local step = Config.ToggleIslandStepTime
                     local revealT = Config.ToggleIslandRevealTime
