@@ -103,8 +103,15 @@ local Config = {
     ErrorText = "格式错误",
     ErrorTextColor = Color3.fromRGB(255, 80, 80),
     RedXColor = Color3.fromRGB(255, 60, 60),
+    -- 爆炸粒子：数量在 [Min, Max] 之间每次随机；方向为随机角度 + 随机初速
     ParticleCount = 26,
+    ParticleCountMin = 16,
+    ParticleCountMax = 42,
     ParticleSize = 5,
+    ParticleSizeVar = 3,      -- 粒子尺寸随机浮动上限（0 表示不随机）
+    ParticleSpeedMin = 150,
+    ParticleSpeedMax = 420,
+    ParticleUpBias = 90,       -- 向上偏置，让爆散更有抛射感
     ParticleGravity = 700,
     InfoTextSize = 16,
     InfoColor = Color3.fromRGB(200, 205, 210),
@@ -1090,9 +1097,20 @@ function Library.CreateWindow(opts)
         local iw = aSize.X
         local ih = aSize.Y
         local parts = {}
-        for _ = 1, Config.ParticleCount do
+        -- 粒子数量：每次爆炸在 [ParticleCountMin, ParticleCountMax] 内随机（ParticleCount 作为缺省基准）
+        local pMin = math.max(1, Config.ParticleCountMin or Config.ParticleCount)
+        local pMax = math.max(pMin, Config.ParticleCountMax or Config.ParticleCount)
+        local count = math.random(pMin, pMax)
+        for _ = 1, count do
             local p = Instance.new("Frame")
-            p.Size = UDim2.fromOffset(Config.ParticleSize, Config.ParticleSize)
+            p.Name = "IslandParticle"
+            -- 粒子尺寸也可随机，避免整齐划一
+            local psize = Config.ParticleSize
+            if Config.ParticleSizeVar and Config.ParticleSizeVar > 0 then
+                psize = Config.ParticleSize + math.random(-Config.ParticleSizeVar, Config.ParticleSizeVar)
+                if psize < 1 then psize = 1 end
+            end
+            p.Size = UDim2.fromOffset(psize, psize)
             p.BackgroundColor3 = Color3.new(1, 1, 1)
             p.BorderSizePixel = 0
             p.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1100,9 +1118,17 @@ function Library.CreateWindow(opts)
             local py = cy + (math.random() * 2 - 1) * ih / 2
             p.Position = UDim2.new(0, px, 0, py)
             p.Parent = screenGui
+            -- 方向：360° 随机角度 + 随机初速区间
             local ang = math.random() * math.pi * 2
-            local spd = 140 + math.random() * 220
-            parts[#parts + 1] = { f = p, vx = math.cos(ang) * spd, vy = math.sin(ang) * spd - 160 }
+            local smin = Config.ParticleSpeedMin or 140
+            local smax = Config.ParticleSpeedMax or 360
+            if smax < smin then smax = smin end
+            local spd = smin + math.random() * (smax - smin)
+            parts[#parts + 1] = {
+                f = p,
+                vx = math.cos(ang) * spd,
+                vy = math.sin(ang) * spd - (Config.ParticleUpBias or 0),
+            }
         end
         local grav = Config.ParticleGravity
         local conn
