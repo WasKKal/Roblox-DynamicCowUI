@@ -410,27 +410,44 @@ function Library.CreateWindow(opts)
     local title = Config.TitleText
     local info = ""
     local iconName = Config.DefaultTitleIcon
+    local iconFromURL = nil
     local iconColor = Config.DefaultTitleIconColor
+    local iconColorSet = false
     local configFolder = nil
     local autoLoadConfig = true
     if not isError then
         if type(opts) ~= "table" then
             isError = true
             errReason = "CreateWindow 入参不是 table（收到 " .. type(opts) .. "）"
-        elseif opts.Title ~= nil and (type(opts.Title) ~= "string" or #opts.Title == 0) then
+        elseif opts.Title == nil then
+            isError = true
+            errReason = "CreateWindow 缺少必填签名 Title"
+        elseif type(opts.Title) ~= "string" or #opts.Title == 0 then
             isError = true
             errReason = "CreateWindow Title 非法（收到 " .. type(opts.Title) .. "）"
-        elseif opts.Title == nil then
-            title = Config.TitleText
         else
             title = opts.Title
         end
-        if not isError and opts.Info ~= nil then
-            if type(opts.Info) ~= "string" then
+        if not isError then
+            if opts.Info == nil then
+                isError = true
+                errReason = "CreateWindow 缺少必填签名 Info"
+            elseif type(opts.Info) ~= "string" then
                 isError = true
                 errReason = "CreateWindow Info 非法（收到 " .. type(opts.Info) .. "）"
             else
                 info = opts.Info
+            end
+        end
+        if not isError and opts.IconFromURL ~= nil then
+            if type(opts.IconFromURL) ~= "string" or #opts.IconFromURL == 0 then
+                isError = true
+                errReason = "CreateWindow IconFromURL 非法（收到 " .. type(opts.IconFromURL) .. "）"
+            elseif opts.Folder == nil or type(opts.Folder) ~= "string" or #opts.Folder == 0 then
+                isError = true
+                errReason = "CreateWindow 设置 IconFromURL 时必须包含 Folder（图标将下载到该 Folder 下）"
+            else
+                iconFromURL = opts.IconFromURL
             end
         end
         if not isError and opts.Icon ~= nil then
@@ -441,12 +458,17 @@ function Library.CreateWindow(opts)
                 iconName = opts.Icon
             end
         end
+        if not isError and not iconFromURL and opts.Icon == nil then
+            isError = true
+            errReason = "CreateWindow 缺少必填签名 Icon 或 IconFromURL（任意包含一个即可）"
+        end
         if not isError and opts.IconColor ~= nil then
             if typeof(opts.IconColor) ~= "Color3" then
                 isError = true
                 errReason = "CreateWindow IconColor 非法（收到 " .. (typeof(opts.IconColor) or type(opts.IconColor)) .. "）"
             else
                 iconColor = opts.IconColor
+                iconColorSet = true
             end
         end
         if not isError and opts.Folder ~= nil then
@@ -507,6 +529,36 @@ function Library.CreateWindow(opts)
         if not ok or type(module) ~= "table" or type(module.GetAsset) ~= "function" then return nil end
         lucideModule = module
         return lucideModule
+    end
+
+    local urlAssetCache = {}
+    local function loadIconFromURL(url)
+        if type(url) ~= "string" or #url == 0 then return nil end
+        if urlAssetCache[url] then return urlAssetCache[url] end
+        local result = nil
+        local body = httpGet(url)
+        if body and #body > 0 then
+            local ext = "png"
+            local m = url:lower():match("%.(png|jpg|jpeg|webp|gif)$")
+            if m then ext = m end
+            local dir = "DynamicCowUI/Config/" .. tostring(configFolder)
+            local path = dir .. "/icon_from_url." .. ext
+            pcall(function()
+                if isfolder and not isfolder("DynamicCowUI/Config") then makefolder("DynamicCowUI/Config") end
+                if isfolder and not isfolder(dir) then makefolder(dir) end
+                writefile(path, body)
+            end)
+            if getcustomasset then
+                local ok, id = pcall(getcustomasset, path)
+                if ok and type(id) == "string" and #id > 0 then result = id end
+            end
+            if not result and getsynasset then
+                local ok, id = pcall(getsynasset, path)
+                if ok and type(id) == "string" and #id > 0 then result = id end
+            end
+        end
+        urlAssetCache[url] = result or false
+        return result
     end
 
     if not loadLucide() then
@@ -3310,13 +3362,24 @@ function Library.CreateWindow(opts)
                             ic.Position = UDim2.new(0, iconLeft + iconS / 2, 0, blockCY)
                             ic.Parent = screenGui
                             titleIcon = ic
+                            if iconFromURL then
+                                ic.ScaleType = Enum.ScaleType.Crop
+                                if not iconColorSet then ic.ImageColor3 = Color3.new(1, 1, 1) end
+                            end
                             task.spawn(function()
-                                local lucide = loadLucide()
-                                if lucide then
-                                    local ok, asset = pcall(lucide.GetAsset, iconName)
-                                    if ok and asset and asset.Url then
-                                        ic.Image = asset.Url
-                                        if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                local applied = false
+                                if iconFromURL then
+                                    local assetId = loadIconFromURL(iconFromURL)
+                                    if assetId then ic.Image = assetId applied = true end
+                                end
+                                if not applied then
+                                    local lucide = loadLucide()
+                                    if lucide then
+                                        local ok, asset = pcall(lucide.GetAsset, iconName)
+                                        if ok and asset and asset.Url then
+                                            ic.Image = asset.Url
+                                            if asset.ImageRectOffset then ic.ImageRectOffset = asset.ImageRectOffset ic.ImageRectSize = asset.ImageRectSize end
+                                        end
                                     end
                                 end
                                 task.delay(Config.PanelExpandTime, function()
@@ -4062,12 +4125,12 @@ function Library.CreateWindow(opts)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return ln
             end
-            st.AddSlider = function(self3, a, b, c, d, e)
+            st.AddSlider = function(self3, a, b, c, d, e, f)
                 local sopts
                 if type(a) == "table" then
                     sopts = a
                 else
-                    sopts = { Title = a, Degree = b, MinValue = c, MaxValue = d, FillColor = e }
+                    sopts = { Title = a, Degree = b, MinValue = c, MaxValue = d, FillColor = e, Default = f }
                 end
                 sopts = sopts or {}
                 local ok5, em5 = pcall(function()
@@ -4079,6 +4142,7 @@ function Library.CreateWindow(opts)
                     if sopts.MinValue >= sopts.MaxValue then error("AddSlider MinValue 必须小于 MaxValue") end
                     if sopts.FillColor ~= nil and typeof(sopts.FillColor) ~= "Color3" then error("AddSlider FillColor 非法") end
                     if sopts.Value ~= nil and type(sopts.Value) ~= "number" then error("AddSlider Value 非法") end
+                    if sopts.Default ~= nil and type(sopts.Default) ~= "number" then error("AddSlider Default 非法") end
                     if sopts.ConfigKey ~= nil and (type(sopts.ConfigKey) ~= "string" or #sopts.ConfigKey == 0) then error("AddSlider ConfigKey 非法") end
                 end)
                 if not ok5 then
@@ -4093,14 +4157,22 @@ function Library.CreateWindow(opts)
                 end
                 local sl = {
                     Title = sopts.Title,
-                    Degree = sopts.Degree,
+                    Degree = sopts.Degree or 1,
                     MinValue = sopts.MinValue,
                     MaxValue = sopts.MaxValue,
                     FillColor = sopts.FillColor,
-                    Value = sopts.Value,
+                    Value = nil,
                     OnChanged = sopts.OnChanged,
                     ConfigKey = sopts.ConfigKey,
                 }
+                local initV = sopts.Default
+                if initV == nil then initV = sopts.Value end
+                if initV == nil then initV = (sl.MinValue + sl.MaxValue) / 2 end
+                if sl.Degree > 0 then
+                    initV = sl.MinValue + math.floor((initV - sl.MinValue) / sl.Degree + 0.5) * sl.Degree
+                end
+                if initV < sl.MinValue then initV = sl.MinValue elseif initV > sl.MaxValue then initV = sl.MaxValue end
+                sl.Value = initV
                 sl.GetValue = function(self4)
                     return self4.Value
                 end
