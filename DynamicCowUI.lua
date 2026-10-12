@@ -2904,8 +2904,13 @@ function Library.CreateWindow(a, ...)
                     setIslandText(islandTextOverride or title, Config.TitleColor)
                     interacting = false
 
-                    if not skipToggleAnim and playToggleStateAnimation then
-                        task.delay(0.05, function() playToggleStateAnimation() end)
+                    if skipToggleAnim then
+                        lastToggleInfo = nil
+                    elseif playToggleStateAnimation then
+                        task.delay(0.05, function()
+                            if not alive or shutdown then lastToggleInfo = nil return end
+                            playToggleStateAnimation()
+                        end)
                     end
                 end
 
@@ -3096,10 +3101,12 @@ function Library.CreateWindow(a, ...)
                 end
 
                 playToggleStateAnimation = function()
-                    if not alive or not ready or shutdown then return end
-                    if toggleAnimBusy or iconTextBusy or hintActive then return end
+                    if not alive or not ready or shutdown then lastToggleInfo = nil return end
+                    if toggleAnimBusy or iconTextBusy or hintActive then lastToggleInfo = nil return end
                     local info = lastToggleInfo
                     if not info then return end
+                    -- 一次性消费：播完即清空，避免后续收起反复重播上次的开关状态动画
+                    lastToggleInfo = nil
                     local on = info.Value == true
                     local stateColor = on and Config.ToggleIslandOnColor or Config.ToggleIslandOffColor
                     local stateText = on and "已开启" or "已关闭"
