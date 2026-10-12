@@ -16,8 +16,10 @@
 - **💾 配置持久化** —— 所有带 `ConfigKey` 的控件自动读写同一份 `Config.json`，支持显式读写与单项编辑
 - **🌈 Lucide 图标体系** —— 全部内置图标来自 Lucide，支持自定义名称与染色
 - **🖼 远程图标** —— `IconFromURL` 下载期间显示旋转 loader，失败自动回退 `carton`
-- **🎛 可主题化** —— 顶��� `Config` 表集中管理配色、尺寸、时长、缓动
+- **🎛 可主题化** —— 顶部 `Config` 表集中管理配色、尺寸、时长、缓动
 - **🛡 防御式入参校验** —— 控件签名逐项校验，非法入参走错误动画而非静默崩溃
+- **🧷 同 Title 去重** —— 脚本重复执行不会叠开多套灵动岛，关闭时自动清空 loaded 状态
+- **🎬 编程控制面板开合** —— `SetWindowAction(bool)` 带动画展开/收起，动画期间调用自动拒绝
 
 ---
 
@@ -126,6 +128,7 @@ sub:AddDropdown({
 | `Folder` | `string` | 配置保存目录名（使用 `ConfigKey` 时必填） |
 | `AutoLoadConfig` | `boolean` | 启动时读回配置，默认 `true` |
 | `AutoSaveConfig` | `boolean` | 控件改动自动落盘，默认 `true`；设为 `false` 需显式调用 `win:SaveConfig()` |
+| `AllowDuplicate` | `boolean` | 默认 `false`：同一个 `Title` 重复执行脚本时不再新开窗口，直接返回已存在的窗口句柄 |
 
 ### 窗口方法
 
@@ -134,10 +137,40 @@ sub:AddDropdown({
 | `win:AddTab({ Title, Icon })` | 新建选项卡，返回 tab 对象 |
 | `win:ShowNotify(text)` | 在灵动岛上播放一段提示动画 |
 | `win:GetWindowAction()` | 返回 `"WindowOpen"` / `"WindowClose"` |
-| `win:SaveConfig([name])` | 将当前控件值写入配置（无参时写入 `Config.json`） |
+| `win:SetWindowAction(bool)` | `true` 展开面板、`false` 收起面板，均带完整动画。**动画进行中调用会被拒绝并返回 `false`**，需等动画结束后再试 |
+| `win:SaveConfig([name])` | 将当前控件值写入配置（无参时写入 `Config.json`），与 `MakeConfig` 等价 |
 | `win:LoadConfig([name])` | 从配置读回并写回控件 |
+| `win:MakeConfig([name])` | 同 `SaveConfig`，把当前所有 `ConfigKey` 控件值写成一份快照 |
 | `win:EditConfig(name, key, value)` | 读取 → 改单项 → 写回 → 同步控件 |
+| `win:Add([content])` | 把自定义内容挂到窗口上（`table` 描述或直接传 `Instance`） |
 | `win:Error([text])` | 主动触发错误动画 |
+| `win:Unload()` | 关闭并注销该窗口（跳过二次确认动画），清空同 Title 的 loaded 状态 |
+
+### 同 Title 去重
+
+脚本被重复执行（多次 `execute` / 多次 `require`）时，**同一个 `Title` 不会开出第二套灵动岛**：
+第二次 `CreateWindow` 会直接返回已存在的窗口句柄，并让灵动岛闪一下「界面已加载」。
+窗口关闭或 `Unload()` 后，loaded 状态自动清空，此时再次执行脚本可正常重新加载。
+
+```lua
+local Library = loadstring(game:HttpGet("...DynamicCowUI.lua"))()
+
+local win = Library:CreateWindow({ Title = "MyHub", Info = "...", Icon = "skull" })
+
+Library.IsLoaded("MyHub")            --> true
+Library.GetLoadedWindow("MyHub")     --> win（同一张表）
+Library.GetLoadedTitles()            --> { "MyHub", ... } 按加载顺序
+Library.UnloadWindow("MyHub")        --> 关闭并清空 loaded，返回 true
+```
+
+| 库级方法 | 说明 |
+|------|------|
+| `Library.IsLoaded(title)` | 该 Title 是否已加载 |
+| `Library.GetLoadedWindow(title)` | 返回已加载的窗口句柄，未加载返回 `nil` |
+| `Library.GetLoadedTitles()` | 返回当前所有已加载 Title（按加载顺序） |
+| `Library.UnloadWindow(title)` | 主动关闭并注销指定 Title，返回是否成功 |
+| `Library.SetWindowAction(bool)` | 等价于 `win:SetWindowAction(bool)` |
+| `Library.GetWindowAction()` | 等价于 `win:GetWindowAction()` |
 
 ### 分区控件
 
@@ -149,8 +182,18 @@ sub:AddDropdown({
 | `AddToggle({ Title, Icon, Default, IconColor, ThumbColor, TrackColor, ConfigKey, Callback })` | 开关 |
 | `AddSlider({ Title, Degree, MinValue, MaxValue, FillColor, Default, Value, ConfigKey })` | 滑条 |
 | `AddDropdown({ Title, Multiple, Value, DefaultValue, ConfigKey })` | 下拉，`Value` 为条目数组 |
-| `AddParagraph({ Title, Desc, Image, ImageSize, ImageColor })` | 段落 |
-| `AddLine()` | 横向细分隔线 |
+| `AddParagraph({ Title, Info, Icon, IconColor, BackColor })` | 段落文本块 |
+| `AddLine([Color\|opts])` | 横向细分隔线，三种调用形式：`AddLine()` / `AddLine(Color3)` / `AddLine({ Color, Thickness, Inset })` |
+
+各控件的**返回值**还支持这些方法，可在运行时改值而不重建界面：
+
+| 控件 | 方法 |
+|------|------|
+| `AddToggle` | `:Set(bool)`、`:GetValue()` |
+| `AddSlider` | `:SetValue(num [, animate])`、`:GetValue()` |
+| `AddDropdown` | `:SetSelected(v)`、`:GetSelected()` / `:GetValue()` |
+| `AddParagraph` | `:SetTitle(str)`、`:SetInfo(str)`、`:SetIcon(name)` |
+| `AddLine` | `:SetColor(Color3)`、`:SetThickness(num)`、`:SetInset(num)`、`:Destroy()` |
 
 ### 灵动岛信息位
 
