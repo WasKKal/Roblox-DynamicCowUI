@@ -1739,7 +1739,7 @@ function Library.CreateWindow(opts)
                                 saveConfigValue(win._configFolder, tg.ConfigKey, tg.Value)
                             end
                             if typeof(tg.Callback) == "function" then
-                                local okC, errC = pcall(tg.Callback, tg.Value)
+                                local okC, errC = pcall(tg.Callback, tg.Value, tg)
                                 if not okC then reportError("AddToggle Callback 报错: " .. tostring(errC)) end
                             end
                         end)
@@ -1935,7 +1935,9 @@ function Library.CreateWindow(opts)
                                 saveConfigValue(win._configFolder, sl.ConfigKey, sl.Value)
                             end
                             if type(sl.OnChanged) == "function" then
-                                local okC, errC = pcall(sl.OnChanged, sl.Value)
+                                -- 第 2 个参数回传控件句柄：推荐写 OnChanged = function(v, self) self:SetTitle(...) end
+                                -- （直接写 local x = AddSlider{OnChanged=function() x:... end} 时 x 会被解析为全局 nil 而报错）
+                                local okC, errC = pcall(sl.OnChanged, sl.Value, sl)
                                 if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
                             end
                         end
@@ -2044,7 +2046,7 @@ function Library.CreateWindow(opts)
                             saveSel()
                             refreshHighlights()
                             if type(d.OnChanged) == "function" then
-                                local okC, errC = pcall(d.OnChanged, d.Selected)
+                                local okC, errC = pcall(d.OnChanged, d.Selected, d)
                                 if not okC then reportError("AddDropdown OnChanged 报错: " .. tostring(errC)) end
                             end
                             if not d.Multiple and d._closeMenu then d._closeMenu(true) end
@@ -2136,8 +2138,22 @@ function Library.CreateWindow(opts)
                             local ap = capsule.AbsolutePosition
                             local as = capsule.AbsoluteSize
                             local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
-                            local needScroll = contentH > Config.DropdownMenuMaxH
-                            local targetH = needScroll and Config.DropdownMenuMaxH or contentH
+                            -- 按剩余空间动态决定展开方向：
+                            --   下方放得下 → 右上角为锚点，向左下方展开
+                            --   下方放不下且上方更宽裕 → 右下角为锚点，向左上方展开（避免溢出屏幕底部）
+                            local scrH = screenGui.AbsoluteSize.Y
+                            if not scrH or scrH <= 0 then scrH = 720 end   -- 兜底：极端情况下避免方向判断失效
+                            local edgeGap = Config.DropdownMenuPad + 4
+                            local capTop = ap.Y
+                            local capBottom = ap.Y + as.Y
+                            local belowSpace = scrH - capBottom - edgeGap
+                            local aboveSpace = capTop - edgeGap
+                            local openUp = (contentH > belowSpace) and (aboveSpace > belowSpace)
+                            local minH = Config.DropdownOptionH + Config.DropdownMenuPad * 2
+                            local avail = openUp and aboveSpace or belowSpace
+                            if avail < minH then avail = minH end
+                            local targetH = math.min(contentH, Config.DropdownMenuMaxH, avail)
+                            local needScroll = contentH > targetH
                             local expandW = math.max(Config.DropdownMenuW, as.X)
                             menuState = {
                                 parent = capsule.Parent,
@@ -2149,9 +2165,14 @@ function Library.CreateWindow(opts)
                                 corner = capCorner.CornerRadius,
                                 bgColor = capsule.BackgroundColor3,
                             }
-                            -- 胶囊迁移到顶层并提升层级：以右上角为锚点向左下方长大
-                            capsule.AnchorPoint = Vector2.new(1, 0)
-                            capsule.Position = UDim2.new(0, ap.X + as.X, 0, ap.Y)
+                            -- 胶囊迁移到顶层并提升层级：向下展开时锚定右上角，向上展开时锚定右下角
+                            if openUp then
+                                capsule.AnchorPoint = Vector2.new(1, 1)
+                                capsule.Position = UDim2.new(0, ap.X + as.X, 0, ap.Y + as.Y)
+                            else
+                                capsule.AnchorPoint = Vector2.new(1, 0)
+                                capsule.Position = UDim2.new(0, ap.X + as.X, 0, ap.Y)
+                            end
                             capsule.Size = UDim2.new(0, as.X, 0, as.Y)
                             capsule.ClipsDescendants = true
                             capsule.ZIndex = Config.DropdownMenuZ
@@ -3361,7 +3382,7 @@ function Library.CreateWindow(opts)
                         saveConfigValue(win._configFolder, self4.ConfigKey, self4.Value)
                     end
                     if type(self4.OnChanged) == "function" then
-                        local okC, errC = pcall(self4.OnChanged, self4.Value)
+                        local okC, errC = pcall(self4.OnChanged, self4.Value, self4)
                         if not okC then reportError("AddSlider OnChanged 报错: " .. tostring(errC)) end
                     end
                 end
@@ -3479,7 +3500,7 @@ function Library.CreateWindow(opts)
                         end
                     end
                     if type(self4.OnChanged) == "function" then
-                        local okC, errC = pcall(self4.OnChanged, self4.Selected)
+                        local okC, errC = pcall(self4.OnChanged, self4.Selected, self4)
                         if not okC then reportError("AddDropdown OnChanged 报错: " .. tostring(errC)) end
                     end
                 end
