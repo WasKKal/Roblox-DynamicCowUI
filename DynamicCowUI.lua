@@ -3155,6 +3155,21 @@ function Library.CreateWindow(a, ...)
                     local stateText = on and "已开启" or "已关闭"
                     local titleText = info.Title or "Toggle"
 
+                    -- 在图标 / 功能Title / 状态 三组之间插入等宽留白，
+                    -- 用空帧而非 ListLayout.Padding（否则会把「已开启」内部字符也撑开）
+                    -- 注意：parent 必须作为参数传入，本函数定义早于 local hc 声明，
+                    -- 直接用闭包 hc 会捕获到外层错误的 hc（Lua 词法作用域规定）
+                    local function addToggleSpacer(parent, order, w)
+                        local sp = Instance.new("Frame")
+                        sp.Name = "ToggleStateSpacer"
+                        sp.BackgroundTransparency = 1
+                        sp.BorderSizePixel = 0
+                        sp.Size = UDim2.new(0, w, 1, 0)
+                        sp.LayoutOrder = order
+                        sp.ZIndex = 56
+                        sp.Parent = parent
+                    end
+
                     toggleAnimBusy = true
 
                     if actionBusy and actionEnd then actionEnd(true) end
@@ -3168,7 +3183,7 @@ function Library.CreateWindow(a, ...)
                     local gap = Config.ToggleIslandGap
                     local titleW = measureTextWidth(titleText, textSize)
                     local stateW = measureTextWidth(stateText, textSize)
-                    local inner = iconW + (iconW > 0 and gap or 0) + titleW + stateW
+                    local inner = iconW + (iconW > 0 and gap or 0) + titleW + gap + stateW
                     local targetW = math.max(Config.ToggleIslandMinW, inner + Config.ToggleIslandPadX * 2)
 
                     edge.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -3250,6 +3265,9 @@ function Library.CreateWindow(a, ...)
                         -- 图标资源就绪后才淡入，避免出现空白图标
                         table.insert(revealList, { obj = ic, dist = 0, waitImg = true })
                         table.insert(fadeList, { obj = ic, dist = 0 })
+
+                        -- 图标与功能Title 之间按句留出间距
+                        addToggleSpacer(hc, 1.5, gap)
                     end
 
                     do
@@ -3267,6 +3285,9 @@ function Library.CreateWindow(a, ...)
                             table.insert(revealList, { obj = lb, dist = dist })
                             table.insert(fadeList, { obj = lb, dist = dist })
                         end
+
+                        -- 功能Title 与 状态 之间按句留出间距
+                        addToggleSpacer(hc, 2.5, gap)
                     end
 
                     do
