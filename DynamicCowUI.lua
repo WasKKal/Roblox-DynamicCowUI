@@ -101,7 +101,8 @@ local Config = {
     HintSlideTime = 0.35,
 
     IconTextHoldTime = 2,
-    IconTextIconSize = 26,
+    IconTextHeight = 52,
+    IconTextIconSize = 34,
     IconTextTextSize = 17,
     IconTextGap = 12,
     IconTextPadX = 22,
@@ -1373,6 +1374,7 @@ title = Config.ErrorText
     end
 
     local edgeAnimConn = nil
+    local edgeBusyUntil = 0
 
     local edgeTweens = {}
     local function trackEdgeTween(tw)
@@ -1384,13 +1386,6 @@ title = Config.ErrorText
         end)
         return tw
     end
-
-    local function edgeTween(info, props)
-        local tw = TweenService:Create(edge, info, props)
-        trackEdgeTween(tw)
-        tw:Play()
-        return tw
-    end
     local function cancelEdgeTweens()
         for i = #edgeTweens, 1, -1 do
             local tw = edgeTweens[i]
@@ -1398,10 +1393,21 @@ title = Config.ErrorText
             if tw then pcall(function() tw:Cancel() end) end
         end
     end
+
+    local function edgeTween(info, props)
+        cancelEdgeTweens()
+        local busyUntil = os.clock() + (info and info.Time or 0)
+        if busyUntil > edgeBusyUntil then edgeBusyUntil = busyUntil end
+        local tw = TweenService:Create(edge, info, props)
+        trackEdgeTween(tw)
+        tw:Play()
+        return tw
+    end
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
         if edgeAnimConn then pcall(function() edgeAnimConn:Disconnect() end) edgeAnimConn = nil end
 
         cancelEdgeTweens()
+        edgeBusyUntil = os.clock() + (dur or 0)
         local s0 = edge.Size
         local p0 = edge.Position
         local c1 = over or Config.PanelBounce
@@ -1911,6 +1917,7 @@ title = Config.ErrorText
             end
             local function playHintAnimation()
                 if hintActive or expanded or not alive or not ready then return end
+                if os.clock() < edgeBusyUntil then return end
                 if actionBusy and actionEnd then actionEnd(true) end
                 hintActive = true
                 if islandTextContainer and islandTextContainer.Parent then
@@ -3086,11 +3093,13 @@ local closeBtn = nil
                         end
 
                         if sel then
+                            local selStroke = sel:FindFirstChildOfClass("UIStroke")
                             if active then
                                 local first = not sel.Visible
                                 if first then
                                     sel.Position = UDim2.new(0, 0, 0, 0)
                                     sel.BackgroundTransparency = 1
+                                    if selStroke then selStroke.Transparency = 1 end
                                 end
                                 sel.Visible = true
                                 sel.ZIndex = 2
@@ -3100,6 +3109,9 @@ local closeBtn = nil
                                 ), {
                                     BackgroundTransparency = Config.TabSelFillTransparency,
                                 }):Play()
+                                if selStroke then TweenService:Create(selStroke, TweenInfo.new(
+                                    Config.TabSelFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
+                                ), { Transparency = 0 }):Play() end
                             else
                                 if sel.Visible then
 
@@ -3109,6 +3121,9 @@ local closeBtn = nil
                                         BackgroundTransparency = 1,
                                     })
                                     tw:Play()
+                                    if selStroke then TweenService:Create(selStroke, TweenInfo.new(
+                                        Config.TabSelFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
+                                    ), { Transparency = 1 }):Play() end
                                     tw.Completed:Connect(function(state)
                                         if state == Enum.PlaybackState.Completed
                                             and sel.Parent
@@ -3990,6 +4005,25 @@ local function buildHeaderDecor()
 
             local iconTextBusy = false
             local iconTextHc = nil
+            local function clearIconTextHc(fade)
+                iconTextBusy = false
+                local hcOld = iconTextHc
+                iconTextHc = nil
+                if hcOld and hcOld.Parent then
+                    if fade then
+                        for _, ch in ipairs(hcOld:GetDescendants()) do
+                            if ch:IsA("ImageLabel") then
+                                TweenService:Create(ch, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
+                            elseif ch:IsA("TextLabel") then
+                                TweenService:Create(ch, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
+                            end
+                        end
+                        task.delay(Config.FadeInTime + 0.05, function() if hcOld and hcOld.Parent then hcOld:Destroy() end end)
+                    else
+                        hcOld:Destroy()
+                    end
+                end
+            end
             local function playIconTextAnimation(text, iconName, iconColor)
                 if not alive or not ready or shutdown then return end
                 if iconTextBusy then return end
@@ -4030,6 +4064,7 @@ local function buildHeaderDecor()
                 local contentW = iconW + (iconW > 0 and Config.IconTextGap or 0) + tw
                 local targetW = math.max(Config.IconTextMinW, contentW + Config.IconTextPadX * 2)
 
+                local fatH = Config.IconTextHeight
                 local hc = Instance.new("Frame")
                 hc.Name = "IslandIconTextContainer"
                 hc.Size = UDim2.new(1, 0, 1, 0)
@@ -4039,13 +4074,6 @@ local function buildHeaderDecor()
                 hc.ZIndex = 56
                 hc.Parent = edge
                 iconTextHc = hc
-                local hl = Instance.new("UIListLayout")
-                hl.FillDirection = Enum.FillDirection.Horizontal
-                hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
-                hl.VerticalAlignment = Enum.VerticalAlignment.Center
-                hl.SortOrder = Enum.SortOrder.LayoutOrder
-                hl.Padding = UDim.new(0, iconW > 0 and Config.IconTextGap or 0)
-                hl.Parent = hc
 
                 if islandTextContainer and islandTextContainer.Parent then
                     for _, cf in ipairs(islandTextContainer:GetChildren()) do
@@ -4055,16 +4083,24 @@ local function buildHeaderDecor()
                 end
                 local iconLbl = nil
                 if iconName and iconName ~= "" then
+                    local iconHolder = Instance.new("Frame")
+                    iconHolder.Name = "IconTextIconHolder"
+                    iconHolder.BackgroundTransparency = 1
+                    iconHolder.BorderSizePixel = 0
+                    iconHolder.AnchorPoint = Vector2.new(0, 0.5)
+                    iconHolder.Position = UDim2.new(0, Config.IconTextPadX, 0.5, 0)
+                    iconHolder.Size = UDim2.fromOffset(iconSize, iconSize)
+                    iconHolder.ZIndex = 57
+                    iconHolder.Parent = hc
                     iconLbl = Instance.new("ImageLabel")
                     iconLbl.Name = "IconTextIcon"
                     iconLbl.BackgroundTransparency = 1
-                    iconLbl.Size = UDim2.fromOffset(iconSize, iconSize)
+                    iconLbl.Size = UDim2.new(1, 0, 1, 0)
                     iconLbl.ImageColor3 = iconColor or Config.SubTitleColor
                     iconLbl.ImageTransparency = 1
                     iconLbl.ScaleType = Enum.ScaleType.Fit
-                    iconLbl.LayoutOrder = 1
-                    iconLbl.ZIndex = 57
-                    iconLbl.Parent = hc
+                    iconLbl.ZIndex = 58
+                    iconLbl.Parent = iconHolder
                     task.spawn(function()
                         local lucide = loadLucide()
                         if not lucide then return end
@@ -4080,14 +4116,23 @@ local function buildHeaderDecor()
                 local txtLbl = Instance.new("TextLabel")
                 txtLbl.Name = "IconTextLabel"
                 txtLbl.BackgroundTransparency = 1
-                txtLbl.Size = UDim2.fromOffset(tw, Config.IslandSize.Y.Offset)
+                if iconLbl then
+                    txtLbl.AnchorPoint = Vector2.new(1, 0.5)
+                    txtLbl.Position = UDim2.new(1, -Config.IconTextPadX, 0.5, 0)
+                    txtLbl.TextXAlignment = Enum.TextXAlignment.Right
+                else
+                    txtLbl.AnchorPoint = Vector2.new(0.5, 0.5)
+                    txtLbl.Position = UDim2.new(0.5, 0, 0.5, 0)
+                    txtLbl.TextXAlignment = Enum.TextXAlignment.Center
+                end
+                txtLbl.Size = UDim2.fromOffset(tw, fatH)
                 txtLbl.Text = text
                 txtLbl.TextColor3 = Config.TitleColor
                 txtLbl.TextTransparency = 1
                 txtLbl.TextSize = textSize
                 txtLbl.Font = Enum.Font.GothamBold
                 txtLbl.RichText = true
-                txtLbl.LayoutOrder = 2
+                txtLbl.TextYAlignment = Enum.TextYAlignment.Center
                 txtLbl.ZIndex = 57
                 txtLbl.Parent = hc
                 task.delay(0.12, function()
@@ -4099,11 +4144,12 @@ local function buildHeaderDecor()
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
                 edge.Position = islandRest
                 animateEdge(
-                    UDim2.new(0, targetW, 0, Config.IslandSize.Y.Offset),
+                    UDim2.new(0, targetW, 0, fatH),
                     UDim2.new(0.5, cx, 0, cy + (wasExpanded and 0 or 6)),
                     Config.IconTextGrowTime,
                     0
                 )
+                edgeBusyUntil = os.clock() + Config.IconTextGrowTime + Config.IconTextHoldTime + Config.IconTextRestoreTime + 0.35
 
                 task.delay(Config.IconTextHoldTime, function()
 
@@ -4255,6 +4301,7 @@ local function buildHeaderDecor()
                     Config.ToggleIslandGrowTime,
                     0
                 )
+                edgeBusyUntil = os.clock() + Config.ToggleIslandGrowTime + Config.ToggleIslandHoldTime + Config.ToggleIslandRestoreTime + 1.5
 
                 if islandTextContainer and islandTextContainer.Parent then
                     for _, cf in ipairs(islandTextContainer:GetChildren()) do
@@ -4482,6 +4529,8 @@ if hintActive then clearHint(true) end
                                 toggleAnimContainer = nil
                                 toggleAnimBusy = false
                             end
+                            if actionBusy and actionEnd then actionEnd(true) end
+                            if iconTextBusy then clearIconTextHc(true) end
                             expanded = true
                             titleGen = titleGen + 1
                             local myTitleGen = titleGen
@@ -4696,9 +4745,8 @@ local function doExpandPanel()
         toggleAnimContainer = nil
         toggleAnimBusy = false
     end
-    if iconTextBusy then
-        iconTextBusy = false
-        if iconTextHc and iconTextHc.Parent then iconTextHc:Destroy() iconTextHc = nil end
+    if iconTextBusy or (iconTextHc and iconTextHc.Parent) then
+        clearIconTextHc(true)
     end
 
     cancelEdgeTweens()
@@ -4936,6 +4984,18 @@ end
   if tabEmptyLabel then
  TweenService:Create(tabEmptyLabel, ti, { TextTransparency = t }):Play()
       end
+        if tabListContainer then
+            for _, row in ipairs(tabListContainer:GetChildren()) do
+                if row:IsA("TextButton") then
+                    local sel = row:FindFirstChild("TabSel")
+                    if sel then
+                        for _, st in ipairs(sel:GetChildren()) do
+                            if st:IsA("UIStroke") then TweenService:Create(st, ti, { Transparency = t }):Play() end
+                        end
+                    end
+                end
+            end
+        end
     end
 
     local function playPanelContentEntrance()
@@ -5690,10 +5750,21 @@ win._closeNow = function(self)
     end
 
     local actionGen = 0
-    local function runIslandAction(text)
+    local function runIslandAction(text, deferTry)
         if not alive then return end
         if type(text) ~= "string" or #text == 0 then
             reportError("ShowNotify 需要非空字符串")
+            return
+        end
+        if not expanded and os.clock() < edgeBusyUntil and (deferTry or 0) < 12 then
+            task.spawn(function()
+                local waited = 0
+                while alive and not shutdown and not expanded and os.clock() < edgeBusyUntil and waited < 6 do
+                    task.wait(0.03)
+                    waited = waited + 0.03
+                end
+                if alive and not shutdown then runIslandAction(text, (deferTry or 0) + 1) end
+            end)
             return
         end
         if actionBusy and actionEnd then
@@ -5811,12 +5882,18 @@ win._closeNow = function(self)
                         if lb then TweenService:Create(lb, TweenInfo.new(et), { TextTransparency = 1 }):Play() end
                     end
                 end
-                edgeTween(TweenInfo.new(et, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                    Size = UDim2.new(curSize.X.Scale, curSize.X.Offset, curSize.Y.Scale, curSize.Y.Offset),
-                    Position = UDim2.new(curPos.X.Scale, curPos.X.Offset, curPos.Y.Scale, curPos.Y.Offset),
-                })
+                if not edgeAnimConn then
+                    edgeTween(TweenInfo.new(et, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        Size = UDim2.new(curSize.X.Scale, curSize.X.Offset, curSize.Y.Scale, curSize.Y.Offset),
+                        Position = UDim2.new(curPos.X.Scale, curPos.X.Offset, curPos.Y.Scale, curPos.Y.Offset),
+                    })
+                end
                 task.delay(et + 0.03, function()
                     if myGen ~= actionGen then return end
+                    if expanded then
+                        actionBusy = false
+                        return
+                    end
                     if islandTextContainer and islandTextContainer.Parent then islandTextContainer:Destroy() end
                     islandTextContainer = createIslandText(islandTextOverride or title, Config.TitleColor, true)
                     actionBusy = false
