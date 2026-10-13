@@ -100,8 +100,7 @@ sub:AddDropdown({
     ConfigKey = "Mode",
 })
 ```
-
-完整示例见仓库中的 [`DynamicCowUI_Example.lua`](./DynamicCowUI_Example.lua)（基础控件综合用法）与 [`DynamicCowUI_Example2.lua`](./DynamicCowUI_Example2.lua)（不同 Title / 选项卡 / 控件，演示多脚本切换按钮）。两个示例使用不同 `Title`，同时运行即可在面板内看到切换按钮。
+```
 
 ---
 
@@ -290,8 +289,6 @@ Config.SwitchDialogConfirmColor  -- 确认按钮配色
 ```
 Roblox-DynamicCowUI/
 ├── DynamicCowUI.lua           # 主库（单文件，包含全部逻辑）
-├── DynamicCowUI_Example.lua   # 示例 1：基础控件综合用法（TrashHub 主题）
-├── DynamicCowUI_Example2.lua  # 示例 2：不同 Title / 选项卡 / 控件（CowTools 主题），演示多脚本切换
 ├── icon.png                   # 示例图标
 ├── LICENSE                    # 自定义 MIT 开源协议
 └── README.md
