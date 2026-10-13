@@ -53,6 +53,9 @@ local Config = {
     IslandSize = UDim2.new(0, 180, 0, 36),
     IslandPosition = UDim2.new(0.5, -90, 0, 10),
     IslandCornerRadius = UDim.new(0, 18),
+    -- 多脚本销毁后新灵动岛「从圆形展开为胶囊」入场动画
+    CircleGrowTime = 0.5,
+    CircleHoldTime = 0.22,
     TitleText = "Dynamic Cow",
     TitleShrinkScale = 0.85,
     TitleShrinkTime = 0.6,
@@ -1381,6 +1384,16 @@ title = Config.ErrorText
 
     local toggleAnimContainer = nil
     local toggleAnimBusy = false
+    local toggleAnimGen = 0
+
+    -- 取消进行中的 toggle 状态显示动画：销毁容器、置忙标志，
+    -- 并递增代数使动画内所有已排期的 task.delay 回调失效（防止与展开面板打架）
+    local function cancelToggleAnim()
+        toggleAnimGen = toggleAnimGen + 1
+        if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
+        toggleAnimContainer = nil
+        toggleAnimBusy = false
+    end
 
     local actionBusy = false
     local win = { _tabs = {}, _activeTab = 0, _rebuildTabs = nil }
@@ -1856,7 +1869,22 @@ title = Config.ErrorText
             task.delay(1.0, function()
                 alive = false
                 unregisterLoadedWindow(title, win)
+                -- 恰好有一个其它脚本仍在运行时：销毁后由它以「圆形→胶囊」动画接管灵动岛
+                local survivor = nil
+                local survivorCount = 0
+                for _, t in ipairs(loadedOrder) do
+                    if t ~= title and loadedWindows[t] ~= nil then
+                        survivor = loadedWindows[t]
+                        survivorCount = survivorCount + 1
+                    end
+                end
                 if screenGui and screenGui.Parent then screenGui:Destroy() end
+                if survivorCount == 1 and survivor and type(survivor) == "table"
+                   and survivor._restoreFromDestroy then
+                    task.delay(0.05, function()
+                        pcall(function() survivor:_restoreFromDestroy() end)
+                    end)
+                end
             end)
         end)
     end
@@ -1866,6 +1894,7 @@ title = Config.ErrorText
     local showSwitchConfirm = nil
 
     local playSwitchSequenceRef = nil
+    local switchToTarget = nil
 
     local expandForSwitchRef = nil
     local autoExpandForSwitch = function()
@@ -2421,8 +2450,9 @@ local closeBtn = nil
                     titleLbl.LayoutOrder = 1
                     titleLbl.ZIndex = 3
                     titleLbl.Parent = txt
-                    local infoH = measureTextHeight(p.Info or "", Config.ParagraphInfoSize,
-                        math.max(40, (rowH or Config.ParagraphRowHeight)))
+                    local infoW = math.max(40, (p._paraW or 240)
+                        - (hasIco and (Config.ParagraphIconSize + Config.ParagraphIconGap) or 0))
+                    local infoH = measureTextHeight(p.Info or "", Config.ParagraphInfoSize, infoW)
                     local infoLbl = Instance.new("TextLabel")
                     infoLbl.Name = "ParaInfo"
                     infoLbl.BackgroundTransparency = 1
@@ -4069,6 +4099,10 @@ local function buildHeaderDecor()
                 if lastPanelLayout then buildTabUI(lastPanelLayout) end
                 animateEdge(UDim2.new(0, sw - lastPanelLayout.m * 2, 0, sh - lastPanelLayout.top - lastPanelLayout.m),
                     UDim2.new(0, lastPanelLayout.m, 0, lastPanelLayout.top), Config.PanelExpandTime)
+                -- 回到面板态：圆角同步恢复为灵动岛圆角
+                local pcTi = TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+                if corner then TweenService:Create(corner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
+                if fillCorner then TweenService:Create(fillCorner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
             end
 
             local cancelB = makePill("取消", Config.CloseCancelColor)
@@ -4078,6 +4112,53 @@ local function buildHeaderDecor()
                 if closeDialog ~= dlg then return end
                 closeListAndRestore()
             end)
+
+            local dlgInset = Config.BorderThickness
+            dlg.Size = UDim2.new(1, -dlgInset * 2, 1, -dlgInset * 2)
+            dlg.Position = UDim2.new(0, dlgInset, 0, dlgInset)
+            -- 对话框期间隐藏 fillFrame，避免与 dlg 黑色背景叠加且边缘超出银白边框
+            if fillFrame and fillFrame.Parent then fillFrame.BackgroundTransparency = 1 end
+            local function restoreDialogBg()
+                if fillFrame and fillFrame.Parent then
+                    chromeTween(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                        BackgroundTransparency = Config.IslandFinalTransparency,
+                    })
+                end
+            end
+            local function fadeOutDialog(onDone)
+                local fti = TweenInfo.new(Config.SwitchFadeOutTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+                for _, node in ipairs(dlg:GetDescendants()) do
+                    if node:IsA("TextLabel") or node:IsA("TextButton") then
+                        TweenService:Create(node, fti, { TextTransparency = 1 }):Play()
+                    end
+                    if node:IsA("ImageLabel") then
+                        TweenService:Create(node, fti, { ImageTransparency = 1 }):Play()
+                    end
+                    if node:IsA("GuiObject") then
+                        TweenService:Create(node, fti, { BackgroundTransparency = 1 }):Play()
+                    end
+                end
+                TweenService:Create(dlg, fti, { BackgroundTransparency = 1 }):Play()
+                task.delay(Config.SwitchFadeOutTime + 0.05, function()
+                    if dlg and dlg.Parent then dlg:Destroy() end
+                    if onDone then onDone() end
+                end)
+            end
+            local function expandEdgeBackToPanel()
+                local sw2 = screenGui.AbsoluteSize.X
+                local sh2 = screenGui.AbsoluteSize.Y
+                local m2 = Config.PanelMargin
+                local top2 = Config.IslandPosition.Y.Offset + Config.PanelDrop
+                cancelEdgeTweens()
+                edge.AnchorPoint = Vector2.new(0, 0)
+                edge.Position = Config.IslandPosition
+                animateEdge(UDim2.new(0, sw2 - m2 * 2, 0, sh2 - top2 - m2), UDim2.new(0, m2, 0, top2), Config.PanelExpandTime)
+                lastPanelLayout = { titlePad = Config.HeaderPad, blockH = (lastPanelLayout and lastPanelLayout.blockH) or 0, m = m2, top = top2, sh = sh2 }
+                -- 对话框展开回面板态：圆角恢复为灵动岛圆角
+                local pcTi = TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+                if corner then TweenService:Create(corner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
+                if fillCorner then TweenService:Create(fillCorner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
+            end
 
             local okBtn = makePill("确认", Config.SwitchDialogConfirmColor)
             okBtn.BackgroundColor3 = Color3.new(1, 1, 1)
@@ -4097,47 +4178,52 @@ local function buildHeaderDecor()
                     reportError("请先在下拉菜单中选择要切换到的脚本")
                     return
                 end
-                closeDropdown(false)
-                local target = nil
-                pcall(function() target = Library.GetLoadedWindow(selected) end)
-                if target and type(target) == "table" and target._switchBack then
-                    if dlg and dlg.Parent then dlg:Destroy() end
-                    if closeDialog == dlg then closeDialog = nil end
-                    setHeaderVisible(true)
-                    if switchBtn then
-                        TweenService:Create(switchBtn, TweenInfo.new(0.24), { ImageTransparency = 0 }):Play()
-                        switchBtn.Active = true
-                    end
-                    if lastPanelLayout then buildTabUI(lastPanelLayout) end
-                    pcall(function() target:_switchBack() end)
-                    return
-                end
-                if dlg and dlg.Parent then dlg:Destroy() end
-                if closeDialog == dlg then closeDialog = nil end
+                if listOpen then closeDropdown(false) end
+                if closeDialog ~= dlg then return end
+                closeDialog = nil
+                switchToTarget = selected
+                -- ① 封盘：置 busy 防止展开期交互；同时隐藏切换按钮
+                if switchBtn then switchBtn.Active = false end
+
+                -- ② 对话框（下拉/标题/按钮）同步渐隐，同时边框展开回面板态
                 expanded = true
                 titleGen = titleGen + 1
                 islandScale.Scale = 1
-                local m2 = Config.PanelMargin
-                local top2 = Config.IslandPosition.Y.Offset + Config.PanelDrop
-                cancelEdgeTweens()
-                edge.AnchorPoint = Vector2.new(0, 0)
-                edge.Position = Config.IslandPosition
-                animateEdge(UDim2.new(0, sw - m2 * 2, 0, sh - top2 - m2), UDim2.new(0, m2, 0, top2), Config.PanelExpandTime)
+                setHeaderVisible(false)
+                expandEdgeBackToPanel()
                 task.delay(Config.PanelExpandTime, function() winOpen = true end)
-                playBorderSweep()
-                lastPanelLayout = { titlePad = Config.HeaderPad, blockH = (lastPanelLayout and lastPanelLayout.blockH) or 0, m = m2, top = top2, sh = sh }
-                buildHeaderDecor()
-                buildTabUI(lastPanelLayout)
-                buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
-                buildSwitchButton()
-                task.delay(Config.PanelExpandTime + Config.FadeInTime * 0.5, function()
+
+                -- ③ 渐隐完成 → 保持内容隐藏（suppressHeaderEntrance），交棒给 playSwitchSequence
+                --    playSwitchSequence 内部：建 loader → 播 loader → playPanelContentEntrance
+                --    （其内部 buildTabUI/buildHeaderDecor/buildCloseButton/buildSwitchButton + 揭开入场）
+                fadeOutDialog(function()
+                    if not alive or shutdown then return end
+                    suppressHeaderEntrance = true
+                    restoreDialogBg()
                     if playSwitchSequenceRef then playSwitchSequenceRef(Config.SwitchConfirmLoadingText) end
+                    -- ④ loader + 入场动画结束后，若目标窗口存在则交棒切换
+                    local seqTotal = Config.SwitchFadeOutTime + Config.SwitchHoldTime + Config.SwitchLoaderFadeTime
+                    task.delay(seqTotal + 0.05, function()
+                        local t = switchToTarget
+                        switchToTarget = nil
+                        if not t then return end
+                        local target = nil
+                        pcall(function() target = Library.GetLoadedWindow(t) end)
+                        if target and type(target) == "table" and target._switchBack then
+                            pcall(function() target:_switchBack() end)
+                        end
+                    end)
                 end)
             end)
 
             closeDialog = dlg
             animateEdge(UDim2.new(0, Config.SwitchDialogW, 0, Config.SwitchDialogH),
                 UDim2.new(0, (sw - Config.SwitchDialogW) / 2, 0, (sh - Config.SwitchDialogH) / 2), 0.35)
+            -- 对话框态：边框圆角与填充圆角同步到对话框圆角，
+            -- 避免 dlg 黑色圆角超出方形银白边框（问题：黑背景边缘越过银白边框）
+            local dcTi = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+            if corner then TweenService:Create(corner, dcTi, { CornerRadius = Config.CloseDialogCorner }):Play() end
+            if fillCorner then TweenService:Create(fillCorner, dcTi, { CornerRadius = Config.CloseDialogCorner }):Play() end
         end
         buildSwitchButton = buildSwitchButtonImpl
         showSwitchConfirm = buildSwitchConfirmImpl
@@ -4174,11 +4260,7 @@ local function buildHeaderDecor()
                 if hintActive then clearHint(true) end
                 if actionBusy and actionEnd then actionEnd(true) end
 
-                if toggleAnimBusy then
-                    if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
-                    toggleAnimContainer = nil
-                    toggleAnimBusy = false
-                end
+                if toggleAnimBusy then cancelToggleAnim() end
 
                 local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                 local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
@@ -4391,6 +4473,9 @@ local function buildHeaderDecor()
                 end
 
                 toggleAnimBusy = true
+                toggleAnimGen = toggleAnimGen + 1
+                local myGen = toggleAnimGen
+                local function stale() return myGen ~= toggleAnimGen or not alive or shutdown end
 
                 if actionBusy and actionEnd then actionEnd(true) end
 
@@ -4529,6 +4614,7 @@ local function buildHeaderDecor()
                     local isText = e.obj:IsA("TextLabel")
                     local md = math.max(e.dist, 0.001)
                     task.delay(md * step, function()
+                        if stale() then return end
                         if not e.obj or not e.obj.Parent then return end
                         if e.waitImg then
 
@@ -4549,7 +4635,7 @@ local function buildHeaderDecor()
                 end
 
                 task.delay(Config.ToggleIslandHoldTime, function()
-                    if not alive then return end
+                    if stale() then return end
 
                     local rStep = step * (Config.ToggleIslandRestoreStepScale or 1)
                     if hc and hc.Parent then
@@ -4559,6 +4645,7 @@ local function buildHeaderDecor()
                             local isText = e.obj:IsA("TextLabel")
                             local md = math.max(e.dist, 0.001)
                             task.delay(md * rStep, function()
+                                if stale() then return end
                                 if not e.obj or not e.obj.Parent then return end
                                 if isText then
                                     TweenService:Create(e.obj, TweenInfo.new(fadeT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
@@ -4573,7 +4660,7 @@ local function buildHeaderDecor()
 
                     local totalFade = #fadeList * rStep + fadeT + 0.1
                     task.delay(totalFade, function()
-                        if not alive then return end
+                        if stale() then return end
                         if hc and hc.Parent then hc:Destroy() end
 
                         setIslandText(islandTextOverride or title, Config.TitleColor)
@@ -4591,12 +4678,14 @@ local function buildHeaderDecor()
                             for i, lb in ipairs(restoreChars) do
                                 local dist = math.abs(i - (rc + 1) / 2)
                                 task.delay(dist * rStep, function()
+                                    if stale() then return end
                                     if not lb or not lb.Parent then return end
                                     TweenService:Create(lb, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
                                 end)
                             end
 
                             task.delay(rc * rStep + revealT, function()
+                                if stale() then return end
                                 if toggleAnimBusy and toggleAnimContainer == hc then
                                     toggleAnimBusy = false
                                     toggleAnimContainer = nil
@@ -4637,11 +4726,7 @@ if hintActive then clearHint(true) end
                     edge.Position = islandRest
                     edge.Size = Config.IslandSize
 
-                    if toggleAnimBusy then
-                                if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
-                                toggleAnimContainer = nil
-                                toggleAnimBusy = false
-                            end
+                    if toggleAnimBusy then cancelToggleAnim() end
                             if actionBusy and actionEnd then actionEnd(true) end
                             if iconTextBusy then clearIconTextHc(true) end
                             expanded = true
@@ -4853,11 +4938,7 @@ local function doExpandPanel()
     if expanded then return false end
     if hintActive then clearHint(true) end
     if actionBusy and actionEnd then actionEnd(true) end
-    if toggleAnimBusy then
-        if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
-        toggleAnimContainer = nil
-        toggleAnimBusy = false
-    end
+    if toggleAnimBusy then cancelToggleAnim() end
     if iconTextBusy or (iconTextHc and iconTextHc.Parent) then
         clearIconTextHc(true)
     end
@@ -5325,6 +5406,10 @@ if not expanded or myGen ~= titleGen then return end
               + (lastPanelLayout and lastPanelLayout.titlePad or 0)
      + (lastPanelLayout and lastPanelLayout.blockH or 0))
      - Config.InfoBoxHeight - Config.InfoRise)
+    -- 关键：显式设置入场起点（右侧偏移 + 全透明），
+    -- 否则切换后 infoLabel 会卡在重建时的初始位置，表现为文字右偏移
+    infoLabel.TextTransparency = 1
+    infoLabel.Position = UDim2.new(0, ix + 40, 0, iy)
     TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
   Position = UDim2.new(0, ix, 0, iy),
         TextTransparency = 0,
@@ -5431,14 +5516,11 @@ if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, 
         edge.AnchorPoint = Vector2.new(0, 0)
         edge.Position = UDim2.new(0, m2, 0, top2)
         edge.Size = UDim2.new(0, sw2 - m2 * 2, 0, sh2 - top2 - m2)
-        if lastPanelLayout then
-            buildHeaderDecor()
-            buildTabUI(lastPanelLayout)
-            buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
-            buildSwitchButton()
-        end
         setHeaderVisible(true)
         winOpen = true
+        -- 由 playPanelContentEntrance 统一负责重建面板 + 播放标题/Info 左移渐显入场动画，
+        -- 避免 Info 卡在重建后的初始位置（表现为文字右偏移）
+        playPanelContentEntrance()
     end
 
       if afterSetup then task.spawn(afterSetup) end
@@ -6157,6 +6239,77 @@ win._closeNow = function(self)
                 end
             end
         end
+    end
+
+    -- 多脚本销毁动画：另一脚本销毁后，本窗口从被隐藏状态恢复，
+    -- 新灵动岛从原位置渐显，同时由「圆形」展开为「胶囊」
+    win._restoreFromDestroy = function(self)
+        if not alive or shutdown then return false end
+        switchDormant = false
+        if screenGui then screenGui.Enabled = true end
+        edge.Active = true
+        cancelEdgeTweens()
+        cancelChromeTweens()
+
+        local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+        local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
+        local h = Config.IslandSize.Y.Offset
+
+        -- 起始：圆形（宽=高，圆角=半径），位于灵动岛中心，完全透明
+        local circleD = h
+        edge.AnchorPoint = Vector2.new(0.5, 0.5)
+        edge.Size = UDim2.new(0, circleD, 0, circleD)
+        edge.Position = UDim2.new(0.5, cx, 0, cy)
+        corner.CornerRadius = UDim.new(0, circleD / 2)
+        fillCorner.CornerRadius = UDim.new(0, circleD / 2)
+        fillFrame.Size = UDim2.new(1, 0, 1, 0)
+        fillFrame.BackgroundTransparency = 1
+        if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 1 end
+        if stroke then stroke.Transparency = 1 end
+        if silverStroke then silverStroke.Transparency = 1 end
+
+        local growT = Config.CircleGrowTime
+        local ti = TweenInfo.new(growT, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        local tiSine = TweenInfo.new(growT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+        -- 记录：由圆形展开为胶囊的尺寸目标（宽=岛宽，高=岛高）
+        local circleTarget = UDim2.new(0, Config.IslandSize.X.Offset, 0, Config.IslandSize.Y.Offset)
+        local circlePos = UDim2.new(0, Config.IslandPosition.X.Offset, 0, Config.IslandPosition.Y.Offset)
+
+        -- 渐显填充与银白边框
+        TweenService:Create(fillFrame, tiSine, { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
+        TweenService:Create(silverStroke, tiSine, { Transparency = Config.TargetTransparency }):Play()
+        TweenService:Create(contentRoot, tiSine, { GroupTransparency = 0 }):Play()
+
+        task.delay(Config.CircleHoldTime, function()
+            if not alive then return end
+            -- 圆形 → 胶囊：宽度展开 + 圆角回到灵动岛圆角
+            edge.AnchorPoint = Vector2.new(0, 0)
+            TweenService:Create(edge, ti, {
+                Size = circleTarget,
+                Position = circlePos,
+            }):Play()
+            TweenService:Create(corner, ti, { CornerRadius = Config.IslandCornerRadius }):Play()
+            TweenService:Create(fillCorner, ti, { CornerRadius = Config.IslandCornerRadius }):Play()
+        end)
+
+        -- 入场完成后重建文字与可选面板
+        task.delay(Config.CircleHoldTime + growT, function()
+            if not alive then return end
+            if islandTextContainer and islandTextContainer.Parent then
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then lb.TextTransparency = 1 end
+                end
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then
+                        TweenService:Create(lb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                    end
+                end
+            end
+        end)
+        return true
     end
 
     win._switchBack = function(self)
