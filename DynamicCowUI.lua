@@ -281,6 +281,10 @@ local Config = {
     SwitchDropdownFill = Color3.fromRGB(38, 38, 48),
     SwitchDropdownActiveColor = Color3.fromRGB(96, 132, 255),
     SwitchDropdownTextColor = Color3.fromRGB(235, 235, 245),
+    SwitchDropdownHoverColor = Color3.fromRGB(54, 54, 68),
+    SwitchDropdownCorner = 18,
+    SwitchDropdownListGap = 8,
+    SwitchDropdownListInset = 10,
     SwitchDialogConfirmColor = Color3.fromRGB(96, 132, 255),
     IslandActionStrokeTransparency = 0.35,
     IslandActionReveal = 0.3,
@@ -662,6 +666,15 @@ title = Config.ErrorText
     if not allowDuplicate then
         local existing = loadedWindows[title]
         if existing ~= nil then
+            if type(existing) == "table" and existing._isDormant then
+                local okD, dormant = pcall(existing._isDormant, existing)
+                if okD and dormant then
+                    if existing._switchBack then
+                        pcall(function() existing:_switchBack() end)
+                    end
+                    return existing
+                end
+            end
             reportError("检测到 Title「" .. tostring(title) .. "」的界面已加载，本次不再重复创建")
             if type(existing) == "table" and existing.GetWindowAction then
                 pcall(function() existing:_flashLoadedHint() end)
@@ -674,8 +687,16 @@ title = Config.ErrorText
     do
         for _, t in ipairs(loadedOrder) do
             if t ~= title and loadedWindows[t] ~= nil then
-                switchingFrom = t
-                break
+                local w = loadedWindows[t]
+                local dormant = false
+                if type(w) == "table" and w._isDormant then
+                    local okD, v = pcall(w._isDormant, w)
+                    dormant = okD and v == true
+                end
+                if not dormant then
+                    switchingFrom = t
+                    break
+                end
             end
         end
         if switchingFrom ~= nil and type(opts) == "table" and opts.ForceEntryAnimation == true then
@@ -912,20 +933,36 @@ title = Config.ErrorText
     titleLabel.TextYAlignment = Enum.TextYAlignment.Center
     titleLabel.Parent = titleFrame
 
-    TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime), {
-        Transparency = Config.TargetTransparency,
-    }):Play()
+    if switchingFrom ~= nil then
+        if backdrop and backdrop.Parent then backdrop:Destroy() end
+        if titleFrame and titleFrame.Parent then titleFrame:Destroy() end
+        stroke.Transparency = 1
+        edge.AnchorPoint = Vector2.new(0.5, 0.5)
+        edge.Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
+        edge.Size = Config.IslandSize
+        corner.CornerRadius = Config.IslandCornerRadius
+        fillFrame.Size = UDim2.new(1, 0, 1, 0)
+        fillFrame.BackgroundTransparency = 1
+        silverStroke.Transparency = 1
+    else
+        TweenService:Create(stroke, TweenInfo.new(Config.FadeInTime), {
+            Transparency = Config.TargetTransparency,
+        }):Play()
 
-    TweenService:Create(glowLabel, TweenInfo.new(Config.FadeInTime), {
-        TextTransparency = 0.5,
-        TextStrokeTransparency = 0,
-    }):Play()
+        TweenService:Create(glowLabel, TweenInfo.new(Config.FadeInTime), {
+            TextTransparency = 0.5,
+            TextStrokeTransparency = 0,
+        }):Play()
 
-    TweenService:Create(titleLabel, TweenInfo.new(Config.FadeInTime), {
-        TextTransparency = 0,
-    }):Play()
+        TweenService:Create(titleLabel, TweenInfo.new(Config.FadeInTime), {
+            TextTransparency = 0,
+        }):Play()
+    end
 
     local alive = true
+    local switchDormant = false
+    local expandPanelRef = nil
+    local restorePanelRef = nil
     local errText = Config.ErrorText
 
     local function safeCancel(handle)
@@ -3772,31 +3809,37 @@ local function buildHeaderDecor()
             local ddW = Config.SwitchDialogW - pad * 2
             local ddH = Config.SwitchDropdownH
             local ddY = pad + 30
-            local dd = Instance.new("TextButton")
-            dd.Name = "SwitchDropdown"
-            dd.Size = UDim2.new(0, ddW, 0, ddH)
-            dd.Position = UDim2.new(0.5, 0, 0, ddY)
-            dd.AnchorPoint = Vector2.new(0.5, 0)
-            dd.BackgroundColor3 = Config.SwitchDropdownFill
-            dd.BorderSizePixel = 0
-            dd.Text = ""
-            dd.AutoButtonColor = false
-            dd.ZIndex = 72
-            dd.Parent = dlg
-            local ddc = Instance.new("UICorner")
-            ddc.CornerRadius = UDim.new(0.5, 0)
-            ddc.Parent = dd
+            local itemH = Config.SwitchDropdownItemH
+            local itemGap = Config.SwitchDropdownItemGap
+            local listGap = Config.SwitchDropdownListGap
+            local listInset = Config.SwitchDropdownListInset
+
+            local box = Instance.new("TextButton")
+            box.Name = "SwitchDropdown"
+            box.Size = UDim2.new(0, ddW, 0, ddH)
+            box.Position = UDim2.new(0.5, 0, 0, ddY)
+            box.AnchorPoint = Vector2.new(0.5, 0)
+            box.BackgroundColor3 = Config.SwitchDropdownFill
+            box.BorderSizePixel = 0
+            box.Text = ""
+            box.AutoButtonColor = false
+            box.ClipsDescendants = true
+            box.ZIndex = 72
+            box.Parent = dlg
+            local boxCorner = Instance.new("UICorner")
+            boxCorner.CornerRadius = UDim.new(0.5, 0)
+            boxCorner.Parent = box
 
             local chev = Instance.new("ImageLabel")
             chev.Name = "SwitchDropdownChevron"
             chev.Size = UDim2.fromOffset(18, 18)
-            chev.Position = UDim2.new(1, -18, 0.5, 0)
+            chev.Position = UDim2.new(1, -20, 0, ddH / 2)
             chev.AnchorPoint = Vector2.new(0.5, 0.5)
             chev.BackgroundTransparency = 1
             chev.ImageColor3 = Config.SwitchDropdownTextColor
             chev.ScaleType = Enum.ScaleType.Fit
             chev.ZIndex = 73
-            chev.Parent = dd
+            chev.Parent = box
             task.spawn(function()
                 local a = getLucideIcon(Config.SwitchDropdownIcon)
                 if not (a and chev.Parent) then return end
@@ -3811,8 +3854,8 @@ local function buildHeaderDecor()
             local selLabel = Instance.new("TextLabel")
             selLabel.Name = "SwitchDropdownLabel"
             selLabel.BackgroundTransparency = 1
-            selLabel.Size = UDim2.new(1, -46, 1, 0)
-            selLabel.Position = UDim2.new(0, 16, 0, 0)
+            selLabel.Size = UDim2.new(1, -56, 0, ddH)
+            selLabel.Position = UDim2.new(0, 18, 0, 0)
             selLabel.TextColor3 = Config.SwitchDropdownTextColor
             selLabel.TextSize = 16
             selLabel.Font = Enum.Font.Gotham
@@ -3821,45 +3864,55 @@ local function buildHeaderDecor()
             selLabel.TextWrapped = false
             selLabel.TextTruncate = Enum.TextTruncate.AtEnd
             selLabel.ZIndex = 73
-            selLabel.Parent = dd
+            selLabel.Parent = box
 
             local items = otherLoadedTitles()
             local listOpen = false
             local listFrame = nil
-            local function closeList()
-                if not listOpen then return end
-                listOpen = false
-                if listFrame and listFrame.Parent then listFrame:Destroy() end
-                listFrame = nil
-                TweenService:Create(dd, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                    Size = UDim2.new(0, ddW, 0, ddH),
-                }):Play()
-                TweenService:Create(chev, TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                    Rotation = 0,
-                }):Play()
-            end
-            local function renderList()
-                if listFrame then listFrame:Destroy() end
-                listFrame = Instance.new("Frame")
+            local closeDropdown = nil
+
+            local function openDropdown()
+                if listOpen then return end
+                if #items == 0 then
+                    reportError("没有其它已加载的脚本可切换")
+                    return
+                end
+                listOpen = true
+                local contentH = #items * (itemH + itemGap) - itemGap
+                local viewH = math.min(contentH, Config.SwitchDropdownMaxH)
+                local barsH = Config.CloseDialogBtnH
+                local needH = ddY + ddH + listGap + viewH + listGap + 10 + barsH + pad
+                local dlgH = math.min(needH, sh - 40)
+                if dlgH < needH then
+                    viewH = math.max(itemH, dlgH - (ddY + ddH + listGap + listGap + 10 + barsH + pad))
+                end
+                local boxH = ddH + listGap + viewH + listGap
+
+                listFrame = Instance.new("ScrollingFrame")
                 listFrame.Name = "SwitchDropdownList"
                 listFrame.BackgroundTransparency = 1
-                listFrame.Size = UDim2.new(0, ddW - 16, 0, 0)
-                listFrame.Position = UDim2.new(0.5, 0, 0, ddY + ddH + 6)
-                listFrame.AnchorPoint = Vector2.new(0.5, 0)
+                listFrame.BorderSizePixel = 0
+                listFrame.Position = UDim2.new(0, listInset, 0, ddH + listGap)
+                listFrame.Size = UDim2.new(1, -listInset * 2, 0, viewH)
+                listFrame.ClipsDescendants = true
+                listFrame.CanvasSize = UDim2.new(0, 0, 0, contentH)
+                listFrame.ScrollBarThickness = 3
+                listFrame.ScrollBarImageColor3 = Config.SwitchDropdownTextColor
+                listFrame.ScrollBarImageTransparency = 0.55
                 listFrame.ZIndex = 73
-                listFrame.Parent = dlg
+                listFrame.Parent = box
                 local lay = Instance.new("UIListLayout")
                 lay.SortOrder = Enum.SortOrder.LayoutOrder
                 lay.FillDirection = Enum.FillDirection.Vertical
-                lay.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                lay.HorizontalAlignment = Enum.HorizontalAlignment.Left
                 lay.VerticalAlignment = Enum.VerticalAlignment.Top
-                lay.Padding = UDim.new(0, Config.SwitchDropdownItemGap)
+                lay.Padding = UDim.new(0, itemGap)
                 lay.Parent = listFrame
                 for i, t in ipairs(items) do
                     local it = Instance.new("TextButton")
                     it.Name = "SwitchDropdownItem"
-                    it.Size = UDim2.new(1, 0, 0, Config.SwitchDropdownItemH)
-                    it.BackgroundColor3 = Config.SwitchDropdownFill
+                    it.Size = UDim2.new(1, -6, 0, itemH)
+                    it.BackgroundColor3 = (selected == t) and Config.SwitchDropdownActiveColor or Config.SwitchDropdownFill
                     it.BorderSizePixel = 0
                     it.Text = ""
                     it.AutoButtonColor = false
@@ -3871,10 +3924,10 @@ local function buildHeaderDecor()
                     ic2.Parent = it
                     local lb = Instance.new("TextLabel")
                     lb.BackgroundTransparency = 1
-                    lb.Size = UDim2.new(1, -30, 1, 0)
+                    lb.Size = UDim2.new(1, -28, 1, 0)
                     lb.Position = UDim2.new(0, 14, 0, 0)
                     lb.Text = t
-                    lb.TextColor3 = Config.SwitchDropdownTextColor
+                    lb.TextColor3 = (selected == t) and Color3.new(1, 1, 1) or Config.SwitchDropdownTextColor
                     lb.TextSize = 15
                     lb.Font = Enum.Font.Gotham
                     lb.TextXAlignment = Enum.TextXAlignment.Left
@@ -3882,43 +3935,60 @@ local function buildHeaderDecor()
                     lb.TextTruncate = Enum.TextTruncate.AtEnd
                     lb.ZIndex = 75
                     lb.Parent = it
-                    if selected == t then
-                        it.BackgroundColor3 = Config.SwitchDropdownActiveColor
-                        lb.TextColor3 = Color3.new(1, 1, 1)
-                    end
+                    it.MouseEnter:Connect(function()
+                        if selected ~= t then
+                            TweenService:Create(it, TweenInfo.new(0.12), { BackgroundColor3 = Config.SwitchDropdownHoverColor }):Play()
+                        end
+                    end)
+                    it.MouseLeave:Connect(function()
+                        if selected ~= t then
+                            TweenService:Create(it, TweenInfo.new(0.12), { BackgroundColor3 = Config.SwitchDropdownFill }):Play()
+                        end
+                    end)
                     it.MouseButton1Click:Connect(function()
                         selected = t
                         selLabel.Text = t
-                        renderList()
+                        closeDropdown()
                     end)
                 end
+                animateEdge(UDim2.new(0, Config.SwitchDialogW, 0, dlgH),
+                    UDim2.new(0, (sw - Config.SwitchDialogW) / 2, 0, (sh - dlgH) / 2), 0.28)
+                TweenService:Create(box, TweenInfo.new(0.26, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(0, ddW, 0, boxH),
+                }):Play()
+                TweenService:Create(boxCorner, TweenInfo.new(0.26, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    CornerRadius = UDim.new(0, Config.SwitchDropdownCorner),
+                }):Play()
+                TweenService:Create(chev, TweenInfo.new(0.24, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                    Rotation = 90,
+                }):Play()
             end
 
-            dd.MouseButton1Click:Connect(function()
-                if #items == 0 then
-                    reportError("没有其它已加载的脚本可切换")
-                    return
+            closeDropdown = function(restoreDialog)
+                if not listOpen then return end
+                listOpen = false
+                if listFrame and listFrame.Parent then listFrame:Destroy() end
+                listFrame = nil
+                if restoreDialog ~= false then
+                    animateEdge(UDim2.new(0, Config.SwitchDialogW, 0, Config.SwitchDialogH),
+                        UDim2.new(0, (sw - Config.SwitchDialogW) / 2, 0, (sh - Config.SwitchDialogH) / 2), 0.26)
                 end
+                TweenService:Create(box, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(0, ddW, 0, ddH),
+                }):Play()
+                TweenService:Create(boxCorner, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    CornerRadius = UDim.new(0.5, 0),
+                }):Play()
+                TweenService:Create(chev, TweenInfo.new(0.22, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                    Rotation = 0,
+                }):Play()
+            end
+
+            box.MouseButton1Click:Connect(function()
                 if listOpen then
-                    closeList()
+                    closeDropdown()
                 else
-                    listOpen = true
-                    renderList()
-                    local belowSpace = (sh - ddY - ddH) - Config.SwitchDropdownMaxH
-                    local listH = #items * (Config.SwitchDropdownItemH + Config.SwitchDropdownItemGap)
-                    if belowSpace < listH and ddY - listH - 6 > 0 then
-                        listFrame.Position = UDim2.new(0.5, 0, 0, ddY - listH - 6)
-                        listFrame.AnchorPoint = Vector2.new(0.5, 1)
-                    else
-                        listFrame.Position = UDim2.new(0.5, 0, 0, ddY + ddH + 6)
-                        listFrame.AnchorPoint = Vector2.new(0.5, 0)
-                    end
-                    TweenService:Create(dd, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                        Size = UDim2.new(0, ddW, 0, math.min(ddH + listH + 12, Config.SwitchDropdownMaxH + ddH)),
-                    }):Play()
-                    TweenService:Create(chev, TweenInfo.new(0.24, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                        Rotation = 90,
-                    }):Play()
+                    openDropdown()
                 end
             end)
             if #items > 0 then
@@ -3942,7 +4012,7 @@ local function buildHeaderDecor()
             bl.Parent = bars
 
             local function closeListAndRestore()
-                closeList()
+                closeDropdown(false)
                 if dlg and dlg.Parent then dlg:Destroy() end
                 if closeDialog == dlg then closeDialog = nil end
                 setHeaderVisible(true)
@@ -3972,7 +4042,21 @@ local function buildHeaderDecor()
                     reportError("请先在下拉菜单中选择要切换到的脚本")
                     return
                 end
-                closeList()
+                closeDropdown(false)
+                local target = nil
+                pcall(function() target = Library.GetLoadedWindow(selected) end)
+                if target and type(target) == "table" and target._switchBack then
+                    if dlg and dlg.Parent then dlg:Destroy() end
+                    if closeDialog == dlg then closeDialog = nil end
+                    setHeaderVisible(true)
+                    if switchBtn then
+                        TweenService:Create(switchBtn, TweenInfo.new(0.24), { ImageTransparency = 0 }):Play()
+                        switchBtn.Active = true
+                    end
+                    if lastPanelLayout then buildTabUI(lastPanelLayout) end
+                    pcall(function() target:_switchBack() end)
+                    return
+                end
                 if dlg and dlg.Parent then dlg:Destroy() end
                 if closeDialog == dlg then closeDialog = nil end
                 expanded = true
@@ -4736,7 +4820,7 @@ showCloseConfirm = function()
 local windowActionUntil = 0
 
 local function doExpandPanel()
-    if not alive or shutdown or not ready then return false end
+    if not alive or shutdown or switchDormant or not ready then return false end
     if expanded then return false end
     if hintActive then clearHint(true) end
     if actionBusy and actionEnd then actionEnd(true) end
@@ -4857,6 +4941,13 @@ win.SetWindowAction = function(self, open)
     end
     if not alive or shutdown then return false end
     if not ready then return false end
+    if switchDormant then
+        if open then
+            task.spawn(function() win:_switchBack() end)
+            return true
+        end
+        return false
+    end
     if windowActionUntil > 0 and os.clock() < windowActionUntil then
         reportError("SetWindowAction 忽略：面板动画进行中，请稍后再试")
         return false
@@ -5046,11 +5137,11 @@ if not expanded or myGen ~= titleGen then return end
     end
 
     local function playSwitchSequence(loadingText)
-        if not alive or shutdown then return end
+        if not alive or shutdown or switchDormant then return end
 
         fadeAllPanelItems(1)
     task.delay(Config.SwitchFadeOutTime, function()
-     if not alive or shutdown or not expanded then return end
+     if not alive or shutdown or switchDormant or not expanded then return end
 
       local box, ic, lbl, spin = makeSwitchLoader(loadingText or Config.SwitchLoadingText)
       box.Parent = contentRoot
@@ -5090,6 +5181,31 @@ if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, 
         end)
     end
 
+    expandPanelRef = doExpandPanel
+    restorePanelRef = function()
+        if not alive or shutdown or not expanded then return end
+        if closeDialog and closeDialog.Parent then closeDialog:Destroy() end
+        closeDialog = nil
+        titleGen = titleGen + 1
+        islandScale.Scale = 1
+        local sw2 = screenGui.AbsoluteSize.X
+        local sh2 = screenGui.AbsoluteSize.Y
+        local m2 = Config.PanelMargin
+        local top2 = Config.IslandPosition.Y.Offset + Config.PanelDrop
+        cancelEdgeTweens()
+        edge.AnchorPoint = Vector2.new(0, 0)
+        edge.Position = UDim2.new(0, m2, 0, top2)
+        edge.Size = UDim2.new(0, sw2 - m2 * 2, 0, sh2 - top2 - m2)
+        if lastPanelLayout then
+            buildHeaderDecor()
+            buildTabUI(lastPanelLayout)
+            buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
+            buildSwitchButton()
+        end
+        setHeaderVisible(true)
+        winOpen = true
+    end
+
       if afterSetup then task.spawn(afterSetup) end
 end
 
@@ -5098,9 +5214,53 @@ end
         gradient.Color = rainbowColors
 
         if switchingFrom ~= nil then
-            titleLabel.Text = title
-            glowLabel.Text = title
+            local oldWin = loadedWindows[switchingFrom]
+            if oldWin and type(oldWin) == "table" and oldWin._switchAway then
+                pcall(function() oldWin:_switchAway(Config.SwitchTitleMoveTime) end)
+            end
+            local fi = Config.FadeInTime
+            TweenService:Create(fillFrame, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                BackgroundTransparency = Config.IslandFinalTransparency,
+            }):Play()
+            TweenService:Create(silverStroke, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                Transparency = Config.TargetTransparency,
+            }):Play()
+            local function startSwitchEntry()
+                if not alive or switchDormant then return end
+                if not runIslandEntrySetup then return end
+                runIslandEntrySetup(function()
+                    if switchDormant then return end
+                    if islandTextContainer and islandTextContainer.Parent then
+                        setIslandText(title, Config.TitleColor)
+                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                            local lb = cf:FindFirstChildOfClass("TextLabel")
+                            if lb then lb.TextTransparency = 1 end
+                        end
+                        for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                            local lb = cf:FindFirstChildOfClass("TextLabel")
+                            if lb then
+                                TweenService:Create(lb, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+                            end
+                        end
+                    end
+                    task.delay(fi + 0.15, function()
+                        if not alive or switchDormant then return end
+                        if autoExpandForSwitch then autoExpandForSwitch() end
+                    end)
+                end)
+            end
+            task.delay(fi * 0.6, function()
+                if not alive then return end
+                if switchDormant then
+                    while alive and switchDormant do
+                        task.wait(0.2)
+                    end
+                end
+                startSwitchEntry()
+            end)
+            return
         end
+
         local shrinkTween = edgeTween(TweenInfo.new(
             Config.ShrinkTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
         ), {
@@ -5123,61 +5283,6 @@ end
         ), {
             BackgroundTransparency = 1,
         }):Play()
-        if switchingFrom ~= nil then
-
-        local islandCX = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
-            local islandCY = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-            local function fadeBrandOut(dur)
-       TweenService:Create(titleLabel, TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-            TextTransparency = 1,
-                }):Play()
-    TweenService:Create(glowLabel, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        TextTransparency = 1,
-     TextStrokeTransparency = 1,
-       }):Play()
-         end
-titleShrinkTween.Completed:Connect(function()
-    fadeBrandOut(Config.SwitchTitleMoveTime)
-         end)
-
-            TweenService:Create(titleFrame, TweenInfo.new(
-   Config.SwitchTitleMoveTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
-            ), {
-         Position = UDim2.new(0.5, islandCX, 0, islandCY),
-            }):Play()
-            TweenService:Create(titleScale, TweenInfo.new(
-         Config.SwitchTitleMoveTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
-      ), {
-    Scale = Config.SwitchTitleScale,
-            }):Play()
-
-shrinkTween.Completed:Connect(function()
-
-     TweenService:Create(stroke, TweenInfo.new(
-    Config.SwitchBorderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
-          ), {
-              Transparency = 1,
-        }):Play()
-           TweenService:Create(silverStroke, TweenInfo.new(
-  Config.SwitchBorderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
-             ), {
-         Transparency = 1,
-   }):Play()
-
-        flowSpeed = 0
-
-     task.delay(Config.SwitchTitleMoveTime, function()
-          if not alive then return end
-          if backdrop and backdrop.Parent then backdrop:Destroy() end
-      if titleFrame and titleFrame.Parent then titleFrame:Destroy() end
-     if stroke and stroke.Parent then stroke:Destroy() end
-     if silverStroke and silverStroke.Parent then silverStroke:Destroy() end
-
-  if runIslandEntrySetup then runIslandEntrySetup(autoExpandForSwitch) end
-         end)
-        end)
-            return
-        end
 
      titleShrinkTween.Completed:Connect(function()
             TweenService:Create(titleLabel, TweenInfo.new(
@@ -5749,9 +5854,107 @@ win._closeNow = function(self)
         end
     end
 
+    win._isDormant = function()
+        return switchDormant
+    end
+
+    win._switchAway = function(self, dur)
+        if not alive or switchDormant then return end
+        switchDormant = true
+        if edgeAnimConn then pcall(function() edgeAnimConn:Disconnect() end) edgeAnimConn = nil end
+        cancelEdgeTweens()
+        local d = (type(dur) == "number" and dur > 0) and dur or Config.SwitchTitleMoveTime
+        local ti = TweenInfo.new(d, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        if contentRoot and contentRoot.Parent then
+            TweenService:Create(contentRoot, ti, { GroupTransparency = 1 }):Play()
+        end
+        if islandTextContainer and islandTextContainer.Parent then
+            for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                local lb = cf:FindFirstChildOfClass("TextLabel")
+                if lb then TweenService:Create(lb, ti, { TextTransparency = 1 }):Play() end
+            end
+        end
+        if titleFrame and titleFrame.Parent then
+            for _, node in ipairs(titleFrame:GetDescendants()) do
+                if node:IsA("TextLabel") then
+                    TweenService:Create(node, ti, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+                end
+            end
+        end
+        if fillFrame and fillFrame.Parent then
+            TweenService:Create(fillFrame, ti, { BackgroundTransparency = 1 }):Play()
+        end
+        TweenService:Create(stroke, ti, { Transparency = 1 }):Play()
+        TweenService:Create(silverStroke, ti, { Transparency = 1 }):Play()
+        edge.Active = false
+        task.delay(d + 0.05, function()
+            if screenGui and screenGui.Parent then screenGui.Enabled = false end
+        end)
+    end
+
+    local function fadeOutOtherWindows(d)
+        for _, t in ipairs(loadedOrder) do
+            if t ~= title then
+                local w = loadedWindows[t]
+                if w and type(w) == "table" and w._switchAway then
+                    pcall(function() w:_switchAway(d) end)
+                end
+            end
+        end
+    end
+
+    win._switchBack = function(self)
+        if not alive or shutdown or not switchDormant then return false end
+        local d = Config.SwitchTitleMoveTime
+        if not ready then
+            fadeOutOtherWindows(d)
+            switchDormant = false
+            if screenGui then screenGui.Enabled = true end
+            edge.Active = true
+            return true
+        end
+        fadeOutOtherWindows(d)
+        task.delay(d + 0.05, function()
+            if not alive or shutdown or not switchDormant then return end
+            switchDormant = false
+            if screenGui then screenGui.Enabled = true end
+            edge.Active = true
+            if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
+            if expanded then
+                if restorePanelRef then pcall(restorePanelRef) end
+                return
+            end
+            local fi = Config.FadeInTime
+            local ti = TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+            if islandTextContainer and islandTextContainer.Parent then
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then lb.TextTransparency = 1 end
+                end
+            end
+            if fillFrame and fillFrame.Parent then fillFrame.BackgroundTransparency = 1 end
+            if silverStroke then silverStroke.Transparency = 1 end
+            if fillFrame and fillFrame.Parent then
+                TweenService:Create(fillFrame, ti, { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
+            end
+            TweenService:Create(silverStroke, ti, { Transparency = Config.TargetTransparency }):Play()
+            if islandTextContainer and islandTextContainer.Parent then
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then TweenService:Create(lb, ti, { TextTransparency = 0 }):Play() end
+                end
+            end
+            task.delay(fi, function()
+                if not alive or shutdown or switchDormant then return end
+                if expandPanelRef then expandPanelRef() end
+            end)
+        end)
+        return true
+    end
+
     local actionGen = 0
     local function runIslandAction(text, deferTry)
-        if not alive then return end
+        if not alive or switchDormant then return end
         if type(text) ~= "string" or #text == 0 then
             reportError("ShowNotify 需要非空字符串")
             return
