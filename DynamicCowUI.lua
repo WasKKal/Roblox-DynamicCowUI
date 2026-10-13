@@ -1280,7 +1280,7 @@ title = Config.ErrorText
     end
 
     local islandTextContainer = nil
-    local function setIslandText(text, color)
+    local function rebuildIslandChars(text, color)
         text = text or Config.IslandText
         color = color or Config.TitleColor
         if not (islandTextContainer and islandTextContainer.Parent) then
@@ -1314,6 +1314,22 @@ title = Config.ErrorText
         end
     end
 
+    -- 渐绿动画代数：取消进行中的文字变化链，并立即恢复其残留的绿色字符，
+    -- 避免快速连续 ChangeText / 收起面板时标题字符常驻绿色无法恢复
+    local textChangeGen = 0
+    local textChangeRestore = {}
+    local function cancelTextChangeAnim()
+        textChangeGen = textChangeGen + 1
+        for _, r in ipairs(textChangeRestore) do
+            if r.label and r.label.Parent then r.label.TextColor3 = r.target end
+        end
+        textChangeRestore = {}
+    end
+    local function setIslandText(text, color)
+        cancelTextChangeAnim()
+        rebuildIslandChars(text, color)
+    end
+
     local function currentIslandChars()
         local arr = {}
         if not (islandTextContainer and islandTextContainer.Parent) then return arr end
@@ -1328,6 +1344,9 @@ title = Config.ErrorText
 
     local function setIslandTextAnimated(newText, color)
         color = color or Config.TitleColor
+        -- 取消上一条未完成的渐绿链（恢复其残留绿色字符），防止链条交叉导致常驻绿色
+        cancelTextChangeAnim()
+        local myGen = textChangeGen
         local oldChars = currentIslandChars()
         local newItems = {}
         for _, item in ipairs(parseColoredChars(newText, color)) do
@@ -1335,7 +1354,7 @@ title = Config.ErrorText
         end
 
         if #oldChars == 0 or #newItems == 0 then
-            setIslandText(newText, color)
+            rebuildIslandChars(newText, color)
             return
         end
 
@@ -1358,17 +1377,29 @@ title = Config.ErrorText
 
         task.delay(tint, function()
             if not alive then return end
+            if myGen ~= textChangeGen then return end
             if not (islandTextContainer and islandTextContainer.Parent) then return end
-            setIslandText(newText, color)
+            rebuildIslandChars(newText, color)
             local nowChars = currentIslandChars()
             for i = p + 1, nn - s do
                 local lb = nowChars[i] and nowChars[i].label
                 if lb and lb.Parent then
                     lb.TextColor3 = green
                     local target = newItems[i] and newItems[i].color or color
+                    textChangeRestore[#textChangeRestore + 1] = { label = lb, target = target }
                     TweenService:Create(lb, TweenInfo.new(restore, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextColor3 = target }):Play()
                 end
             end
+            -- 兜底：恢复补间结束后若字符仍停留绿色（补间被竞争取消），强制设回目标色
+            task.delay(restore + 0.15, function()
+                if myGen ~= textChangeGen then return end
+                for i = p + 1, nn - s do
+                    local lb = nowChars[i] and nowChars[i].label
+                    if lb and lb.Parent and lb.TextColor3 == green then
+                        lb.TextColor3 = (newItems[i] and newItems[i].color) or color
+                    end
+                end
+            end)
         end)
     end
 
@@ -2149,6 +2180,7 @@ local closeBtn = nil
             local tabListContainer = nil
             local tabContentContainer = nil
             local tabContentBase = nil
+            local tabContentW = nil
             local headerDivider = nil
             local tabSeparator = nil
             local tabEmptyLabel = nil
@@ -2166,6 +2198,7 @@ local closeBtn = nil
                 tabContentNoCtrl = nil
                 tabSubtitleList = nil
                 tabContentBase = nil
+                tabContentW = nil
             end
             local function renderSubtitles(tab)
                 if not tabSubtitleList then return end
@@ -2854,8 +2887,7 @@ local closeBtn = nil
                         mf.Position = UDim2.fromOffset(endX, endY)
                         mf.ClipsDescendants = true
                         mf.ZIndex = Config.DropdownMenuZ
-                        mf.Parent = screenGui
-                        local mc = Instance.new("UICorner")
+                        mf.Parent = screenGui                        local mc = Instance.new("UICorner")
                         mc.CornerRadius = UDim.new(0, Config.DropdownMenuCorner)
                         mc.Parent = mf
                         local mstroke = Instance.new("UIStroke")
@@ -2875,7 +2907,8 @@ local closeBtn = nil
                             sc.CanvasSize = UDim2.new(0, 0, 0, contentH)
                             sc.ScrollingDirection = Enum.ScrollingDirection.Y
                             sc.ScrollBarThickness = 3
-                            sc.ZIndex = 2
+                            -- 子级 ZIndex 必须高于父级(mf=DropdownMenuZ)，否则会被菜单自身背景盖住
+                            sc.ZIndex = Config.DropdownMenuZ + 1
                             sc.Parent = mf
                             container = sc
                         else
@@ -2907,7 +2940,8 @@ local closeBtn = nil
                             ob.TextXAlignment = Enum.TextXAlignment.Left
                             ob.AutoButtonColor = false
                             ob.LayoutOrder = i
-                            ob.ZIndex = 2
+                            -- 子级 ZIndex 必须高于父级(mf=DropdownMenuZ)，否则条目被菜单背景蒙版覆盖
+                            ob.ZIndex = Config.DropdownMenuZ + 2
                             ob:SetAttribute("OptName", opt)
                             ob.Parent = container
                             local obCorner = Instance.new("UICorner")
@@ -2980,8 +3014,17 @@ local closeBtn = nil
                         if a.seq == b.seq then return a.kind < b.kind end
                         return a.seq < b.seq
                     end)
-                    local paraW = math.max(60, (tabContentContainer and tabContentContainer.AbsoluteSize.X or 0)
-                        - Config.SubTitleBodyPadX * 2 - Config.ParagraphBackPad * 2)
+                    -- 段落测量宽度：优先使用 buildTabUI 创建容器时算好的 tabContentW，
+                    -- 避免新建实例当帧 AbsoluteSize 未布局完成（真实环境为 0）导致
+                    -- Info 按极窄宽度测量、高度算错而向下偏移；兜底路径与旧版一致
+                    local paraW
+                    if tabContentW then
+                        paraW = math.max(60, tabContentW
+                            - Config.SubTitleBodyPadX * 2 - Config.ParagraphBackPad * 2)
+                    else
+                        paraW = math.max(60, (tabContentContainer and tabContentContainer.AbsoluteSize.X or 0)
+                            - Config.SubTitleBodyPadX * 2 - Config.ParagraphBackPad * 2)
+                    end
                     local itemH = {}
                     for i, e in ipairs(ordered) do
                         if e.kind == "paragraph" then
@@ -3240,9 +3283,23 @@ local closeBtn = nil
                 if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
                 local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                 local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+                -- 统一为中心锚点语义后再补间：进入收起时 edge 可能正处于中心锚点语义
+                -- （toggle/图文胖岛恢复中、拖拽后），若直接把左上语义的 IslandPosition
+                -- 当作补间目标，锚点与目标语义错配会让整个收起动画向左上偏移
+                local sw0 = screenGui.AbsoluteSize.X
+                local sh0 = screenGui.AbsoluteSize.Y
+                local es0 = edge.Size
+                local ep0 = edge.Position
+                local ea0 = edge.AnchorPoint
+                local evw = es0.X.Offset + es0.X.Scale * sw0
+                local evh = es0.Y.Offset + es0.Y.Scale * sh0
+                local evcx = ep0.X.Scale * sw0 + ep0.X.Offset + evw * (0.5 - ea0.X)
+                local evcy = ep0.Y.Scale * sh0 + ep0.Y.Offset + evh * (0.5 - ea0.Y)
+                edge.AnchorPoint = Vector2.new(0.5, 0.5)
+                edge.Position = UDim2.new(0.5, evcx - sw0 * 0.5, 0, evcy)
                 local collapseFinished = false
 
-                animateEdge(Config.IslandSize, Config.IslandPosition, Config.PanelExpandTime, Config.PanelBounce, function()
+                animateEdge(Config.IslandSize, UDim2.new(0.5, cx, 0, cy), Config.PanelExpandTime, Config.PanelBounce, function()
                     edge.AnchorPoint = Vector2.new(0.5, 0.5)
                     edge.Position = UDim2.new(0.5, cx, 0, cy)
                     winOpen = false
@@ -3288,6 +3345,9 @@ local closeBtn = nil
                             waited = waited + 0.02
                         end
                         if not alive or shutdown then lastToggleInfo = nil return end
+                        -- 收起完成后若用户已重新展开面板，则放弃 toggle 状态动画，
+                        -- 避免其把展开中的面板拽成 toggle 胖岛造成错位
+                        if expanded then lastToggleInfo = nil return end
                         playToggleStateAnimation()
                     end)
                 end
@@ -3335,6 +3395,12 @@ local closeBtn = nil
                                 tabSeparator = sep
                                 if suppressHeaderEntrance then sep.BackgroundTransparency = 1 end
                                 local contentX = titlePad + listW + Config.TabAreaGap
+                                -- 内容区宽度按布局算式推导，不依赖 AbsoluteSize：
+                                -- 真实环境中新建实例当帧 AbsoluteSize 尚未布局完成（为 0），
+                                -- 会使段落 Info 按极窄宽度测量导致向下偏移
+                                local edgeW = screenGui.AbsoluteSize.X
+                                local layM = (lastPanelLayout and lastPanelLayout.m) or Config.PanelMargin
+                                tabContentW = math.max(60, (edgeW - layM * 2) - (contentX + titlePad))
                                 local contentFrame = Instance.new("CanvasGroup")
                                 contentFrame.Name = "TabContent"
                                 contentFrame.BackgroundTransparency = 1
@@ -3522,8 +3588,18 @@ local closeBtn = nil
                                         end)
                                     end
                                 end
-                                updateTabsHighlight()
-                                updateContentArea()
+                                -- 构建后若尚未选中任何页且存在选项卡，自动选中第一页：
+                                -- 避免切换脚本（自动展开）后停在「请先选中一个页面」空状态，
+                                -- 与 loader 淡出过程重叠显示
+                                if win._activeTab == 0 and #win._tabs > 0 then
+                                    win._activeTab = 1
+                                    updateTabsHighlight()
+                                    updateContentArea()
+                                    animateContentIn()
+                                else
+                                    updateTabsHighlight()
+                                    updateContentArea()
+                                end
                             else
                                 local msg = "还没有任何选项卡"
                                 local parts = {}
