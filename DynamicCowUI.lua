@@ -493,8 +493,21 @@ local function writeConfigFile(folder, name, data)
     return true
 end
 
-local loadedWindows = {}
-local loadedOrder = {}
+local function _dcGetSharedHolder()
+    if type(getgenv) == "function" then
+        local ok, g = pcall(getgenv)
+        if ok and type(g) == "table" then return g end
+    end
+    if type(shared) == "table" then return shared end
+    return _G
+end
+local _dcSharedHolder = _dcGetSharedHolder()
+if type(_dcSharedHolder) ~= "table" then _dcSharedHolder = _G end
+if type(_dcSharedHolder.__DynamicCowUILoaded) ~= "table" then
+    _dcSharedHolder.__DynamicCowUILoaded = { windows = {}, order = {} }
+end
+local loadedWindows = _dcSharedHolder.__DynamicCowUILoaded.windows
+local loadedOrder = _dcSharedHolder.__DynamicCowUILoaded.order
 
 local function registerLoadedWindow(title, win)
     if loadedWindows[title] then
@@ -3123,7 +3136,7 @@ local closeBtn = nil
                 local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
                 local collapseFinished = false
 
-                animateEdge(Config.IslandSize, UDim2.new(0.5, cx, 0, cy), Config.PanelExpandTime, Config.PanelBounce, function()
+                animateEdge(Config.IslandSize, Config.IslandPosition, Config.PanelExpandTime, Config.PanelBounce, function()
                     edge.AnchorPoint = Vector2.new(0.5, 0.5)
                     edge.Position = UDim2.new(0.5, cx, 0, cy)
                     winOpen = false
@@ -3133,10 +3146,22 @@ local closeBtn = nil
                     Position = UDim2.new(Config.IslandPosition.X.Scale, cx, Config.IslandPosition.Y.Scale, cy),
                 }):Play()
                 for _, cf in ipairs(islandTextContainer:GetChildren()) do local lb = cf:FindFirstChildOfClass("TextLabel") if lb then lb.TextTransparency = 0 end end
-                if closeBtn then closeBtn:Destroy() closeBtn = nil end
+                if closeBtn then
+                    local cb = closeBtn
+                    closeBtn = nil
+                    TweenService:Create(cb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
+                    cb.Active = false
+                    task.delay(Config.FadeInTime + 0.05, function() if cb and cb.Parent then cb:Destroy() end end)
+                end
                 if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
                 if titleIcon then titleIcon:Destroy() titleIcon = nil end
-                if switchBtn then switchBtn:Destroy() switchBtn = nil end
+                if switchBtn then
+                    local sb = switchBtn
+                    switchBtn = nil
+                    TweenService:Create(sb, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
+                    sb.Active = false
+                    task.delay(Config.FadeInTime + 0.05, function() if sb and sb.Parent then sb:Destroy() end end)
+                end
                 if infoLabel then infoLabel:Destroy() infoLabel = nil end
                 clearBrand()
                 destroyTabUI()
@@ -3449,7 +3474,9 @@ local closeBtn = nil
                         btn.BackgroundTransparency = 1
                         btn.ScaleType = Enum.ScaleType.Fit
                         btn.ImageColor3 = Color3.new(1, 1, 1)
+                        btn.ImageTransparency = 1
                         btn.Parent = contentRoot
+                        TweenService:Create(btn, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
                         local closeHold = nil
 
                         local pressGen = 0
@@ -3656,7 +3683,7 @@ local function buildHeaderDecor()
             b.BackgroundTransparency = 1
             b.ScaleType = Enum.ScaleType.Fit
             b.ImageColor3 = Color3.new(1, 1, 1)
-            b.ImageTransparency = 0
+            b.ImageTransparency = 1
             b.ZIndex = 3
             b.Parent = contentRoot
             local others = otherLoadedTitles()
@@ -3962,6 +3989,7 @@ local function buildHeaderDecor()
         showSwitchConfirm = buildSwitchConfirmImpl
 
             local iconTextBusy = false
+            local iconTextHc = nil
             local function playIconTextAnimation(text, iconName, iconColor)
                 if not alive or not ready or shutdown then return end
                 if iconTextBusy then return end
@@ -4010,6 +4038,7 @@ local function buildHeaderDecor()
                 hc.ClipsDescendants = true
                 hc.ZIndex = 56
                 hc.Parent = edge
+                iconTextHc = hc
                 local hl = Instance.new("UIListLayout")
                 hl.FillDirection = Enum.FillDirection.Horizontal
                 hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -4081,9 +4110,14 @@ local function buildHeaderDecor()
                     iconTextBusy = false
                     if not alive or shutdown then
                         if hc and hc.Parent then hc:Destroy() end
+                        iconTextHc = nil
                         return
                     end
                     if hc and hc.Parent then hc:Destroy() end
+                    iconTextHc = nil
+                    if expanded then
+                        return
+                    end
 
                     animateEdge(Config.IslandSize, islandRest, Config.IconTextRestoreTime, 0)
 
@@ -4661,6 +4695,10 @@ local function doExpandPanel()
         if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
         toggleAnimContainer = nil
         toggleAnimBusy = false
+    end
+    if iconTextBusy then
+        iconTextBusy = false
+        if iconTextHc and iconTextHc.Parent then iconTextHc:Destroy() iconTextHc = nil end
     end
 
     cancelEdgeTweens()
