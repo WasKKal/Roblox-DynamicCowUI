@@ -333,7 +333,9 @@ local Config = {
     LineRowHeight = 14,
     LineThickness = 1,
     LineColor = Color3.fromRGB(88, 88, 98),
-    LineInset = 0,
+    -- 默认分隔线内缩，使 AddLine() 默认线条与显式 Inset 线条长度一致，
+    -- 避免出现默认满宽线条「长短不一」的观感
+    LineInset = 12,
     DropdownTitleSize = 14,
     DropdownTitleColor = Color3.new(1, 1, 1),
     DropdownTitlePadX = 10,
@@ -4341,7 +4343,10 @@ local function buildHeaderDecor()
                 local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                 local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
 
-                if wasExpanded then
+                -- 切换/自动展开加载期间（suppressHeaderEntrance 为真）不应因图文动画
+                -- 额外收起面板：否则再执行新脚本时，刚展开的面板会被 ShowNotify/
+                -- 入场提示动画里的 collapsePanel 再次收起，表现为「额外的面板收起」
+                if wasExpanded and not suppressHeaderEntrance then
                     collapsePanel(true)
                     task.wait(Config.PanelExpandTime * 0.5)
 
@@ -5030,6 +5035,12 @@ local function doExpandPanel()
     local myTitleGen = titleGen
     islandScale.Scale = 1
 
+    -- 兜底恢复面板填充背景，避免此前 _switchAway 等把 fillFrame 设为全透明后，
+    -- 切换/展开时背景不显示（切换过程背景消失）
+    if fillFrame and fillFrame.Parent then
+        fillFrame.BackgroundTransparency = Config.IslandFinalTransparency
+    end
+
     if islandTextContainer and islandTextContainer.Parent then
         setIslandText(title, Config.TitleColor)
         for _, cf in ipairs(islandTextContainer:GetChildren()) do
@@ -5107,6 +5118,13 @@ local function doExpandPanel()
     win._rebuildTabs = function() buildTabUI(lastPanelLayout) end
     buildHeaderDecor()
     buildTabUI(lastPanelLayout)
+        -- 切换/加载脚本路径（suppressHeaderEntrance 为真）下，doExpandPanel 由
+        -- expandForSwitchRef 调用：buildTabUI 已自动选中首页，但内容应在「加载动画」
+        -- 播放期间保持隐藏，待 playPanelContentEntrance 揭开，避免加载动画与面板内
+        -- 全部 UI 元素同时出现
+        if suppressHeaderEntrance and tabContentContainer and tabContentContainer.Parent then
+            tabContentContainer.GroupTransparency = 1
+        end
     buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
     if buildSwitchButton then buildSwitchButton() end
     return true
@@ -5589,9 +5607,14 @@ if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, 
         chromeTween(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
             Transparency = Config.TargetTransparency,
         })
+        -- 确保白色扫光边框回到隐藏态：扫光结束本应自动复位，此处兜底，
+        -- 避免切换/恢复后残留白色描边或边框整体不可见（切换过程边框消失）
+        if stroke then stroke.Transparency = 1 end
         edge.AnchorPoint = Vector2.new(0, 0)
         edge.Position = UDim2.new(0, m2, 0, top2)
         edge.Size = UDim2.new(0, sw2 - m2 * 2, 0, sh2 - top2 - m2)
+        -- 切回时把标题重设为真实脚本标题，避免停留在默认折叠态「DynamicCow」绿色文案
+        setIslandText(title, Config.TitleColor)
         setHeaderVisible(true)
         winOpen = true
         -- 由 playPanelContentEntrance 统一负责重建面板 + 播放标题/Info 左移渐显入场动画，
