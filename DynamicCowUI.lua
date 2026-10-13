@@ -313,6 +313,9 @@ local Config = {
     SliderTitlePadX = 10,
     SliderTitleMinW = 40,
     SliderTitleGap = 10,
+    SliderValueW = 44,
+    SliderValueColor = Color3.fromRGB(190, 195, 210),
+    SliderValueSize = 13,
     SliderTrackVPad = 9,
     SliderTrackColor = Color3.fromRGB(58, 58, 70),
     SliderTrackTransparency = 0.35,
@@ -335,6 +338,7 @@ local Config = {
     DropdownTitleGap = 10,
     DropdownCapsuleW = 120,
     DropdownCapsuleH = 26,
+    DropdownCapsuleFill = Color3.fromRGB(38, 38, 48),
     DropdownCapsuleStroke = Color3.fromRGB(150, 150, 160),
     DropdownCapsuleStrokeThickness = 1,
     DropdownCapsuleTextColor = Color3.new(1, 1, 1),
@@ -941,6 +945,7 @@ title = Config.ErrorText
         edge.Position = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
         edge.Size = Config.IslandSize
         corner.CornerRadius = Config.IslandCornerRadius
+        fillCorner.CornerRadius = Config.IslandCornerRadius
         fillFrame.Size = UDim2.new(1, 0, 1, 0)
         fillFrame.BackgroundTransparency = 1
         silverStroke.Transparency = 1
@@ -2492,12 +2497,27 @@ local closeBtn = nil
                     titleLbl.TextYAlignment = Enum.TextYAlignment.Center
                     titleLbl.ZIndex = 3
                     titleLbl.Parent = frame
+                    local valueW = Config.SliderValueW
+                    local valueLbl = Instance.new("TextLabel")
+                    valueLbl.Name = "SliderValue"
+                    valueLbl.BackgroundTransparency = 1
+                    valueLbl.Size = UDim2.new(0, valueW, 1, 0)
+                    valueLbl.Position = UDim2.new(0, titleW + 2, 0, 0)
+                    valueLbl.Text = ""
+                    valueLbl.TextColor3 = Config.SliderValueColor
+                    valueLbl.TextSize = Config.SliderValueSize
+                    valueLbl.Font = Enum.Font.Gotham
+                    valueLbl.TextXAlignment = Enum.TextXAlignment.Center
+                    valueLbl.TextYAlignment = Enum.TextYAlignment.Center
+                    valueLbl.ZIndex = 3
+                    valueLbl.Parent = frame
+                    local trackX = titleW + 2 + valueW + Config.SliderTitleGap
                     local track = Instance.new("Frame")
                     track.Name = "SliderTrack"
                     track.BackgroundColor3 = Config.SliderTrackColor
                     track.BackgroundTransparency = Config.SliderTrackTransparency
-                    track.Size = UDim2.new(1, -(titleW + Config.SliderTitleGap), 1, -Config.SliderTrackVPad * 2)
-                    track.Position = UDim2.new(0, titleW + Config.SliderTitleGap, 0, Config.SliderTrackVPad)
+                    track.Size = UDim2.new(1, -trackX, 1, -Config.SliderTrackVPad * 2)
+                    track.Position = UDim2.new(0, trackX, 0, Config.SliderTrackVPad)
                     track.ZIndex = 3
                     local trackCorner = Instance.new("UICorner")
                     trackCorner.CornerRadius = Config.SliderTrackCorner
@@ -2533,6 +2553,20 @@ local closeBtn = nil
                         if r <= 0 then return 0 end
                         return clampFrac((v - sl.MinValue) / r)
                     end
+                    local function formatVal(v)
+                        local deg = sl.Degree or 0
+                        if deg >= 1 then return tostring(math.floor(v + 0.5)) end
+                        local decimals = 0
+                        if deg > 0 then
+                            local t = deg
+                            while t < 0.999 and decimals < 6 do
+                                t = t * 10
+                                decimals = decimals + 1
+                            end
+                        end
+                        if decimals <= 0 then return tostring(math.floor(v + 0.5)) end
+                        return string.format("%." .. decimals .. "f", v)
+                    end
                     sl._refresh = function(animate)
                         local f2 = valToFrac(sl.Value)
                         if sl._tween then sl._tween:Cancel() end
@@ -2541,6 +2575,9 @@ local closeBtn = nil
                             sl._tween:Play()
                         else
                             sl._fill.Size = UDim2.new(f2, 0, 1, 0)
+                        end
+                        if sl._valueLbl and sl._valueLbl.Parent then
+                            sl._valueLbl.Text = formatVal(sl.Value)
                         end
                     end
                     sl._applyFrac = function(f, animate)
@@ -2559,6 +2596,7 @@ local closeBtn = nil
                     sl._track = track
                     sl._fill = fill
                     sl._titleLbl = titleLbl
+                    sl._valueLbl = valueLbl
                     sl._refresh(false)
                     local dragging = false
                     local function pointFrac(input)
@@ -2620,7 +2658,7 @@ local closeBtn = nil
                         return out .. "…"
                     end
                     local function capsuleText()
-                        local maxW = Config.DropdownCapsuleW - Config.DropdownMenuPad * 2 - Config.DropdownArrowSize - 6
+                        local maxW = Config.DropdownCapsuleW - Config.DropdownMenuPad * 2 - 6
                         if d.Multiple then
                             local n = #d.Selected
                             if n == 0 then return Config.DropdownCapsulePlaceholder end
@@ -2642,7 +2680,7 @@ local closeBtn = nil
                     local function refreshHighlights()
                         if not d._menuScroll then return end
                         for _, ob in ipairs(d._menuScroll:GetChildren()) do
-                            if ob:IsA("TextButton") then
+                            if ob:IsA("TextButton") and ob.Name == "DdOption" then
                                 ob.BackgroundColor3 = isSelected(ob:GetAttribute("OptName")) and Config.DropdownOptionSelected or Config.DropdownMenuFill
                             end
                         end
@@ -2664,6 +2702,7 @@ local closeBtn = nil
                         end
                         if not d.Multiple and d._closeMenu then d._closeMenu(true) end
                     end
+
                     local frame = Instance.new("Frame")
                     frame.Name = "SubDropdown"
                     frame.BackgroundTransparency = 1
@@ -2686,13 +2725,14 @@ local closeBtn = nil
                     titleLbl.TextYAlignment = Enum.TextYAlignment.Center
                     titleLbl.ZIndex = 3
                     titleLbl.Parent = frame
+
                     local capsule = Instance.new("TextButton")
                     capsule.Name = "DdCapsule"
                     capsule.AutoButtonColor = false
                     capsule.AnchorPoint = Vector2.new(1, 0.5)
                     capsule.Position = UDim2.new(1, 0, 0.5, 0)
                     capsule.Size = UDim2.new(0, Config.DropdownCapsuleW, 0, Config.DropdownCapsuleH)
-                    capsule.BackgroundTransparency = 1
+                    capsule.BackgroundColor3 = Config.DropdownCapsuleFill
                     capsule.Text = ""
                     capsule.ZIndex = 3
                     capsule.Parent = frame
@@ -2708,49 +2748,57 @@ local closeBtn = nil
                     label.Name = "DdLabel"
                     label.BackgroundTransparency = 1
                     label.AnchorPoint = Vector2.new(0, 0.5)
-                    label.Position = UDim2.new(0, Config.DropdownMenuPad + 2, 0.5, 0)
-                    label.Size = UDim2.new(1, -(Config.DropdownMenuPad * 2 + Config.DropdownArrowSize + 6), 1, 0)
+                    label.Position = UDim2.new(0, Config.DropdownMenuPad + 4, 0.5, 0)
+                    label.Size = UDim2.new(1, -(Config.DropdownMenuPad * 2 + 8), 1, 0)
                     label.Font = Enum.Font.Gotham
                     label.TextColor3 = Config.DropdownCapsuleTextColor
                     label.TextSize = Config.DropdownCapsuleTextSize
                     label.TextXAlignment = Enum.TextXAlignment.Left
                     label.TextYAlignment = Enum.TextYAlignment.Center
+                    label.TextTruncate = Enum.TextTruncate.AtEnd
                     label.ZIndex = 4
                     label.Parent = capsule
-                    local arrow = Instance.new("ImageLabel")
-                    arrow.Name = "DdArrow"
-                    arrow.AnchorPoint = Vector2.new(1, 0.5)
-                    arrow.Position = UDim2.new(1, -Config.DropdownMenuPad - 2, 0.5, 0)
-                    arrow.Size = UDim2.fromOffset(Config.DropdownArrowSize, Config.DropdownArrowSize)
-                    arrow.BackgroundTransparency = 1
-                    arrow.ImageColor3 = Config.DropdownCapsuleStroke
-                    arrow.ScaleType = Enum.ScaleType.Fit
-                    arrow.ZIndex = 4
-                    arrow.Parent = capsule
-                    task.spawn(function()
-                        local lucide = loadLucide()
-                        if lucide then
-                            local okA, asset = pcall(lucide.GetAsset, "chevron-down")
-                            if okA and asset and asset.Url then
-                                arrow.Image = asset.Url
-                                if asset.ImageRectOffset then arrow.ImageRectOffset = asset.ImageRectOffset arrow.ImageRectSize = asset.ImageRectSize end
+
+                    local menuOpen = false
+                    local menuFrame = nil
+                    local outsideConn = nil
+
+                    local function closeMenu(animate)
+                        if not menuOpen then return end
+                        menuOpen = false
+                        if outsideConn then outsideConn:Disconnect() outsideConn = nil end
+                        if openDropdownClose == closeMenu then openDropdownClose = nil end
+                        d._closeMenu = nil
+                        if d._menuScroll then d._menuScroll = nil end
+                        local mf = menuFrame
+                        menuFrame = nil
+                        if mf and mf.Parent then
+                            if animate then
+                                for _, ob in ipairs(mf:GetDescendants()) do
+                                    if ob:IsA("TextButton") and ob.Name == "DdOption" then
+                                        TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+                                    end
+                                end
+                                TweenService:Create(mf, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { BackgroundTransparency = 1 }):Play()
+                                task.delay(Config.DropdownCollapseTime + 0.05, function()
+                                    if mf and mf.Parent then mf:Destroy() end
+                                end)
+                            else
+                                mf:Destroy()
                             end
                         end
-                    end)
+                    end
 
-                    local menuState = nil
-                    local outsideConn = nil
                     local function openMenu()
-                        if menuState then return end
+                        if menuOpen then return end
                         if openDropdownClose then openDropdownClose() end
                         local optList = d.Options or {}
                         local count = #optList
                         if count == 0 then return end
                         local as = capsule.AbsoluteSize
-                        local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
-
                         local ap = capsule.AbsolutePosition
                         local scrH = getViewportHeight()
+                        local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
                         local edgeGap = Config.DropdownMenuPad + 4
                         local capTop = ap.Y
                         local capBottom = ap.Y + as.Y
@@ -2763,37 +2811,29 @@ local closeBtn = nil
                         local targetH = math.min(contentH, Config.DropdownMenuMaxH, avail)
                         local needScroll = contentH > targetH
                         local expandW = math.max(Config.DropdownMenuW, as.X)
-
                         local endX = ap.X + as.X - expandW
-                        local endY = openUp and (ap.Y + as.Y - targetH) or ap.Y
+                        local endY = openUp and (capTop - targetH) or capBottom
 
-                        menuState = {
-                            parent = capsule.Parent,
-                            position = capsule.Position,
-                            size = capsule.Size,
-                            anchor = capsule.AnchorPoint,
-                            zindex = capsule.ZIndex,
-                            clips = capsule.ClipsDescendants,
-                            corner = capCorner.CornerRadius,
-                            bgColor = capsule.BackgroundColor3,
-
-                            baseX = ap.X,
-                            baseY = ap.Y,
-                            baseW = as.X,
-                            baseH = as.Y,
-                        }
-
-                        capsule.ClipsDescendants = true
-                        capsule.ZIndex = Config.DropdownMenuZ
-                        capsule.BackgroundColor3 = Config.DropdownMenuFill
-
-                        capsule.AnchorPoint = Vector2.new(0, 0)
-                        capsule.Position = UDim2.fromOffset(endX, endY)
-                        capsule.Parent = screenGui
-                        capsule.Size = UDim2.fromOffset(expandW, targetH)
-
-                        label.Visible = false
-                        arrow.Visible = false
+                        menuOpen = true
+                        local mf = Instance.new("Frame")
+                        mf.Name = "DdMenu"
+                        mf.BackgroundColor3 = Config.DropdownMenuFill
+                        mf.BackgroundTransparency = 1
+                        mf.BorderSizePixel = 0
+                        mf.Size = UDim2.fromOffset(expandW, targetH)
+                        mf.Position = UDim2.fromOffset(endX, endY)
+                        mf.ClipsDescendants = true
+                        mf.ZIndex = Config.DropdownMenuZ
+                        mf.Parent = screenGui
+                        local mc = Instance.new("UICorner")
+                        mc.CornerRadius = UDim.new(0, Config.DropdownMenuCorner)
+                        mc.Parent = mf
+                        local mstroke = Instance.new("UIStroke")
+                        mstroke.Color = Config.DropdownMenuStroke
+                        mstroke.Thickness = Config.DropdownMenuStrokeThickness
+                        mstroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                        mstroke.Parent = mf
+                        menuFrame = mf
 
                         local container
                         if needScroll then
@@ -2806,11 +2846,10 @@ local closeBtn = nil
                             sc.ScrollingDirection = Enum.ScrollingDirection.Y
                             sc.ScrollBarThickness = 3
                             sc.ZIndex = 2
-                            sc.Parent = capsule
+                            sc.Parent = mf
                             container = sc
-                            menuState.container = sc
                         else
-                            container = capsule
+                            container = mf
                         end
                         local list = Instance.new("UIListLayout")
                         list.FillDirection = Enum.FillDirection.Vertical
@@ -2823,8 +2862,6 @@ local closeBtn = nil
                         pad.PaddingLeft = UDim.new(0, Config.DropdownMenuPad)
                         pad.PaddingRight = UDim.new(0, Config.DropdownMenuPad)
                         pad.Parent = container
-                        menuState.list = list
-                        menuState.pad = pad
                         d._menuScroll = container
                         for i, opt in ipairs(optList) do
                             local ob = Instance.new("TextButton")
@@ -2856,93 +2893,44 @@ local closeBtn = nil
                                 if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownMenuFill }):Play() end
                             end)
                         end
-                        local closed = false
-                        local function restore()
-                            if outsideConn then outsideConn:Disconnect() outsideConn = nil end
-                            if d._menuScroll == container then d._menuScroll = nil end
-                            d._closeMenu = nil
-                            local st = menuState
-                            menuState = nil
-
-                            for _, ob in ipairs(container:GetChildren()) do
-                                if ob:IsA("TextButton") and ob.Name == "DdOption" then ob:Destroy() end
-                            end
-                            if st.list and st.list.Parent then st.list:Destroy() end
-                            if st.pad and st.pad.Parent then st.pad:Destroy() end
-                            if st.container and st.container.Parent then st.container:Destroy() end
-                            if st.parent and st.parent.Parent then
-                                capsule.AnchorPoint = st.anchor
-                                capsule.Position = st.position
-                                capsule.Size = st.size
-                                capsule.ZIndex = st.zindex
-                                capsule.ClipsDescendants = st.clips
-                                capsule.BackgroundColor3 = st.bgColor
-                                capsule.Parent = st.parent
-                                capCorner.CornerRadius = st.corner
-                                label.Visible = true
-                                arrow.Visible = true
-                            elseif capsule and capsule.Parent then
-
-                                capsule:Destroy()
-                            end
-                        end
-                        local function closeMenu(animate)
-                            if closed then return end
-                            closed = true
-                            if openDropdownClose == closeMenu then openDropdownClose = nil end
-                            if not animate then restore() return end
-                            for _, ob in ipairs(container:GetChildren()) do
-                                if ob:IsA("TextButton") then
-                                    TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
-                                end
-                            end
-                            TweenService:Create(capsule, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-                                Position = UDim2.fromOffset(menuState.baseX, menuState.baseY),
-                                Size = UDim2.new(0, as.X, 0, as.Y),
-                                BackgroundTransparency = 1,
-                            }):Play()
-                            TweenService:Create(capCorner, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { CornerRadius = menuState.corner }):Play()
-                            task.delay(Config.DropdownCollapseTime + 0.05, restore)
-                        end
                         d._closeMenu = closeMenu
                         openDropdownClose = closeMenu
 
-                        TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                            Position = UDim2.fromOffset(endX, endY),
-                            Size = UDim2.new(0, expandW, 0, targetH),
-                        }):Play()
-                        TweenService:Create(capsule, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = Config.DropdownMenuFillTransparency }):Play()
-                        TweenService:Create(capCorner, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { CornerRadius = UDim.new(0, Config.DropdownMenuCorner) }):Play()
+                        TweenService:Create(mf, TweenInfo.new(Config.DropdownRevealTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { BackgroundTransparency = Config.DropdownMenuFillTransparency }):Play()
                         for i, ob in ipairs(container:GetChildren()) do
-                            if ob:IsA("TextButton") then
+                            if ob:IsA("TextButton") and ob.Name == "DdOption" then
                                 task.delay(Config.DropdownRevealTime + (i - 1) * Config.DropdownOptionStagger, function()
-                                    if closed or not ob.Parent then return end
+                                    if not menuOpen or not ob.Parent then return end
                                     TweenService:Create(ob, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 0, TextTransparency = 0 }):Play()
                                 end)
                             end
                         end
 
                         outsideConn = UserInputService.InputBegan:Connect(function(input)
-                            if closed then return end
+                            if not menuOpen then return end
                             if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
-                            local p, cp, cs = input.Position, capsule.AbsolutePosition, capsule.AbsoluteSize
-                            if p and p.X >= cp.X and p.X <= cp.X + cs.X and p.Y >= cp.Y and p.Y <= cp.Y + cs.Y then return end
+                            local p = input.Position
+                            if p then
+                                local cp, cs = mf.AbsolutePosition, mf.AbsoluteSize
+                                if p.X >= cp.X and p.X <= cp.X + cs.X and p.Y >= cp.Y and p.Y <= cp.Y + cs.Y then return end
+                            end
                             closeMenu(true)
                         end)
                     end
+
                     capsule.MouseButton1Click:Connect(function()
-                        if menuState then
-                            if d._closeMenu then d._closeMenu(true) end
+                        if menuOpen then
+                            closeMenu(true)
                         else
                             openMenu()
                         end
                     end)
                     d._refreshCapsule = refreshCapsule
-                    refreshCapsule()
                     d._frame = frame
                     d._capsule = capsule
                     d._label = label
                     d._titleLbl = titleLbl
+                    refreshCapsule()
                     return frame
                 end
                 for _, st in ipairs(tab._subtitles) do
@@ -4304,6 +4292,9 @@ local function buildHeaderDecor()
                 TweenService:Create(corner, TweenInfo.new(Config.IconTextGrowTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                     CornerRadius = UDim.new(0, fatH / 2),
                 }):Play()
+                TweenService:Create(fillCorner, TweenInfo.new(Config.IconTextGrowTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    CornerRadius = UDim.new(0, fatH / 2),
+                }):Play()
                 edgeBusyUntil = os.clock() + Config.IconTextGrowTime + Config.IconTextHoldTime + Config.IconTextRestoreTime + 0.35
 
                 task.delay(Config.IconTextHoldTime, function()
@@ -4322,6 +4313,9 @@ local function buildHeaderDecor()
 
                     animateEdge(Config.IslandSize, islandRest, Config.IconTextRestoreTime, 0)
                     TweenService:Create(corner, TweenInfo.new(Config.IconTextRestoreTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        CornerRadius = Config.IslandCornerRadius,
+                    }):Play()
+                    TweenService:Create(fillCorner, TweenInfo.new(Config.IconTextRestoreTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                         CornerRadius = Config.IslandCornerRadius,
                     }):Play()
 
@@ -5513,6 +5507,11 @@ end
         ), {
             CornerRadius = Config.IslandCornerRadius,
         }):Play()
+        TweenService:Create(fillCorner, TweenInfo.new(
+            Config.ShrinkTime, Enum.EasingStyle.Quint, Enum.EasingDirection.Out
+        ), {
+            CornerRadius = Config.IslandCornerRadius,
+        }):Play()
         local titleShrinkTween = TweenService:Create(titleScale, TweenInfo.new(
             Config.TitleShrinkTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
         ), {
@@ -5895,9 +5894,13 @@ end
                         local tw = measureTextWidth(self4.Title, Config.SliderTitleSize) + Config.SliderTitlePadX
                         if tw < Config.SliderTitleMinW then tw = Config.SliderTitleMinW end
                         self4._titleLbl.Size = UDim2.new(0, tw, 1, 0)
+                        if self4._valueLbl and self4._valueLbl.Parent then
+                            self4._valueLbl.Position = UDim2.new(0, tw + 2, 0, 0)
+                        end
                         if self4._track and self4._track.Parent then
-                            self4._track.Position = UDim2.new(0, tw + Config.SliderTitleGap, 0, Config.SliderTrackVPad)
-                            self4._track.Size = UDim2.new(1, -(tw + Config.SliderTitleGap), 1, -Config.SliderTrackVPad * 2)
+                            local trackX = tw + 2 + Config.SliderValueW + Config.SliderTitleGap
+                            self4._track.Position = UDim2.new(0, trackX, 0, Config.SliderTrackVPad)
+                            self4._track.Size = UDim2.new(1, -trackX, 1, -Config.SliderTrackVPad * 2)
                         end
                     end
                 end
