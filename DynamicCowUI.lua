@@ -3333,7 +3333,9 @@ local closeBtn = nil
                 win._rebuildTabs = nil
                 expanded = false
 
-                setIslandText(Config.IslandText, Config.IslandTextColor)
+                -- 收起态应保持真实脚本标题（白色），不要回退到绿色默认占位 "DynamicCow"
+                -- （绿色 DynamicCow 仅用于初始/错误占位，其余状态均以真实标题显示）
+                setIslandText(islandTextOverride or title, Config.TitleColor)
                 interacting = false
 
                 if skipToggleAnim then
