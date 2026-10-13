@@ -270,7 +270,7 @@ local Config = {
     SwitchButtonGap = 8,
 
     SwitchDialogW = 720,
-    SwitchDialogH = 250,
+    SwitchDialogH = 190,
     SwitchDialogTitle = "你要切换哪一个脚本？",
 
     SwitchDropdownH = 46,
@@ -872,7 +872,7 @@ title = Config.ErrorText
     })
     local whiteToSilver = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 180, 180)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(118, 118, 134)),
     })
     local gradient = Instance.new("UIGradient")
     gradient.Rotation = 0
@@ -961,6 +961,7 @@ title = Config.ErrorText
 
     local alive = true
     local switchDormant = false
+    local suppressHeaderEntrance = false
     local expandPanelRef = nil
     local restorePanelRef = nil
     local errText = Config.ErrorText
@@ -1401,6 +1402,21 @@ title = Config.ErrorText
             pcall(function() tw:Cancel() end)
         end
         titleTweens = {}
+    end
+
+    local chromeTweens = {}
+    local function cancelChromeTweens()
+        for _, tw in ipairs(chromeTweens) do
+            pcall(function() tw:Cancel() end)
+        end
+        chromeTweens = {}
+    end
+    local function chromeTween(inst, ti, props)
+        if not inst then return nil end
+        local tw = TweenService:Create(inst, ti, props)
+        chromeTweens[#chromeTweens + 1] = tw
+        tw:Play()
+        return tw
     end
 
     local function clearBrand()
@@ -3181,6 +3197,7 @@ local closeBtn = nil
                 if not expanded then return end
                 titleGen = titleGen + 1
                 cancelTitleTweens()
+                suppressHeaderEntrance = false
                 if actionEnd then actionEnd() end
                 local ll = islandTextContainer and islandTextContainer:FindFirstChildOfClass("UIListLayout")
                 if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
@@ -3220,7 +3237,7 @@ local closeBtn = nil
                 win._rebuildTabs = nil
                 expanded = false
 
-                setIslandText(islandTextOverride or title, Config.TitleColor)
+                setIslandText(Config.IslandText, Config.IslandTextColor)
                 interacting = false
 
                 if skipToggleAnim then
@@ -3258,6 +3275,7 @@ local closeBtn = nil
                             div.ZIndex = 2
                             div.Parent = contentRoot
                             headerDivider = div
+                            if suppressHeaderEntrance then div.BackgroundTransparency = 1 end
                             local listTop = divY + Config.HeaderDividerGap
                             local listW = Config.TabWidth
                             if #win._tabs > 0 then
@@ -3278,6 +3296,7 @@ local closeBtn = nil
                                 sep.ZIndex = 2
                                 sep.Parent = contentRoot
                                 tabSeparator = sep
+                                if suppressHeaderEntrance then sep.BackgroundTransparency = 1 end
                                 local contentX = titlePad + listW + Config.TabAreaGap
                                 local contentFrame = Instance.new("CanvasGroup")
                                 contentFrame.Name = "TabContent"
@@ -3290,6 +3309,7 @@ local closeBtn = nil
                                 contentFrame.Parent = contentRoot
                                 tabContentContainer = contentFrame
                                 tabContentBase = contentFrame.Position
+                                if suppressHeaderEntrance then contentFrame.GroupTransparency = 1 end
                                 local function makeStateGroup(iconName, text)
                                     local g = Instance.new("Frame")
                                     g.Name = "StateGroup"
@@ -3441,7 +3461,7 @@ local closeBtn = nil
                                     end
                                     tname.Parent = row
                                     task.delay(Config.PanelExpandTime + (i - 1) * Config.TabStagger, function()
-                                        if not expanded then return end
+                                        if not expanded or suppressHeaderEntrance then return end
                                         if ticon and ticon.Parent then TweenService:Create(ticon, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play() end
                                         if tname and tname.Parent then TweenService:Create(tname, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
                                     end)
@@ -3485,8 +3505,13 @@ local closeBtn = nil
                                 lbl.TextXAlignment = Enum.TextXAlignment.Center
                                 lbl.TextYAlignment = Enum.TextYAlignment.Center
                                 lbl.ZIndex = 2
+                                lbl.TextTransparency = 1
                                 lbl.Parent = contentRoot
                                 tabEmptyLabel = lbl
+                                task.delay(Config.PanelExpandTime, function()
+                                    if not expanded or suppressHeaderEntrance then return end
+                                    if lbl and lbl.Parent then TweenService:Create(lbl, TweenInfo.new(Config.TabFadeIn, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
+                                end)
                             end
             end
 
@@ -3611,6 +3636,8 @@ local function buildHeaderDecor()
                     if not iconColorSet then ic.ImageColor3 = Color3.new(1, 1, 1) end
                 end
                 task.spawn(function()
+
+                    if suppressHeaderEntrance then return end
 
                     local handoff = Config.TitleIconHandoffTime
 
@@ -3912,13 +3939,23 @@ local function buildHeaderDecor()
                     local it = Instance.new("TextButton")
                     it.Name = "SwitchDropdownItem"
                     it.Size = UDim2.new(1, -6, 0, itemH)
-                    it.BackgroundColor3 = (selected == t) and Config.SwitchDropdownActiveColor or Config.SwitchDropdownFill
+                    local isSel = (selected == t)
+                    it.BackgroundColor3 = isSel and Color3.new(1, 1, 1) or Config.SwitchDropdownFill
                     it.BorderSizePixel = 0
                     it.Text = ""
                     it.AutoButtonColor = false
                     it.LayoutOrder = i
                     it.ZIndex = 74
                     it.Parent = listFrame
+                    if isSel then
+                        local ig = Instance.new("UIGradient")
+                        ig.Rotation = 90
+                        ig.Color = ColorSequence.new({
+                            ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+                            ColorSequenceKeypoint.new(1, Color3.fromRGB(176, 176, 192)),
+                        })
+                        ig.Parent = it
+                    end
                     local ic2 = Instance.new("UICorner")
                     ic2.CornerRadius = UDim.new(0, 10)
                     ic2.Parent = it
@@ -3927,7 +3964,7 @@ local function buildHeaderDecor()
                     lb.Size = UDim2.new(1, -28, 1, 0)
                     lb.Position = UDim2.new(0, 14, 0, 0)
                     lb.Text = t
-                    lb.TextColor3 = (selected == t) and Color3.new(1, 1, 1) or Config.SwitchDropdownTextColor
+                    lb.TextColor3 = isSel and Color3.fromRGB(30, 30, 38) or Config.SwitchDropdownTextColor
                     lb.TextSize = 15
                     lb.Font = Enum.Font.Gotham
                     lb.TextXAlignment = Enum.TextXAlignment.Left
@@ -4034,6 +4071,15 @@ local function buildHeaderDecor()
             end)
 
             local okBtn = makePill("确认", Config.SwitchDialogConfirmColor)
+            okBtn.BackgroundColor3 = Color3.new(1, 1, 1)
+            okBtn.TextColor3 = Color3.fromRGB(30, 30, 38)
+            local okGrad = Instance.new("UIGradient")
+            okGrad.Rotation = 90
+            okGrad.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(176, 176, 192)),
+            })
+            okGrad.Parent = okBtn
             okBtn.LayoutOrder = 2
             okBtn.Parent = bars
             okBtn.MouseButton1Click:Connect(function()
@@ -4227,12 +4273,16 @@ local function buildHeaderDecor()
 
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
                 edge.Position = islandRest
+                local fatTopY = cy - Config.IslandSize.Y.Offset / 2
                 animateEdge(
                     UDim2.new(0, targetW, 0, fatH),
-                    UDim2.new(0.5, cx, 0, cy + (wasExpanded and 0 or 6)),
+                    UDim2.new(0.5, cx, 0, fatTopY + fatH / 2),
                     Config.IconTextGrowTime,
                     0
                 )
+                TweenService:Create(corner, TweenInfo.new(Config.IconTextGrowTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    CornerRadius = UDim.new(0, fatH / 2),
+                }):Play()
                 edgeBusyUntil = os.clock() + Config.IconTextGrowTime + Config.IconTextHoldTime + Config.IconTextRestoreTime + 0.35
 
                 task.delay(Config.IconTextHoldTime, function()
@@ -4250,6 +4300,9 @@ local function buildHeaderDecor()
                     end
 
                     animateEdge(Config.IslandSize, islandRest, Config.IconTextRestoreTime, 0)
+                    TweenService:Create(corner, TweenInfo.new(Config.IconTextRestoreTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                        CornerRadius = Config.IslandCornerRadius,
+                    }):Play()
 
                     setIslandText(islandTextOverride or title, Config.TitleColor)
                     for _, cf in ipairs(islandTextContainer:GetChildren()) do
@@ -4271,46 +4324,7 @@ local function buildHeaderDecor()
                                 end
                                 return
                             end
-                            expanded = true
-                            titleGen = titleGen + 1
-                            local myGen = titleGen
-                            islandScale.Scale = 1
-                            if islandTextContainer and islandTextContainer.Parent then
-
-                                setIslandText(islandTextOverride or title, Config.TitleColor)
-                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then lb.TextTransparency = 1 end
-                                end
-                            end
-                            edge.AnchorPoint = Vector2.new(0, 0)
-                            edge.Position = Config.IslandPosition
-                            local sw = screenGui.AbsoluteSize.X
-                            local sh = screenGui.AbsoluteSize.Y
-                            local m = Config.PanelMargin
-                            local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
-                            animateEdge(
-                                UDim2.new(0, sw - m * 2, 0, sh - top - m),
-                                UDim2.new(0, m, 0, top),
-                                Config.PanelExpandTime
-                            )
-                            playBorderSweep()
-                            if lastPanelLayout then
-                                buildTabUI(lastPanelLayout)
-                                buildCloseButton(function() showCloseConfirm() end)
-                                if buildSwitchButton then buildSwitchButton() end
-                                buildHeaderDecor()
-                            end
-                            task.delay(Config.PanelExpandTime, function() winOpen = true end)
-                            local rcList = islandTextContainer:FindFirstChildOfClass("UIListLayout")
-                            if rcList then rcList.HorizontalAlignment = Enum.HorizontalAlignment.Left end
-                            task.delay(Config.FadeInTime, function()
-                                if not expanded or myGen ~= titleGen then return end
-                                for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                                    if lb then TweenService:Create(lb, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
-                                end
-                            end)
+                            if expandPanelRef then expandPanelRef() end
                         end)
                     end
                 end)
@@ -4878,6 +4892,7 @@ local function doExpandPanel()
     local contentLeftX = iconLeft + iconS + iconGap
     local titleTargetY = blockTop + titleH / 2 + Config.TitleDrop
     local infoTop = blockTop + titleH + vGap - Config.InfoRise
+    win._infoY = infoTop
     local listLayout = islandTextContainer
         and islandTextContainer:FindFirstChildOfClass("UIListLayout")
     win._titleLeftX = contentLeftX
@@ -4897,6 +4912,7 @@ local function doExpandPanel()
     fadeTitleLabels(1)
     task.delay(Config.FadeInTime, function()
         if not expanded or myTitleGen ~= titleGen then return end
+        if suppressHeaderEntrance then return end
         if listLayout then listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left end
         local tipX = contentLeftX + islandTextContainer.AbsoluteSize.X / 2
         islandTextContainer.Position = UDim2.new(0, tipX + 40, 0, titleTargetY)
@@ -5256,6 +5272,7 @@ end
 
     local function playPanelContentEntrance()
         if not alive or shutdown or not expanded then return end
+        suppressHeaderEntrance = false
         if lastPanelLayout then
    buildTabUI(lastPanelLayout)
 buildHeaderDecor()
@@ -5289,9 +5306,10 @@ if not expanded or myGen ~= titleGen then return end
       if not expanded or myGen ~= titleGen then return end
     if infoLabel and infoLabel.Parent then
    local ix = win._titleLeftX or 0
-     local iy = ((lastPanelLayout and lastPanelLayout.top or 0)
+     local iy = win._infoY or (((lastPanelLayout and lastPanelLayout.top or 0)
               + (lastPanelLayout and lastPanelLayout.titlePad or 0)
      + (lastPanelLayout and lastPanelLayout.blockH or 0))
+     - Config.InfoBoxHeight - Config.InfoRise)
     TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
   Position = UDim2.new(0, ix, 0, iy),
         TextTransparency = 0,
@@ -5303,10 +5321,19 @@ if not expanded or myGen ~= titleGen then return end
 
     local function playSwitchSequence(loadingText)
         if not alive or shutdown or switchDormant then return end
+        if not expanded then return end
 
         fadeAllPanelItems(1)
     task.delay(Config.SwitchFadeOutTime, function()
-     if not alive or shutdown or switchDormant or not expanded then return end
+     if not alive or shutdown or switchDormant or not expanded then
+            if islandTextContainer and islandTextContainer.Parent then
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then lb.TextTransparency = 0 end
+                end
+            end
+            return
+        end
 
       local box, ic, lbl, spin = makeSwitchLoader(loadingText or Config.SwitchLoadingText)
       box.Parent = contentRoot
@@ -5317,6 +5344,12 @@ if not expanded or myGen ~= titleGen then return end
       if not alive or shutdown or not expanded then
         if spin then pcall(function() spin:Cancel() end) end
        if box and box.Parent then box:Destroy() end
+       if islandTextContainer and islandTextContainer.Parent then
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then lb.TextTransparency = 0 end
+                end
+            end
           return
    end
 
@@ -5326,7 +5359,15 @@ if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, 
             task.delay(Config.SwitchLoaderFadeTime, function()
    if not alive or shutdown then return end
          if box and box.Parent then box:Destroy() end
-       if not expanded then return end
+       if not expanded then
+            if islandTextContainer and islandTextContainer.Parent then
+                for _, cf in ipairs(islandTextContainer:GetChildren()) do
+                    local lb = cf:FindFirstChildOfClass("TextLabel")
+                    if lb then lb.TextTransparency = 0 end
+                end
+            end
+            return
+        end
 
           playPanelContentEntrance()
          end)
@@ -5339,7 +5380,11 @@ if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, 
     expandForSwitchRef = function()
         if not alive or shutdown then return end
         task.wait(0.05)
-        if not doExpandPanel() then return end
+        suppressHeaderEntrance = true
+        if not doExpandPanel() then
+            suppressHeaderEntrance = false
+            return
+        end
 
         task.delay(Config.PanelExpandTime + Config.FadeInTime + Config.InfoEnterDelay, function()
             playSwitchSequence(Config.SwitchLoadingText)
@@ -5352,12 +5397,22 @@ if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, 
         if closeDialog and closeDialog.Parent then closeDialog:Destroy() end
         closeDialog = nil
         titleGen = titleGen + 1
+        suppressHeaderEntrance = false
         islandScale.Scale = 1
         local sw2 = screenGui.AbsoluteSize.X
         local sh2 = screenGui.AbsoluteSize.Y
         local m2 = Config.PanelMargin
         local top2 = Config.IslandPosition.Y.Offset + Config.PanelDrop
         cancelEdgeTweens()
+        cancelChromeTweens()
+        if fillFrame and fillFrame.Parent then
+            chromeTween(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                BackgroundTransparency = Config.IslandFinalTransparency,
+            })
+        end
+        chromeTween(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+            Transparency = Config.TargetTransparency,
+        })
         edge.AnchorPoint = Vector2.new(0, 0)
         edge.Position = UDim2.new(0, m2, 0, top2)
         edge.Size = UDim2.new(0, sw2 - m2 * 2, 0, sh2 - top2 - m2)
@@ -6047,10 +6102,10 @@ win._closeNow = function(self)
             end
         end
         if fillFrame and fillFrame.Parent then
-            TweenService:Create(fillFrame, ti, { BackgroundTransparency = 1 }):Play()
+            chromeTween(fillFrame, ti, { BackgroundTransparency = 1 })
         end
-        TweenService:Create(stroke, ti, { Transparency = 1 }):Play()
-        TweenService:Create(silverStroke, ti, { Transparency = 1 }):Play()
+        chromeTween(stroke, ti, { Transparency = 1 })
+        chromeTween(silverStroke, ti, { Transparency = 1 })
         edge.Active = false
         task.delay(d + 0.05, function()
             if screenGui and screenGui.Parent then screenGui.Enabled = false end
@@ -6073,14 +6128,26 @@ win._closeNow = function(self)
         local d = Config.SwitchTitleMoveTime
         if not ready then
             fadeOutOtherWindows(d)
+            cancelChromeTweens()
             switchDormant = false
             if screenGui then screenGui.Enabled = true end
             edge.Active = true
+            if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
+            if stroke then stroke.Transparency = 1 end
+            if fillFrame and fillFrame.Parent then
+                chromeTween(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                    BackgroundTransparency = Config.IslandFinalTransparency,
+                })
+            end
+            chromeTween(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                Transparency = Config.TargetTransparency,
+            })
             return true
         end
         fadeOutOtherWindows(d)
         task.delay(d + 0.05, function()
             if not alive or shutdown or not switchDormant then return end
+            cancelChromeTweens()
             switchDormant = false
             if screenGui then screenGui.Enabled = true end
             edge.Active = true
