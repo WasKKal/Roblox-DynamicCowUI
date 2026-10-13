@@ -2300,21 +2300,26 @@ local closeBtn = nil
                             end
                         end)
                     end
-                    local function apply()
+                    local function apply(animate)
                         local on = tg.Value
                         local targetX = on and (trackW - pad - thumbS) or pad
-                        TweenService:Create(thumb, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                            Position = UDim2.new(0, targetX, 0.5, 0),
-                        }):Play()
-                        TweenService:Create(track, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                            BackgroundColor3 = on and Config.ToggleOnColor or (tg.TrackColor or Config.ToggleTrackColor),
-                        }):Play()
+                        if animate then
+                            TweenService:Create(thumb, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                                Position = UDim2.new(0, targetX, 0.5, 0),
+                            }):Play()
+                            TweenService:Create(track, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                BackgroundColor3 = on and Config.ToggleOnColor or (tg.TrackColor or Config.ToggleTrackColor),
+                            }):Play()
+                        else
+                            thumb.Position = UDim2.new(0, targetX, 0.5, 0)
+                            track.BackgroundColor3 = on and Config.ToggleOnColor or (tg.TrackColor or Config.ToggleTrackColor)
+                        end
                     end
-                    apply()
+                    apply(false)
                     row.MouseButton1Click:Connect(function()
                         if shutdown then return end
                         tg.Value = not tg.Value
-                        apply()
+                        apply(true)
 
                         lastToggleInfo = {
                             Title = tg.Title or "Toggle",
@@ -2941,21 +2946,38 @@ local closeBtn = nil
                     return frame
                 end
                 for _, st in ipairs(tab._subtitles) do
-                    local btns = st._buttons or {}
-                    local tgts = st._toggles or {}
-                    local pgrs = st._paragraphs or {}
-                    local slds = st._sliders or {}
-                    local ddns = st._dropdowns or {}
-                    local lns = st._lines or {}
+                    local ordered = {}
+                    local function collectSeq(arr, kind)
+                        for _, c in ipairs(arr or {}) do
+                            ordered[#ordered + 1] = { kind = kind, ctrl = c, seq = c._seq or 0 }
+                        end
+                    end
+                    collectSeq(st._buttons, "button")
+                    collectSeq(st._toggles, "toggle")
+                    collectSeq(st._paragraphs, "paragraph")
+                    collectSeq(st._sliders, "slider")
+                    collectSeq(st._dropdowns, "dropdown")
+                    collectSeq(st._lines, "line")
+                    table.sort(ordered, function(a, b)
+                        if a.seq == b.seq then return a.kind < b.kind end
+                        return a.seq < b.seq
+                    end)
                     local paraW = math.max(60, (tabContentContainer and tabContentContainer.AbsoluteSize.X or 0)
                         - Config.SubTitleBodyPadX * 2 - Config.ParagraphBackPad * 2)
                     local itemH = {}
-                    for _ in ipairs(btns) do itemH[#itemH + 1] = Config.ButtonHeight end
-                    for _ in ipairs(tgts) do itemH[#itemH + 1] = Config.ButtonHeight end
-                    for _, pg in ipairs(pgrs) do itemH[#itemH + 1] = paragraphHeight(pg, paraW) end
-                    for _ in ipairs(slds) do itemH[#itemH + 1] = Config.SliderRowHeight end
-                    for _ in ipairs(ddns) do itemH[#itemH + 1] = Config.DropdownRowHeight end
-                    for _ in ipairs(lns) do itemH[#itemH + 1] = Config.LineRowHeight end
+                    for i, e in ipairs(ordered) do
+                        if e.kind == "paragraph" then
+                            itemH[i] = paragraphHeight(e.ctrl, paraW)
+                        elseif e.kind == "slider" then
+                            itemH[i] = Config.SliderRowHeight
+                        elseif e.kind == "dropdown" then
+                            itemH[i] = Config.DropdownRowHeight
+                        elseif e.kind == "line" then
+                            itemH[i] = Config.LineRowHeight
+                        else
+                            itemH[i] = Config.ButtonHeight
+                        end
+                    end
                     local ccount = #itemH
                     local sumH = 0
                     for _, h in ipairs(itemH) do sumH = sumH + h end
@@ -3005,32 +3027,29 @@ local closeBtn = nil
                         bp.PaddingLeft = UDim.new(0, Config.SubTitleBodyPadX)
                         bp.PaddingRight = UDim.new(0, Config.SubTitleBodyPadX)
                         bp.Parent = body
-                        for bi, bt in ipairs(btns) do
-                            makeButton(bt, bi).Parent = body
-                        end
-                        for ti, tg in ipairs(tgts) do
-                            makeToggle(tg, #btns + ti).Parent = body
-                        end
-                        for pi, pg in ipairs(pgrs) do
-                            local pIdx = #btns + #tgts + pi
-                            pg._rowH = itemH[pIdx]
-                            pg._paraW = paraW
-                            pg._block = block
-                            pg._body = body
-                            pg._bodyH = contentH
-                            pg._headH = headH
-                            pg._divGap = divGap
-                            pg._collapsed = st.collapsed
-                            makeParagraph(pg, pIdx, itemH[pIdx]).Parent = body
-                        end
-                        for si, sl in ipairs(slds) do
-                            makeSlider(sl, #btns + #tgts + #pgrs + si).Parent = body
-                        end
-                        for di, dd in ipairs(ddns) do
-                            makeDropdown(dd, #btns + #tgts + #pgrs + #slds + di).Parent = body
-                        end
-                        for li, ln in ipairs(lns) do
-                            makeLine(ln, #btns + #tgts + #pgrs + #slds + #ddns + li).Parent = body
+                        for i, e in ipairs(ordered) do
+                            if e.kind == "button" then
+                                makeButton(e.ctrl, i).Parent = body
+                            elseif e.kind == "toggle" then
+                                makeToggle(e.ctrl, i).Parent = body
+                            elseif e.kind == "paragraph" then
+                                local pg = e.ctrl
+                                pg._rowH = itemH[i]
+                                pg._paraW = paraW
+                                pg._block = block
+                                pg._body = body
+                                pg._bodyH = contentH
+                                pg._headH = headH
+                                pg._divGap = divGap
+                                pg._collapsed = st.collapsed
+                                makeParagraph(pg, i, itemH[i]).Parent = body
+                            elseif e.kind == "slider" then
+                                makeSlider(e.ctrl, i).Parent = body
+                            elseif e.kind == "dropdown" then
+                                makeDropdown(e.ctrl, i).Parent = body
+                            elseif e.kind == "line" then
+                                makeLine(e.ctrl, i).Parent = body
+                            end
                         end
                     end
                     local hasIco = (st.Icon ~= nil and st.Icon ~= "")
@@ -3544,6 +3563,8 @@ local closeBtn = nil
         end
 
             local function buildCloseButton(onHoldConfirm)
+                        if closeBtn and closeBtn.Parent then closeBtn:Destroy() end
+                        closeBtn = nil
                         local btn = Instance.new("ImageButton")
                         btn.Name = "PanelClose"
                         btn.Size = UDim2.new(0, 20, 0, 20)
@@ -5611,6 +5632,8 @@ end
                     IconColor = bopts.IconColor,
                     OnClick = bopts.OnClick,
                 }
+                bt._seq = (self3._seq or 0) + 1
+                self3._seq = bt._seq
                 table.insert(self3._buttons, bt)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return bt
@@ -5659,6 +5682,8 @@ end
                     tg._cfgSet = function(self4, v) self4:Set(v == true) end
                     win._cfgIndex[tg.ConfigKey] = tg
                 end
+                tg._seq = (self3._seq or 0) + 1
+                self3._seq = tg._seq
                 table.insert(self3._toggles, tg)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return tg
@@ -5713,6 +5738,8 @@ end
                         end
                     end
                 end
+                pg._seq = (self3._seq or 0) + 1
+                self3._seq = pg._seq
                 table.insert(self3._paragraphs, pg)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return pg
@@ -5783,6 +5810,8 @@ end
                     end
                     if win._rebuildTabs then win._rebuildTabs() end
                 end
+                ln._seq = (self3._seq or 0) + 1
+                self3._seq = ln._seq
                 table.insert(self3._lines, ln)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return ln
@@ -5906,6 +5935,8 @@ end
                     sl._cfgSet = function(self4, v) self4:SetValue(v) end
                     win._cfgIndex[sl.ConfigKey] = sl
                 end
+                sl._seq = (self3._seq or 0) + 1
+                self3._seq = sl._seq
                 table.insert(self3._sliders, sl)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return sl
@@ -5993,6 +6024,8 @@ end
                     dd._cfgSet = function(self4, v) self4:SetSelected(v) end
                     win._cfgIndex[dd.ConfigKey] = dd
                 end
+                dd._seq = (self3._seq or 0) + 1
+                self3._seq = dd._seq
                 table.insert(self3._dropdowns, dd)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return dd
