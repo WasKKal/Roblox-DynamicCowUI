@@ -4966,6 +4966,171 @@ win.SetWindowAction = function(self, open)
     windowActionUntil = os.clock() + dur
     return true
 end
+
+    local function applyTabSelection(idx)
+        if not idx then return false end
+        win._activeTab = idx
+        updateTabsHighlight()
+        updateContentArea()
+        animateContentIn()
+        return true
+    end
+
+    local function findTabIndexByTitle(PageTitle)
+        for i, tab in ipairs(win._tabs) do
+            if tab.Title == PageTitle then return i end
+        end
+        return nil
+    end
+
+    win.GotoPage = function(self, PageName)
+        if type(PageName) ~= "string" or #PageName == 0 then
+            reportError("GotoPage 参数 PageName 必须是非空字符串")
+            return false
+        end
+        if not alive or shutdown then return false end
+        if switchDormant then
+            task.spawn(function() win:_switchBack() end)
+            return true
+        end
+        if not ready then return false end
+        local idx = findTabIndexByTitle(PageName)
+        if not idx then
+            reportError("GotoPage 未找到标题为「" .. PageName .. "」的选项卡")
+            return false
+        end
+        if not expanded then
+            if not doExpandPanel() then return false end
+            task.delay(Config.PanelExpandTime + Config.FadeInTime + 0.1, function()
+                if not alive or shutdown or switchDormant then return end
+                applyTabSelection(idx)
+            end)
+            return true
+        end
+        return applyTabSelection(idx)
+    end
+
+    local gotoCtrlLabels = {
+        BtnText = true, TglText = true, ParaTitle = true, SliderTitle = true, DdTitle = true,
+    }
+
+    local function findControlLocation(FunctionName)
+        for ti, tab in ipairs(win._tabs) do
+            local subs = tab._subtitles or {}
+            for _, st in ipairs(subs) do
+                local lists = { st._buttons, st._toggles, st._paragraphs, st._sliders, st._dropdowns }
+                for _, list in ipairs(lists) do
+                    for _, ctrl in ipairs(list or {}) do
+                        if ctrl.Title == FunctionName then return ti, st end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function flashCtrlTitle(lbl)
+        if not lbl or not lbl.Parent then return end
+        local orig = lbl.TextColor3
+        local inT = TweenInfo.new(0.06, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        local outT = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        local function pulse(remain)
+            if not lbl or not lbl.Parent then return end
+            TweenService:Create(lbl, inT, { TextColor3 = Config.RedXColor }):Play()
+            task.delay(0.2, function()
+                if not lbl or not lbl.Parent then return end
+                TweenService:Create(lbl, outT, { TextColor3 = orig }):Play()
+                if remain > 1 then task.delay(0.14, function() pulse(remain - 1) end) end
+            end)
+        end
+        pulse(2)
+    end
+
+    local function locateCtrlAndFlash(FunctionName, st)
+        if not tabSubtitleList or not tabSubtitleList.Parent then return end
+        local target = nil
+        for _, d in ipairs(tabSubtitleList:GetDescendants()) do
+            if d:IsA("TextLabel") and gotoCtrlLabels[d.Name] and d.Text == FunctionName then
+                target = d
+                break
+            end
+        end
+        if not target then return end
+        local block = target:FindFirstAncestor("SubBlock")
+        local didExpand = false
+        if st and st.collapsed and block and block.Parent then
+            st.collapsed = false
+            didExpand = true
+            local body = block:FindFirstChild("SubBody")
+            if body then
+                local fullH = body.Position.Y.Offset + body.Size.Y.Offset
+                TweenService:Create(block, TweenInfo.new(Config.SubTitleCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(1, 0, 0, fullH),
+                }):Play()
+            end
+            local arrow = block:FindFirstChild("SubArrow")
+            if arrow then
+                TweenService:Create(arrow, TweenInfo.new(Config.SubTitleCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Rotation = 0 }):Play()
+            end
+        end
+        if didExpand then task.wait(Config.SubTitleCollapseTime + 0.05) end
+        if not target.Parent then return end
+        local scroll = tabContentContainer and tabContentContainer:FindFirstChild("TabScroll")
+        local content = scroll and scroll:FindFirstChild("TabSubtitleList")
+        if scroll and content then
+            local viewH = scroll.AbsoluteSize.Y
+            if viewH > 0 then
+                local maxY = math.max(0, math.max(scroll.CanvasSize.Y.Offset, content.AbsoluteSize.Y) - viewH)
+                local targetY = math.clamp(target.AbsolutePosition.Y - scroll.AbsolutePosition.Y - viewH * 0.35, 0, maxY)
+                TweenService:Create(scroll, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    CanvasPosition = Vector2.new(0, targetY),
+                }):Play()
+            end
+        end
+        task.delay(0.4, function() flashCtrlTitle(target) end)
+    end
+
+    local function afterContentSettled(fn)
+        task.spawn(function()
+            task.wait(Config.PageAnimTime + 0.05)
+            RunService.Heartbeat:Wait()
+            RunService.Heartbeat:Wait()
+            if not alive or shutdown then return end
+            pcall(fn)
+        end)
+    end
+
+    win.GotoFunction = function(self, FunctionName)
+        if type(FunctionName) ~= "string" or #FunctionName == 0 then
+            reportError("GotoFunction 参数 FunctionName 必须是非空字符串")
+            return false
+        end
+        if not alive or shutdown then return false end
+        if switchDormant then
+            task.spawn(function() win:_switchBack() end)
+            return true
+        end
+        if not ready then return false end
+        local ti, st = findControlLocation(FunctionName)
+        if not ti then
+            reportError("GotoFunction 未找到标题为「" .. FunctionName .. "」的控件")
+            return false
+        end
+        if not expanded then
+            if not doExpandPanel() then return false end
+            task.delay(Config.PanelExpandTime + Config.FadeInTime + 0.1, function()
+                if not alive or shutdown or switchDormant then return end
+                if applyTabSelection(ti) then
+                    afterContentSettled(function() locateCtrlAndFlash(FunctionName, st) end)
+                end
+            end)
+            return true
+        end
+        if applyTabSelection(ti) then
+            afterContentSettled(function() locateCtrlAndFlash(FunctionName, st) end)
+        end
+        return true
+    end
             edge.InputEnded:Connect(function(input)
                 if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
                 if not interacting then return end

@@ -127,6 +127,11 @@ setSub:AddLine({
     Thickness = 1,
     Inset = 8,
 })
+setSub:AddParagraph({
+    Title = "分隔线说明",
+    Icon = "minus",
+    Info = "上方演示了AddLine函数",
+})
 setSub:AddButton({
     Title = "创建配置快照",
     Icon = "copy",
@@ -188,6 +193,28 @@ setSub:AddButton({
     OnClick = function()
         local action = win:GetWindowAction()
         win:ShowNotify("当前状态: " .. tostring(action))
+    end,
+})
+setSub:AddButton({
+    Title = "跳转到主页",
+    Icon = "navigation",
+    OnClick = function()
+        if win:GotoPage("主页") then
+            win:ShowNotify("已跳转到 主页")
+        else
+            win:ShowNotify("未找到 主页 选项卡")
+        end
+    end,
+})
+setSub:AddButton({
+    Title = "定位攻击范围滑块",
+    Icon = "crosshair",
+    OnClick = function()
+        if win:GotoFunction("攻击范围") then
+            win:ShowNotify("已定位到 攻击范围")
+        else
+            win:ShowNotify("未找到 攻击范围 控件")
+        end
     end,
 })
 setSub:AddButton({
