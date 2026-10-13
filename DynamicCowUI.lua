@@ -61,12 +61,12 @@ local Config = {
     LucideColor = Color3.fromRGB(0, 255, 120),
     LucideIconSize = 22,
     DefaultTitleIcon = "carton",
-    -- IconFromURL 加载期间显示的旋转 loader 图标（Lucide 名）
+
     TitleLoaderIcon = "loader-circle",
-    -- URL 图标下载失败时的兜底图标（Lucide 名）
+
     TitleIconFailIcon = "carton",
-    TitleLoaderSpinTime = 0.9,   -- loader 每圈旋转时长
-    TitleIconHandoffTime = 0.28, -- loader 与真实图标的交接时长
+    TitleLoaderSpinTime = 0.9,   
+    TitleIconHandoffTime = 0.28, 
     DefaultTitleIconColor = Color3.new(1, 1, 1),
     RingThickness = 3,
     RingColor = Color3.fromRGB(0, 255, 120),
@@ -92,8 +92,7 @@ local Config = {
     HintExtendPad = 36,
 
     HintHoldTime = 1.5,
-    -- 连点三次触发提示动画后的点击冷却：
-    -- 冷却期内屏蔽「点击类」交互（再次连点触发提示），但长按展开 UI 不受影响。
+
     HintClickCooldown = 2,
     HintRevealStep = 0.04,
     HintRevealTime = 0.3,
@@ -121,8 +120,7 @@ local Config = {
     ToggleIslandRevealTime = 0.26,
     ToggleIslandFadeTime = 0.24,
     ToggleIslandStepTime = 0.055,
-    -- 恢复原标题阶段的逐字间隔缩放：标题渐显的等待总长是「字符数 × StepTime」，
-    -- 标题越长等得越久。乘以该系数可整体加速恢复，设为 0 则所有字同时浮现。
+
     ToggleIslandRestoreStepScale = 0.45,
     ToggleIslandOnColor = Color3.fromRGB(70, 160, 255),
     ToggleIslandOffColor = Color3.fromRGB(255, 96, 96),
@@ -195,10 +193,8 @@ local Config = {
     TabSelStroke = Color3.new(1, 1, 1),
     TabSelStrokeThickness = 1,
     TabSelCorner = UDim.new(0, 8),
-    -- 选中指示器切换动画
-    -- 注意：每个 TabRow 自带一个 TabSel（相对所在行定位，Position 恒为 0,0），
-    -- 所以指示器只能在「行内」淡入淡出，不存在跨行滑动；不要给它补间 Position。
-    TabSelFadeTime = 0.18,      -- 淡入/淡出时长
+
+    TabSelFadeTime = 0.18,      
     SubTitleRowHeight = 30,
     SubTitleIconSize = 20,
     SubTitleTextSize = 16,
@@ -252,32 +248,30 @@ local Config = {
     CloseCancelColor = Color3.fromRGB(64, 64, 76),
     CloseConfirmColor = Color3.fromRGB(210, 66, 66),
 
-    -- ============ 脚本切换（检测到其它已加载 UI 时的接管动画） ============
-    -- 中心 Title 文字上移 + 缩小 + 渐隐的时长
     SwitchTitleMoveTime = 0.55,
-    -- 中心 Title 文字缩小到的比例（1 = 不缩）
+
     SwitchTitleScale = 0.42,
-    -- 彩虹边框缩成灵动岛后「立马渐隐」的时长
+
     SwitchBorderFadeTime = 0.18,
-    -- 面板自动展开后，所有元素渐隐的时长
+
     SwitchFadeOutTime = 0.26,
-    -- loader 与提示文字停留时长
+
     SwitchHoldTime = 1,
-    -- loader 与提示文字渐隐时长
+
     SwitchLoaderFadeTime = 0.3,
-    -- 切换时的提示文字
+
     SwitchLoadingText = "正在切换脚本",
-    -- 确认切换后重新载入时的提示文字
+
  SwitchConfirmLoadingText = "正在载入脚本…",
-    -- 切换按钮（收起按钮左侧）
+
     SwitchButtonIcon = "arrow-right-left",
     SwitchButtonSize = 20,
     SwitchButtonGap = 8,
-    -- 切换二次确认菜单（比关闭确认菜单更宽，以容纳超宽下拉菜单）
+
     SwitchDialogW = 720,
     SwitchDialogH = 250,
     SwitchDialogTitle = "你要切换哪一个脚本？",
-    -- 下拉菜单
+
     SwitchDropdownH = 46,
     SwitchDropdownMaxH = 210,
     SwitchDropdownIcon = "chevron-right",
@@ -394,9 +388,6 @@ local function ensureConfigFolder(folder)
     return true
 end
 
--- 配置持久化：整个 Folder 只维护一个 Config.json，
--- 不再按 ConfigKey 拆成 <key>.json（否则控件越多文件越多，且互相覆盖难以原子写）。
--- 内存缓存 + 读时懒加载 + 同步落盘：Slider 拖动这类高频写入也只碰一个小文件。
 local CONFIG_FILE_NAME = "Config.json"
 
 local function configFolderPath(folder)
@@ -443,7 +434,6 @@ local function writeConfigTable(folder, data)
     return true
 end
 
--- 读取单个 key 的已保存值（AutoLoadConfig 路径使用）
 local function loadConfigValue(folder, key)
     if type(folder) ~= "string" or #folder == 0 then return nil end
     if type(key) ~= "string" or #key == 0 then return nil end
@@ -453,7 +443,6 @@ local function loadConfigValue(folder, key)
     return v
 end
 
--- 写入单个 key：读改写同一个 Config.json
 local function saveConfigValue(folder, key, value)
     if type(folder) ~= "string" or #folder == 0 then return false end
     if type(key) ~= "string" or #key == 0 then return false end
@@ -462,8 +451,6 @@ local function saveConfigValue(folder, key, value)
     return writeConfigTable(folder, data)
 end
 
--- 命名配置档案：只有显式传入非默认 name 时才单独建档；
--- name 为空或 "Config" 时复用合并后的 Config.json，保证与逐 key 自动保存同一份数据。
 local function configFilePath(folder, name)
     local dir = configFolderPath(folder)
     if not dir then return nil end
@@ -506,10 +493,6 @@ local function writeConfigFile(folder, name, data)
     return true
 end
 
--- 同 Title 去重注册表：key = Title，value = 窗口句柄。
--- 同一个脚本被重复执行（execute 多次 / 多次 require）时，避免同一个 Title
--- 反复创建出多个灵动岛互相叠在一起。窗口真正销毁时会把条目清掉，
--- 这样关闭 UI 后再次执行脚本仍能正常重新加载。
 local loadedWindows = {}
 local loadedOrder = {}
 
@@ -526,8 +509,7 @@ local function registerLoadedWindow(title, win)
 end
 
 local function unregisterLoadedWindow(title, win)
-    -- 仅当登记的确实是同一个窗口时才清，避免旧窗口的延迟销毁
-    -- 把新窗口刚登记的条目误删
+
     if title == nil then return end
     if win ~= nil and loadedWindows[title] ~= nil and loadedWindows[title] ~= win then
         return
@@ -542,7 +524,6 @@ local function unregisterLoadedWindow(title, win)
     end
 end
 
--- 兼容冒号调用：Library:CreateWindow({...}) 会把 Library 作为首参传入
 local function shiftSelf(a, ...)
     if a == Library then
         local n = select("#", ...)
@@ -663,10 +644,6 @@ title = Config.ErrorText
         if opts._error ~= true then reportError(errReason) end
     end
 
-    -- 同 Title 去重：脚本被重复执行时不要把同一个 Title 的灵动岛
-    -- 叠着重开一份。这里直接返回已存在的窗口（第二次执行依旧能拿到
-    -- 有效句柄继续操作），并给出提示。
-    -- opts.AllowDuplicate == true 可以强制再开一份（一般不需要）。
     local allowDuplicate = type(opts) == "table" and opts.AllowDuplicate == true
     if not allowDuplicate then
         local existing = loadedWindows[title]
@@ -679,11 +656,6 @@ title = Config.ErrorText
         end
     end
 
-    -- 切换模式检测：若当前已存在「其它 Title」的窗口，说明这是加载 / 切换到
-    -- 另一份脚本，入场动画要走接管流程（彩虹边框缩为灵动岛后立马渐隐、
-    -- 跳过黑球弹出与黑色填充、中心 Title 文字直接上移缩小淡出到灵动岛位置，
-    -- 随后自动展开面板并播放 loader）。
-    -- opts.ForceEntryAnimation == true 可强制走标准入场动画。
     local switchingFrom = nil
     do
         for _, t in ipairs(loadedOrder) do
@@ -768,7 +740,6 @@ title = Config.ErrorText
         return result
     end
 
-    -- 取 Lucide 图标的 Image/ImageRect 信息，失败返回 nil
     local function getLucideIcon(name)
         if type(name) ~= "string" or #name == 0 then return nil end
         local lucide = loadLucide()
@@ -1359,8 +1330,7 @@ title = Config.ErrorText
     win._configFolder = configFolder
     win._autoLoadConfig = autoLoadConfig
     win._autoSaveConfig = autoSaveConfig
-    -- AutoSaveConfig=false 时，用户改动控件不再自动落盘；
-    -- 需要持久化时显式调用 win:SaveConfig()。
+
     win._cfgSave = function(self, key, value)
         if not self._autoSaveConfig then return false end
         if not self._configFolder or type(key) ~= "string" or #key == 0 then return false end
@@ -1390,9 +1360,7 @@ title = Config.ErrorText
     end
 
     local edgeAnimConn = nil
-    --统一登记所有作用在 edge 上的 TweenService 补间。
-    --长按展开走的是 Heartbeat 驱动的 animateEdge，会直接逐帧写 edge.Size/Position；
-    --若此时还有 hint / 复位补间在跑，两者会每帧互相覆盖，导致展开动画偏移（表现为概率性）。
+
     local edgeTweens = {}
     local function trackEdgeTween(tw)
         edgeTweens[#edgeTweens + 1] = tw
@@ -1403,7 +1371,7 @@ title = Config.ErrorText
         end)
         return tw
     end
-    -- 创建 → 登记 → 播放，一步到位，避免出现未登记的裸补间
+
     local function edgeTween(info, props)
         local tw = TweenService:Create(edge, info, props)
         trackEdgeTween(tw)
@@ -1419,7 +1387,7 @@ title = Config.ErrorText
     end
     local function animateEdge(targetSize, targetPos, dur, over, onDone)
         if edgeAnimConn then pcall(function() edgeAnimConn:Disconnect() end) edgeAnimConn = nil end
-        --抢占式启动：先掐掉任何还在跑的 edge 补间，避免与本动画逐帧争抢 Size/Position
+
         cancelEdgeTweens()
         local s0 = edge.Size
         local p0 = edge.Position
@@ -1816,17 +1784,12 @@ title = Config.ErrorText
         end)
     end
 
-    -- 入场后的交互装配（灵动岛拖拽 / 长按展开 / 面板构建 / 提示动画 / 二次确认…）。
-    -- 标准入场与「脚本切换」入场都要复用它，故提取为函数并在此前置声明。
     local runIslandEntrySetup = nil
     local buildSwitchButton = nil
     local showSwitchConfirm = nil
-    -- playSwitchSequence 定义在 runIslandEntrySetup 内部末尾，而二次确认的「确认」分支
-    -- 位于它之前，直接引用会拿到全局 nil，故用转发变量。
+
     local playSwitchSequenceRef = nil
-    -- 切换模式：入场装配完成后自动展开面板并播放 loader。
-    -- 真正的实现定义在 runIslandEntrySetup 内部（依赖 doExpandPanel / playSwitchSequence），
-    -- 这里只做一次间接转发，避免第一次调用时传进去的仍是 nil。
+
     local expandForSwitchRef = nil
     local autoExpandForSwitch = function()
         if expandForSwitchRef then expandForSwitchRef() end
@@ -1835,9 +1798,7 @@ title = Config.ErrorText
         runIslandEntrySetup = function(afterSetup)
             if backdrop and backdrop.Parent then backdrop:Destroy() end
             islandTextContainer = createIslandText(Config.IslandText, Config.IslandTextColor)
-        -- 切换模式不播黑球弹出动画（含勾选图标）。
-        -- 标准路径的 ready 标记是在 splitBall 内部延迟置位的，切换模式没有 splitBall，
-        -- 必须在这里补置，否则后续展开面板 / SetWindowAction 都会被 ready 挡住。
+
         if not switchingFrom then
             task.spawn(function() splitBall(isError) end)
         else
@@ -1869,8 +1830,7 @@ title = Config.ErrorText
             local hintBaseSize = nil
             local hintBaseAnchor = nil
             local hintBasePos = nil
-            -- 连点触发提示后的点击冷却：hintCooldownUntil 之前不接受点击类交互。
-            -- 只拦 registerIslandTap，不拦 edge.InputBegan 的长按展开分支。
+
             local hintCooldownUntil = 0
             local hintCooldownTmr = nil
             local islandRest = UDim2.new(0.5, Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2, 0, Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2)
@@ -1896,16 +1856,17 @@ title = Config.ErrorText
                 safeCancelTimer(hintTmr) hintTmr = nil
                 if hintContainer and hintContainer.Parent then hintContainer:Destroy() end
                 hintContainer = nil
-                -- 捕获本轮还原所需的基准值到局部，避免被后续重入的 clearHint 置空后误用
+
                 local baseSize = hintBaseSize
                 local baseAnchor = hintBaseAnchor
                 local basePos = hintBasePos
                 if not skipRestore and hintActive and edge and edge.Parent and baseSize and not expanded then
                     local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                     local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
+
                     edgeTween(TweenInfo.new(Config.HintSlideTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                         Size = baseSize,
-                        Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideOutDistance),
+                        Position = UDim2.new(0.5, cx, 0, cy),
                     })
                     task.delay(Config.HintSlideTime, function()
                         if not edge or not edge.Parent then return end
@@ -1916,11 +1877,9 @@ title = Config.ErrorText
                             if not edge or not edge.Parent then return end
                             if baseAnchor then edge.AnchorPoint = baseAnchor end
                             if basePos then edge.Position = basePos end
-                            -- 还原完成后才解除 hint 占用，避免连点重入时还原补间互相争抢导致灵动岛偏移
+
                             hintActive = false
-                            -- 提示动画彻底播完（滑出 + 回位均已结束）后才开始点击冷却，
-                            -- 这样「等 2 秒」是从动画结束点起算，而不是与动画时长互相挤占。
-                            -- 冷却只拦点击类交互（registerIslandTap），长按展开 UI 不受影响。
+
                             startHintClickCooldown()
                         end)
                     end)
@@ -2019,7 +1978,7 @@ title = Config.ErrorText
             end
             local function registerIslandTap()
                 if hintActive or expanded or not alive or not ready then return end
-                -- 点击冷却中：吞掉本次连点，不累加 tapCount，避免提示动画被立刻重新触发
+
                 if inHintClickCooldown() then return end
                 tapCount = tapCount + 1
                 if tapWindowTmr then safeCancel(tapWindowTmr) end
@@ -2076,11 +2035,9 @@ title = Config.ErrorText
                 end)
             end)
 local closeBtn = nil
-          -- 切换脚本按钮（arrow-right-left），显示在收起按钮左侧。
-       -- 始终创建，但仅在存在其它已加载脚本时才可点。
+
             local switchBtn = nil
-        -- 二次确认弹窗句柄：buildCloseButton 需要它做守卫，
-            -- 避免收起流程中又触发长按确认
+
             local closeDialog = nil
             local tabListContainer = nil
             local tabContentContainer = nil
@@ -2714,10 +2671,6 @@ local closeBtn = nil
                         local as = capsule.AbsoluteSize
                         local contentH = count * Config.DropdownOptionH + Config.DropdownMenuPad * 2
 
-                        -- 关键：先在原父级里读出屏幕绝对坐标，再脱离到 ScreenGui。
-                        -- 不要去改 AnchorPoint/Position 做局部坐标换算——AbsolutePosition
-                        -- 已经把整条父链的偏移累加进去了，任何再叠加父级偏移的换算都会双重累加，
-                        -- 导致菜单展开后向右/向下跳一大段距离。
                         local ap = capsule.AbsolutePosition
                         local scrH = getViewportHeight()
                         local edgeGap = Config.DropdownMenuPad + 4
@@ -2733,10 +2686,9 @@ local closeBtn = nil
                         local needScroll = contentH > targetH
                         local expandW = math.max(Config.DropdownMenuW, as.X)
 
-                        -- 右边缘与胶囊右边缘对齐
                         local endX = ap.X + as.X - expandW
                         local endY = openUp and (ap.Y + as.Y - targetH) or ap.Y
-                        -- 记录原始状态
+
                         menuState = {
                             parent = capsule.Parent,
                             position = capsule.Position,
@@ -2753,11 +2705,10 @@ local closeBtn = nil
                             baseH = as.Y,
                         }
 
-                        -- 脱离到 ScreenGui 顶层，避免被控件区的 ClipsDescendants 裁掉（选项不显示）
                         capsule.ClipsDescendants = true
                         capsule.ZIndex = Config.DropdownMenuZ
                         capsule.BackgroundColor3 = Config.DropdownMenuFill
-                        -- AnchorPoint 归零后，直接用屏幕绝对坐标定位（IgnoreGuiInset=true，无 inset 偏移）
+
                         capsule.AnchorPoint = Vector2.new(0, 0)
                         capsule.Position = UDim2.fromOffset(endX, endY)
                         capsule.Parent = screenGui
@@ -3120,9 +3071,7 @@ local closeBtn = nil
                             local base = (td and td.IconColor) or Config.TabInactiveColor
                             TweenService:Create(ic2, TweenInfo.new(0.15), { ImageColor3 = active and Config.TabActiveColor or base }):Play()
                         end
-                        -- 选中指示器：每个 TabRow 自带一个 TabSel（Position 恒为 0,0，
-                        -- 因为它相对所在行定位），所以这里只做淡入淡出，
-                        -- 绝不能补间 Position —— 否则会向下偏移一个行高，看起来跑到下一个选项卡上。
+
                         if sel then
                             if active then
                                 local first = not sel.Visible
@@ -3140,8 +3089,7 @@ local closeBtn = nil
                                 }):Play()
                             else
                                 if sel.Visible then
-                                    -- 先淡出，播完再隐藏，避免残留一帧；
-                                    -- 期间若被重新选中，Visible 会被置回 true，回调需再确认一次
+
                                     local tw = TweenService:Create(sel, TweenInfo.new(
                                         Config.TabSelFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
                                     ), {
@@ -3174,7 +3122,8 @@ local closeBtn = nil
                 local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                 local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
                 local collapseFinished = false
-                animateEdge(Config.IslandSize, Config.IslandPosition, Config.PanelExpandTime, Config.PanelBounce, function()
+
+                animateEdge(Config.IslandSize, UDim2.new(0.5, cx, 0, cy), Config.PanelExpandTime, Config.PanelBounce, function()
                     edge.AnchorPoint = Vector2.new(0.5, 0.5)
                     edge.Position = UDim2.new(0.5, cx, 0, cy)
                     winOpen = false
@@ -3187,6 +3136,7 @@ local closeBtn = nil
                 if closeBtn then closeBtn:Destroy() closeBtn = nil end
                 if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
                 if titleIcon then titleIcon:Destroy() titleIcon = nil end
+                if switchBtn then switchBtn:Destroy() switchBtn = nil end
                 if infoLabel then infoLabel:Destroy() infoLabel = nil end
                 clearBrand()
                 destroyTabUI()
@@ -3199,7 +3149,7 @@ local closeBtn = nil
                 if skipToggleAnim then
                     lastToggleInfo = nil
                 elseif playToggleStateAnimation then
-                    -- 等收起动画播完再播开关状态动画，避免两者重叠打架
+
                     task.spawn(function()
                         local waited = 0
                         while not collapseFinished and alive and waited < 2 do
@@ -3501,14 +3451,12 @@ local closeBtn = nil
                         btn.ImageColor3 = Color3.new(1, 1, 1)
                         btn.Parent = contentRoot
                         local closeHold = nil
-                        -- 按下时刻的按钮有效性令牌：collapsePanel 会让本按钮立即失效，
-                        -- 防止「快速点击后立刻按住」在旧按钮上重启closeHold 计时器，
-                        -- 导致收起动画与二次确认动画同时播放。
+
                         local pressGen = 0
                         btn.InputBegan:Connect(function(bi)
                             if bi.UserInputType == Enum.UserInputType.MouseButton1 or bi.UserInputType == Enum.UserInputType.Touch then
                                 if shutdown then return end
-                                -- 面板已收起 / 二次确认中 / 按钮已被移除时，忽略本次按下
+
                                 if not expanded or closeDialog or btn.Parent == nil then return end
                                 pressGen = pressGen + 1
                                 local myGen = pressGen
@@ -3516,7 +3464,7 @@ local closeBtn = nil
                                 if closeHold then safeCancel(closeHold) end
                                 closeHold = task.delay(Config.CloseHoldTime, function()
                                     closeHold = nil
-                                    -- 计时期间若发生过收起/二次确认，则本次长按作废
+
                                     if myGen ~= pressGen then return end
                                     if not expanded or closeDialog then return end
                                     if onHoldConfirm then onHoldConfirm() end
@@ -3529,7 +3477,7 @@ local closeBtn = nil
                                 if closeHold then
                                     safeCancel(closeHold)
                                     closeHold = nil
-                                    -- 已进入收起/二次确认流程时不再重复触发
+
                                     if expanded and not closeDialog then
                                         pressGen = pressGen + 1
                                         collapsePanel()
@@ -3584,26 +3532,23 @@ local function buildHeaderDecor()
                     if not iconColorSet then ic.ImageColor3 = Color3.new(1, 1, 1) end
                 end
                 task.spawn(function()
-                    -- 图标来源优先级：IconFromURL > Icon。
-                    -- 有 URL 时先显示持续旋转的 loader，下载完成后做交接动画；
-                    -- 下载失败则回退到 carton（不再回退到 Icon，符合“失败即 carton”）。
+
                     local handoff = Config.TitleIconHandoffTime
 
                     local function setFinal(img, rectOff, rectSize, tintWithIconColor)
                         if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
                         if not (ic and ic.Parent) then return end
-                        -- 交接：先把旋转归零再淡入真实图标，避免残留旋转角度
+
                         ic.Rotation = 0
                         ic.Image = img
                         if rectOff then ic.ImageRectOffset = rectOff ic.ImageRectSize = rectSize end
-                        -- Lucide 系图标（Icon / carton 兜底）走 iconColor 染色，
-                        -- 避免继承 IconFromURL 分支为真实图片设置的纯白
+
                         if tintWithIconColor then ic.ImageColor3 = iconColor end
                         TweenService:Create(ic, TweenInfo.new(handoff, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
                             ImageTransparency = 0,
                         }):Play()
                     end
-                    -- 真实图标需等面板展开完成再交接，避免下载快时图标先于面板出现
+
                     local function setFinalAfterExpand(img, rectOff, rectSize, tintWithIconColor)
                         task.delay(Config.PanelExpandTime, function()
                             setFinal(img, rectOff, rectSize, tintWithIconColor)
@@ -3611,7 +3556,7 @@ local function buildHeaderDecor()
                     end
 
                     if iconFromURL then
-                        -- loader：立即可见并持续旋转，下载期间作为占位
+
                         if not (ic and ic.Parent) then return end
                         local loaderAsset = getLucideIcon(Config.TitleLoaderIcon)
                         if loaderAsset then
@@ -3622,8 +3567,7 @@ local function buildHeaderDecor()
                             end
                         end
                         ic.ImageTransparency = 0
-                        -- 持续旋转：用 RepeatCount=-1 循环补间驱动，无需轮询；
-                        -- 补间持有引用，图标销毁时由外层 nil 判断收尾
+
                         if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) end
                         loaderSpinTween = TweenService:Create(ic, TweenInfo.new(
                             Config.TitleLoaderSpinTime, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut,
@@ -3634,14 +3578,14 @@ local function buildHeaderDecor()
                         local assetId = loadIconFromURL(iconFromURL)
                         if not (ic and ic.Parent) then return end
                         if assetId then
-                            -- 成功：先淡出 loader，再淡入真实图标
+
                             ic.Rotation = 0
                             TweenService:Create(ic, TweenInfo.new(handoff * 0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
                                 ImageTransparency = 1,
                             }):Play()
                             task.delay(handoff * 0.5, function() setFinalAfterExpand(assetId) end)
                         else
-                            -- 失败：回退 carton
+
                             local failAsset = getLucideIcon(Config.TitleIconFailIcon)
                             if failAsset then
                                 ic.Rotation = 0
@@ -3660,7 +3604,6 @@ local function buildHeaderDecor()
                         return
                     end
 
-                    -- 无 URL：直接用 Icon（Lucide）
                     local asset = getLucideIcon(iconName)
                     if asset then
                         setFinalAfterExpand(asset.Url, asset.ImageRectOffset, asset.ImageRectSize, true)
@@ -3691,10 +3634,6 @@ local function buildHeaderDecor()
                 end
             end
 
-        -- ==================== 脚本切换：切换按钮 + 二次确认菜单 ====================
-        -- 收起按钮左侧的「切换脚本」按钮（arrow-right-left）。
-        -- 始终渐显显示，但仅在存在其它已加载脚本时才可点；
-        -- 无可切换目标时置灰并给出提示。
         local function otherLoadedTitles()
             local out = {}
             for _, t in ipairs(loadedOrder) do
@@ -3749,7 +3688,6 @@ local function buildHeaderDecor()
             switchBtn = b
         end
 
-        -- 二次确认菜单：标题「你要切换哪一个脚本？」+ 超宽下拉菜单 + 取消 / 确认
         local function buildSwitchConfirmImpl()
             if closeDialog or shutdown then return end
             if not expanded then return end
@@ -4023,7 +3961,6 @@ local function buildHeaderDecor()
         buildSwitchButton = buildSwitchButtonImpl
         showSwitchConfirm = buildSwitchConfirmImpl
 
-
             local iconTextBusy = false
             local function playIconTextAnimation(text, iconName, iconColor)
                 if not alive or not ready or shutdown then return end
@@ -4048,8 +3985,7 @@ local function buildHeaderDecor()
                 if wasExpanded then
                     collapsePanel(true)
                     task.wait(Config.PanelExpandTime * 0.5)
-                    -- 等待期间窗口可能被关闭/销毁，必须重新确认状态，
-                    -- 否则会继续往下建胖岛并留下状态污染
+
                     if not alive or shutdown then
                         iconTextBusy = false
                         return
@@ -4141,8 +4077,7 @@ local function buildHeaderDecor()
                 )
 
                 task.delay(Config.IconTextHoldTime, function()
-                    -- 无论后续走哪条分支，都必须先解除 busy 与销毁胖岛容器，
-                    -- 否则一次异常会让 iconTextBusy 永久为 true，后续调用全被静默吞掉
+
                     iconTextBusy = false
                     if not alive or shutdown then
                         if hc and hc.Parent then hc:Destroy() end
@@ -4160,14 +4095,10 @@ local function buildHeaderDecor()
 
                     if wasExpanded then
                         task.delay(Config.IconTextGrowTime, function()
-                            -- 关键：此处不可因 expanded 已为 true 就 return。
-                            -- collapsePanel 已经跑完（面板已收起、Title/Info/TabList 已销毁），
-                            -- 若此处提前退出，面板就永远停在「收起且无内容」的状态。
-                            -- 正确做法是让本次恢复流程自行完成重建（下面会强制接管）。
+
                             if not alive or shutdown then return end
                             if expanded then
-                                -- 用户在等待期间已手动展开：放弃本次恢复，
-                                -- 但仍需把面板内容重建回来，避免用户看到空面板。
+
                                 if lastPanelLayout then
                                     buildTabUI(lastPanelLayout)
                                     buildCloseButton(function() showCloseConfirm() end)
@@ -4181,7 +4112,7 @@ local function buildHeaderDecor()
                             local myGen = titleGen
                             islandScale.Scale = 1
                             if islandTextContainer and islandTextContainer.Parent then
-                                -- 面板态显示原始标题（收起态的 override 文字不该出现在面板里）
+
                                 setIslandText(islandTextOverride or title, Config.TitleColor)
                                 for _, cf in ipairs(islandTextContainer:GetChildren()) do
                                     local lb = cf:FindFirstChildOfClass("TextLabel")
@@ -4248,17 +4179,13 @@ local function buildHeaderDecor()
                 if toggleAnimBusy or iconTextBusy or hintActive then lastToggleInfo = nil return end
                 local info = lastToggleInfo
                 if not info then return end
-                -- 一次性消费：播完即清空，避免后续收起反复重播上次的开关状态动画
+
                 lastToggleInfo = nil
                 local on = info.Value == true
                 local stateColor = on and Config.ToggleIslandOnColor or Config.ToggleIslandOffColor
                 local stateText = on and "已开启" or "已关闭"
                 local titleText = info.Title or "Toggle"
 
-                -- 在图标 / 功能Title / 状态 三组之间插入等宽留白，
-                -- 用空帧而非 ListLayout.Padding（否则会把「已开启」内部字符也撑开）
-                -- 注意：parent 必须作为参数传入，本函数定义早于 local hc 声明，
-                -- 直接用闭包 hc 会捕获到外层错误的 hc（Lua 词法作用域规定）
                 local function addToggleSpacer(parent, order, w)
                     local sp = Instance.new("Frame")
                     sp.Name = "ToggleStateSpacer"
@@ -4313,18 +4240,14 @@ local function buildHeaderDecor()
                 toggleAnimContainer = hc
                 local hl = Instance.new("UIListLayout")
                 hl.FillDirection = Enum.FillDirection.Horizontal
-                -- 左右对称内边距 + 居中对齐：
-                -- 内容宽度等于 inner，而灵动岛宽度 targetW = max(MinW, inner + PadX*2)，
-                -- 用对称 padding + Center 可保证内容在两种情况下都真正居中
-                -- （原实现是 Left 对齐 + 仅左 padding，内容窄于灵动岛时会全部贴死左侧）
+
                 hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
                 hl.VerticalAlignment = Enum.VerticalAlignment.Center
                 hl.SortOrder = Enum.SortOrder.LayoutOrder
-                -- 字符之间不加间距，「已开启」与名称之间也不分隔
+
                 hl.Padding = UDim.new(0, 0)
                 hl.Parent = hc
 
-                -- 左右对称内边距：与 targetW 的 inner + PadX*2 计算一致，保证内容居中
                 local bothPad = Instance.new("UIPadding")
                 bothPad.PaddingLeft = UDim.new(0, Config.ToggleIslandPadX)
                 bothPad.PaddingRight = UDim.new(0, Config.ToggleIslandPadX)
@@ -4366,11 +4289,9 @@ local function buildHeaderDecor()
                         if iconRectOff then ic.ImageRectOffset = iconRectOff ic.ImageRectSize = iconRectSize end
                     end
 
-                    -- 图标资源就绪后才淡入，避免出现空白图标
                     table.insert(revealList, { obj = ic, dist = 0, waitImg = true })
                     table.insert(fadeList, { obj = ic, dist = 0 })
 
-                    -- 图标与功能Title 之间按句留出间距
                     addToggleSpacer(hc, 1.5, gap)
                 end
 
@@ -4390,7 +4311,6 @@ local function buildHeaderDecor()
                         table.insert(fadeList, { obj = lb, dist = dist })
                     end
 
-                    -- 功能Title 与 状态 之间按句留出间距
                     addToggleSpacer(hc, 2.5, gap)
                 end
 
@@ -4417,7 +4337,7 @@ local function buildHeaderDecor()
                     task.delay(md * step, function()
                         if not e.obj or not e.obj.Parent then return end
                         if e.waitImg then
-                            -- 等图标资源就绪再淡入，最多等 0.8 秒
+
                             local waited = 0
                             while e.obj.Parent and e.obj.Image == "" and waited < 0.8 do
                                 task.wait(0.05)
@@ -4436,11 +4356,10 @@ local function buildHeaderDecor()
 
                 task.delay(Config.ToggleIslandHoldTime, function()
                     if not alive then return end
-                    -- 恢复阶段比展示阶段更紧凑：逐字间隔按系数缩放，
-                    -- 否则「字符数 × StepTime」会让长标题迟迟等不到原文字回来
+
                     local rStep = step * (Config.ToggleIslandRestoreStepScale or 1)
                     if hc and hc.Parent then
-                        -- 淡出与标题渐显同用缩放后的间隔，保持与 totalFade 的等待一致
+
                         for _, e in ipairs(fadeList) do
                             if not e.obj or not e.obj.Parent then return end
                             local isText = e.obj:IsA("TextLabel")
@@ -4465,7 +4384,7 @@ local function buildHeaderDecor()
 
                         setIslandText(islandTextOverride or title, Config.TitleColor)
                         if islandTextContainer and islandTextContainer.Parent then
-                            -- 标题渐显：先全透明，再由中心向两侧逐字浮现
+
                             local restoreChars = {}
                             for _, cf in ipairs(islandTextContainer:GetChildren()) do
                                 local lb = cf:FindFirstChildOfClass("TextLabel")
@@ -4482,7 +4401,7 @@ local function buildHeaderDecor()
                                     TweenService:Create(lb, TweenInfo.new(revealT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
                                 end)
                             end
-                            -- 标题渐显完成后再释放忙碌锁，避免下一次交互被吞
+
                             task.delay(rc * rStep + revealT, function()
                                 if toggleAnimBusy and toggleAnimContainer == hc then
                                     toggleAnimBusy = false
@@ -4517,10 +4436,6 @@ local function buildHeaderDecor()
 
 if hintActive then clearHint(true) end
 
-                    -- 关键：长按展开前把edge 归位到标准收起态。
-                    -- 若此刻还有 hint / 拖拽复位补间在跑，它们会与展开用的 Heartbeat 动画
-                    -- 逐帧争抢 Size/Position，表现为展开动画概率性偏移。
-                    -- 这里先掐掉全部补间并强制写入确定的起点值。
                     cancelEdgeTweens()
                     resetIslandDrag()
                     if dragSizeTween then pcall(function() dragSizeTween:Cancel() end) dragSizeTween = nil end
@@ -4735,12 +4650,8 @@ showCloseConfirm = function()
                 end)
             end)
 
--- 动画互斥：记录本次展开/收起动画的结束时刻，
--- 该时刻之前拒绝新的调用，避免两套动画同时改写 edge 的 Size/Position
---（会表现为面板偏移或内容错位）
 local windowActionUntil = 0
 
---- 以编程方式展开面板（等价于长按灵动岛），带完整展开动画
 local function doExpandPanel()
     if not alive or shutdown or not ready then return false end
     if expanded then return false end
@@ -4751,7 +4662,7 @@ local function doExpandPanel()
         toggleAnimContainer = nil
         toggleAnimBusy = false
     end
-    -- 先把 edge 归位到标准收起态，避免与残留补间争抢
+
     cancelEdgeTweens()
     resetIslandDrag()
     edge.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -4784,7 +4695,6 @@ local function doExpandPanel()
     playBorderSweep()
     task.delay(Config.PanelExpandTime, function() winOpen = true end)
 
-    -- 头部布局与长按展开保持一致
     local titlePad = Config.HeaderPad
     local iconS = Config.TitleIconSize
     local iconGap = Config.TitleIconGap
@@ -4844,7 +4754,6 @@ local function doExpandPanel()
     return true
 end
 
---- 以编程方式收起面板（等价于点收起按钮），带收起动画
 local function doCollapsePanel()
     if not alive or shutdown then return false end
  if not expanded then return false end
@@ -4852,8 +4761,6 @@ local function doCollapsePanel()
     return true
 end
 
--- SetWindowAction(true) 展开面板，SetWindowAction(false) 收起面板。
--- 动画进行中调用会被拒绝（返回 false），避免两套动画互相打架。
 win.SetWindowAction = function(self, open)
     if self ~= nil and type(self) == "table" and self ~= win and self.SetWindowAction == nil then
         open = self
@@ -4875,9 +4782,9 @@ win.SetWindowAction = function(self, open)
         ok = doCollapsePanel()
     end
     if not ok then return false end
-    -- 锁到本次动画彻底结束（展开含标题/Info 错峰入场）
+
     local dur = open
-        and (Config.PanelExpandTime + Config.FadeInTime + Config.InfoEnterDelay + 0.1)
+        and (Config.PanelExpandTime + 0.1)
         or (Config.PanelExpandTime + 0.1)
     windowActionUntil = os.clock() + dur
     return true
@@ -4902,8 +4809,7 @@ end
                     interacting = false
                 end
             end)
-  -- ==================== 脚本切换：自动展开 + loader ====================
-    -- 面板中央的旋转 loader + 提示文字。返回容器，便于外部淡出。
+
 local function makeSwitchLoader(text)
        local box = Instance.new("Frame")
         box.Name = "SwitchLoaderBox"
@@ -4958,7 +4864,6 @@ local function makeSwitchLoader(text)
         return box, ic, lbl, spin
     end
 
-    -- 面板内所有元素渐隐（标题 / Info / 收起按钮 / 切换按钮 / 分隔线 / 选项卡 / 控件）
     local function fadeAllPanelItems(t, dur)
         dur = dur or Config.SwitchFadeOutTime
         local ti = TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
@@ -5042,26 +4947,25 @@ if not expanded or myGen ~= titleGen then return end
         end)
     end
 
--- 播放「元素渐隐 -> loader 停留 -> loader 渐隐 -> 正常入场动画载入内容」
     local function playSwitchSequence(loadingText)
         if not alive or shutdown then return end
-      -- 1) 所有面板元素渐隐
+
         fadeAllPanelItems(1)
     task.delay(Config.SwitchFadeOutTime, function()
      if not alive or shutdown or not expanded then return end
-       -- 2) 中心出现旋转 loader + 提示文字
+
       local box, ic, lbl, spin = makeSwitchLoader(loadingText or Config.SwitchLoadingText)
       box.Parent = contentRoot
         ic.Rotation = 0
             TweenService:Create(ic, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Rotation = 360 }):Play()
-     -- 3) 等待
+
        task.delay(Config.SwitchHoldTime, function()
       if not alive or shutdown or not expanded then
         if spin then pcall(function() spin:Cancel() end) end
        if box and box.Parent then box:Destroy() end
           return
    end
-           -- 4) loader 与文字渐隐
+
       if ic then TweenService:Create(ic, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play() end
 if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
                 if spin then task.delay(Config.SwitchLoaderFadeTime, function() pcall(function() spin:Cancel() end) end) end
@@ -5069,38 +4973,32 @@ if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, 
    if not alive or shutdown then return end
          if box and box.Parent then box:Destroy() end
        if not expanded then return end
-    -- 5) 重建面板内容，并沿用「展开面板完成时」的元素入场动画
+
           playPanelContentEntrance()
          end)
        end)
         end)
     end
 
-    -- 展开完成后的元素入场动画（标题错峰 + Info 延迟 + 选项卡错峰）
-
-    -- 切换模式的入场收尾：自动展开面板 -> 元素渐隐 -> loader -> 内容入场
-    -- 注意：这里必须挂到外层转发变量上。切换分支是 runIslandEntrySetup 的第一次调用，
-    -- 若 autoExpandForSwitch 本身在本函数体内赋值，那次调用传进去的还是 nil。
     playSwitchSequenceRef = playSwitchSequence
 
     expandForSwitchRef = function()
         if not alive or shutdown then return end
         task.wait(0.05)
         if not doExpandPanel() then return end
-        -- 等展开动画与标题/Info 错峰入场走完，再开始渐隐
+
         task.delay(Config.PanelExpandTime + Config.FadeInTime + Config.InfoEnterDelay, function()
             playSwitchSequence(Config.SwitchLoadingText)
         end)
     end
 
-    -- 切换模式：入场装配完成后自动展开面板并播放 loader
       if afterSetup then task.spawn(afterSetup) end
 end
 
     task.delay(Config.ShrinkDelay, function()
         flowSpeed = Config.FlowSpeed
         gradient.Color = rainbowColors
-        -- 切换模式：屏幕中心的 DynamicCow 品牌文字在缩小的同时就换成新脚本 Title
+
         if switchingFrom ~= nil then
             titleLabel.Text = title
             glowLabel.Text = title
@@ -5128,10 +5026,7 @@ end
             BackgroundTransparency = 1,
         }):Play()
         if switchingFrom ~= nil then
-   -- ============ 脚本切换入场动画 ============
-            -- 需求：彩虹边框缩小为灵动岛样式后「立马渐隐」；
-            -- 不要黑色灵动岛填充动画，也不要黑球弹出动画（含动画图标）。
-      -- 中心 Title 文字向上移动同时缩小，同步渐隐，直到灵动岛位置完全隐藏。
+
         local islandCX = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
             local islandCY = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
             local function fadeBrandOut(dur)
@@ -5146,7 +5041,7 @@ end
 titleShrinkTween.Completed:Connect(function()
     fadeBrandOut(Config.SwitchTitleMoveTime)
          end)
-            -- 中心 Title 文字上移 + 缩小 + 渐隐，目标是灵动岛中心位置
+
             TweenService:Create(titleFrame, TweenInfo.new(
    Config.SwitchTitleMoveTime, Enum.EasingStyle.Quart, Enum.EasingDirection.Out
             ), {
@@ -5159,7 +5054,7 @@ titleShrinkTween.Completed:Connect(function()
             }):Play()
 
 shrinkTween.Completed:Connect(function()
-     -- 彩虹边框缩成灵动岛后立马渐隐
+
      TweenService:Create(stroke, TweenInfo.new(
     Config.SwitchBorderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out
           ), {
@@ -5170,7 +5065,7 @@ shrinkTween.Completed:Connect(function()
              ), {
          Transparency = 1,
    }):Play()
-        -- 切换模式下彩虹已渐隐，停掉流动避免残留彩色描边
+
         flowSpeed = 0
 
      task.delay(Config.SwitchTitleMoveTime, function()
@@ -5179,7 +5074,7 @@ shrinkTween.Completed:Connect(function()
       if titleFrame and titleFrame.Parent then titleFrame:Destroy() end
      if stroke and stroke.Parent then stroke:Destroy() end
      if silverStroke and silverStroke.Parent then silverStroke:Destroy() end
-        -- 装配交互，然后自动展开面板并播放 loader
+
   if runIslandEntrySetup then runIslandEntrySetup(autoExpandForSwitch) end
          end)
         end)
@@ -5206,7 +5101,7 @@ shrinkTween.Completed:Connect(function()
                 Size = UDim2.new(1, 0, 1, 0),
             })
             fillTween:Play()
-            -- 标准入场：等黑色灵动岛填充动画结束再装配交互
+
             fillTween.Completed:Connect(function()
                 if runIslandEntrySetup then runIslandEntrySetup() end
             end)
@@ -5687,8 +5582,7 @@ shrinkTween.Completed:Connect(function()
         if self._rebuildTabs then self._rebuildTabs() end
         return tab
     end
-    -- name 为空时回落到默认档案 "Config"，即合并后的 Config.json，
-    -- 这样 SaveConfig() 无参调用即可落盘，无需再发明一个名字
+
     local function normCfgName(name)
         name = tostring(name or "")
         name = name:gsub("%.json$", "")
@@ -5750,8 +5644,7 @@ shrinkTween.Completed:Connect(function()
     end
 win._closeNow = function(self)
         alive = false
-        -- 关闭 UI 必须清空该Title 的 loaded 状态，
-        -- 否则同一脚本再次执行时会被去重机制误判为「已加载」
+
         unregisterLoadedWindow(self and self._loadedTitle or nil, self)
         if self.ScreenGui and self.ScreenGui.Parent then
             pcall(function() self.ScreenGui:Destroy() end)
@@ -5921,7 +5814,6 @@ win._closeNow = function(self)
     return winOpen and "WindowOpen" or "WindowClose"
     end
 
-
     local function resolveTextArg(a, b)
         if type(a) == "string" then return a end
         if type(b) == "string" then return b end
@@ -5967,12 +5859,11 @@ win._closeNow = function(self)
         if a == win then a = b end
         runIslandAction(resolveTextArg(a, b))
     end
-    -- 重复执行同 Title 脚本时，给已存在的窗口一个轻量提示，
-    -- 让用户知道「不是没反应，而是已经在运行了」
+
     win._flashLoadedHint = function()
         runIslandAction("界面已加载")
     end
-    -- 主动关闭并注销（供外部在不需要走二次确认时调用）
+
     win.Unload = function(self)
         local t = self and self._loadedTitle or nil
         if self and type(self) == "table" and self._closeNow then
@@ -5982,7 +5873,6 @@ win._closeNow = function(self)
         return true
     end
 
-    -- 登记到同 Title 注册表（放在所有校验通过、即将返回 win 之前）
     registerLoadedWindow(title, win)
 
     Library._lastWin = win
@@ -6004,25 +5894,21 @@ end
 
 Library._demoWin = Library.CreateWindow({ _error = true })
 
--- ============ 同 Title 去重：查询 / 主动卸载 ============
--- 返回该Title 当前已加载的窗口句柄，未加载则返回 nil
 function Library.GetLoadedWindow(title)
     if type(title) ~= "string" or #title == 0 then return nil end
     local w = loadedWindows[title]
     if w ~= nil and type(w) == "table" and w._loadedTitle == nil then
-        -- 窗口已被销毁但条目残留（理论上不会发生），顺手清掉
+
         loadedWindows[title] = nil
         return nil
     end
     return w
 end
 
--- 该 Title 是否已加载
 function Library.IsLoaded(title)
     return Library.GetLoadedWindow(title) ~= nil
 end
 
--- 主动关闭并注销指定 Title 的窗口（跳过二次确认动画）
 function Library.UnloadWindow(title)
     local w = Library.GetLoadedWindow(title)
     if w == nil then return false end
@@ -6031,7 +5917,6 @@ function Library.UnloadWindow(title)
     return true
 end
 
--- 当前已加载的所有 Title（按加载顺序）
 function Library.GetLoadedTitles()
     local out = {}
     for i, t in ipairs(loadedOrder) do
