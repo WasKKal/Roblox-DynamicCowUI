@@ -141,10 +141,10 @@ sub:AddDropdown({
 | `win:ShowNotify(text)` | 在灵动岛上播放一段提示动画 |
 | `win:GetWindowAction()` | 返回 `"WindowOpen"` / `"WindowClose"` |
 | `win:SetWindowAction(bool)` | `true` 展开面板、`false` 收起面板，均带完整动画。**动画进行中调用会被拒绝并返回 `false`**，需等动画结束后再试 |
-| `win:SaveConfig([name])` | 将当前控件值写入配置（无参时写入 `Config.json`），与 `MakeConfig` 等价 |
+| `win:SaveConfig([name] [, kv])` | 同 `MakeConfig`（两者为同一函数） |
 | `win:LoadConfig([name])` | 从配置读回并写回控件 |
-| `win:MakeConfig([name])` | 同 `SaveConfig`，把当前所有 `ConfigKey` 控件值写成一份快照 |
-| `win:EditConfig(name, key, value)` | 读取 → 改单项 → 写回 → 同步控件 |
+| `win:MakeConfig([name] [, kv])` | 不传 `kv`：把当前所有 `ConfigKey` 控件值写成一份快照；传入 `kv`（`{ ConfigKey = 值, ... }`）：仅把指定键值**合并写入**配置文件，**不改变脚本内控件状态**（`kv` 也可省略配置名直接作为第一参数，此时写入默认 `Config.json`） |
+| `win:EditConfig(name, key, value)` | 读取 → 改单项 → 写回 → **同步控件**（会改变脚本内状态） |
 | `win:Add([content])` | 把自定义内容挂到窗口上（`table` 描述或直接传 `Instance`） |
 | `win:Error([text])` | 主动触发错误动画 |
 | `win:Unload()` | 关闭并注销该窗口（跳过二次确认动画），清空同 Title 的 loaded 状态 |
@@ -246,6 +246,11 @@ win:SaveConfig()
 -- 独立配置档
 win:SaveConfig("preset1")
 win:LoadConfig("preset1")
+
+-- 直接写配置项而不改动界面（键可自由指定，值原样落盘、与文件内已有键合并）
+win:MakeConfig("preset1", { AttackRange = 80, AutoAim = false })
+-- 简写：省略配置名时写入默认 Config.json
+win:MakeConfig({ AutoAim = false })
 ```
 
 ---
