@@ -381,6 +381,47 @@ local Config = {
 
     DropdownMenuZ = 300,
     DropdownArrowSize = 12,
+
+    -- ===== AddColorPicker =====
+    ColorPickerRowHeight = 30,
+    ColorPickerTitleSize = 14,
+    ColorPickerTitleColor = Color3.new(1, 1, 1),
+    ColorPickerSwatchSize = 22,
+    ColorPickerSwatchCorner = 6,
+    ColorPickerSwatchStroke = Color3.fromRGB(190, 196, 210),
+    ColorPickerSwatchStrokeThickness = 1,
+    ColorPickerSwatchStrokeTransparency = 0.25,
+    ColorPickerSwatchGap = 12,
+    -- 选色面板（参考 DeltaUI ColorPick：Hue 条 + SV 大方块 + 预览 + 确认/取消）
+    ColorPickerW = 300,
+    ColorPickerH = 320,
+    ColorPickerPad = 20,
+    ColorPickerTitleH = 22,
+    ColorPickerHueH = 16,
+    ColorPickerHueGap = 10,
+    ColorPickerSVH = 150,
+    ColorPickerSVGap = 10,
+    ColorPickerPreviewH = 34,
+    ColorPickerBtnH = 34,
+    ColorPickerBtnGap = 10,
+    ColorPickerKnobSize = 12,
+    ColorPickerKnobStroke = Color3.fromRGB(90, 90, 100),
+    ColorPickerKnobStrokeThickness = 2,
+    ColorPickerOverlay = Color3.fromRGB(8, 8, 12),
+    ColorPickerOverlayTransparency = 0.35,
+    ColorPickerCardFill = Color3.fromRGB(24, 24, 32),
+    ColorPickerCardCorner = 16,
+    ColorPickerCardStroke = Color3.fromRGB(150, 150, 160),
+    ColorPickerCardStrokeThickness = 1,
+    ColorPickerTextColor = Color3.fromRGB(235, 235, 240),
+    ColorPickerTextSize = 14,
+    ColorPickerSubTextColor = Color3.fromRGB(170, 170, 182),
+    ColorPickerConfirmFill = Color3.fromRGB(58, 58, 70),
+    ColorPickerCancelFill = Color3.fromRGB(44, 44, 54),
+    ColorPickerBtnTextColor = Color3.new(1, 1, 1),
+    ColorPickerBtnCorner = 8,
+    ColorPickerFadeTime = 0.2,
+    ColorPickerZ = 320,
 }
 
 local Library = {}
@@ -401,6 +442,27 @@ local function darkenColor(c, amt)
     if g < 0 then g = 0 end
     if b < 0 then b = 0 end
     return Color3.new(r, g, b)
+end
+
+-- Color3 <-> {r,g,b}(0-255 整数) 序列化：供 AddColorPicker 的 ConfigKey 存取使用
+local function colorToTable(c)
+    if typeof(c) ~= "Color3" then return nil end
+    return {
+        r = math.floor(c.R * 255 + 0.5),
+        g = math.floor(c.G * 255 + 0.5),
+        b = math.floor(c.B * 255 + 0.5),
+    }
+end
+
+local function toColor3(v)
+    if typeof(v) == "Color3" then return v end
+    if type(v) == "table" and type(v.r) == "number" and type(v.g) == "number" and type(v.b) == "number" then
+        return Color3.fromRGB(
+            math.clamp(math.floor(v.r + 0.5), 0, 255),
+            math.clamp(math.floor(v.g + 0.5), 0, 255),
+            math.clamp(math.floor(v.b + 0.5), 0, 255))
+    end
+    return nil
 end
 
 local function ensureConfigFolder(folder)
@@ -2237,6 +2299,7 @@ local closeBtn = nil
             end
 
             local closeDialog = nil
+            local colorPickerBusy = false
             local tabListContainer = nil
             local tabContentContainer = nil
             local tabContentBase = nil
@@ -3117,6 +3180,432 @@ local closeBtn = nil
                     refreshCapsule()
                     return frame
                 end
+
+                -- ===== AddColorPicker：行 + HSV 选色面板 =====
+                local function rgbToHsv(r, g, b)
+                    local mx, mn = math.max(r, g, b), math.min(r, g, b)
+                    local h, s, v
+                    v = mx
+                    local d = mx - mn
+                    s = (mx == 0) and 0 or (d / mx)
+                    if mx == mn then
+                        h = 0
+                    elseif mx == r then
+                        h = (g - b) / d + (g < b and 6 or 0)
+                    elseif mx == g then
+                        h = (b - r) / d + 2
+                    else
+                        h = (r - g) / d + 4
+                    end
+                    return h / 6, s, v
+                end
+                local function hsvToRgb(h, s, v)
+                    local r, g, b
+                    local i = math.floor(h * 6)
+                    local f = h * 6 - i
+                    local p = v * (1 - s)
+                    local q = v * (1 - f * s)
+                    local t = v * (1 - (1 - f) * s)
+                    i = i % 6
+                    if i == 0 then r, g, b = v, t, p
+                    elseif i == 1 then r, g, b = q, v, p
+                    elseif i == 2 then r, g, b = p, v, t
+                    elseif i == 3 then r, g, b = p, q, v
+                    elseif i == 4 then r, g, b = t, p, v
+                    else r, g, b = v, p, q end
+                    return Color3.new(r, g, b)
+                end
+                -- 选色面板：Hue 渐变条 + SV 大方块 + 预览 + 确认/取消。
+                -- 结构参考 DeltaUI 的 showColorPicker（HSV 换算 + 双区拖拽），
+                -- 视觉语言与本库的对话框/下拉菜单保持一致（深色卡 + 银白描边）。
+                local function showColorPicker(cp, initialColor, onConfirm)
+                    if colorPickerBusy then return end
+                    colorPickerBusy = true
+                    local z = Config.ColorPickerZ
+                    local pad = Config.ColorPickerPad
+                    local overlay = Instance.new("Frame")
+                    overlay.Name = "ColorPickerOverlay"
+                    overlay.Size = UDim2.new(1, 0, 1, 0)
+                    overlay.BackgroundColor3 = Config.ColorPickerOverlay
+                    overlay.BackgroundTransparency = 1
+                    overlay.BorderSizePixel = 0
+                    overlay.ZIndex = z
+                    overlay.Active = true
+                    overlay.Parent = screenGui
+                    local card = Instance.new("Frame")
+                    card.Name = "ColorPickerCard"
+                    card.AnchorPoint = Vector2.new(0.5, 0.5)
+                    card.Position = UDim2.new(0.5, 0, 0.5, 0)
+                    card.Size = UDim2.fromOffset(Config.ColorPickerW, Config.ColorPickerH)
+                    card.BackgroundColor3 = Config.ColorPickerCardFill
+                    card.BackgroundTransparency = 0.05
+                    card.BorderSizePixel = 0
+                    card.ZIndex = z + 1
+                    card.Active = true
+                    card.Parent = overlay
+                    local cc = Instance.new("UICorner")
+                    cc.CornerRadius = UDim.new(0, Config.ColorPickerCardCorner)
+                    cc.Parent = card
+                    local cs = Instance.new("UIStroke")
+                    cs.Color = Config.ColorPickerCardStroke
+                    cs.Thickness = Config.ColorPickerCardStrokeThickness
+                    cs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    cs.Parent = card
+                    -- 标题
+                    local title = Instance.new("TextLabel")
+                    title.Name = "CpPanelTitle"
+                    title.BackgroundTransparency = 1
+                    title.Position = UDim2.new(0, pad, 0, 14)
+                    title.Size = UDim2.new(1, -pad * 2, 0, Config.ColorPickerTitleH)
+                    title.Text = cp.Title or "选择颜色"
+                    title.TextColor3 = Config.ColorPickerTextColor
+                    title.TextSize = Config.ColorPickerTextSize
+                    title.Font = Enum.Font.GothamBold
+                    title.TextXAlignment = Enum.TextXAlignment.Left
+                    title.TextYAlignment = Enum.TextYAlignment.Center
+                    title.ZIndex = z + 2
+                    title.Parent = card
+                    -- 关闭 X
+                    local closeBtn = Instance.new("ImageButton")
+                    closeBtn.Name = "CpPanelClose"
+                    closeBtn.AnchorPoint = Vector2.new(1, 0)
+                    closeBtn.Position = UDim2.new(1, -pad, 0, 14)
+                    closeBtn.Size = UDim2.fromOffset(Config.ColorPickerTitleH, Config.ColorPickerTitleH)
+                    closeBtn.BackgroundTransparency = 1
+                    closeBtn.ScaleType = Enum.ScaleType.Fit
+                    closeBtn.ImageColor3 = Config.ColorPickerSubTextColor
+                    closeBtn.ZIndex = z + 2
+                    closeBtn.Parent = card
+                    task.spawn(function()
+                        local a = getLucideIcon("x")
+                        if a and closeBtn.Parent then
+                            closeBtn.Image = a.Url
+                            if a.ImageRectOffset then closeBtn.ImageRectOffset = a.ImageRectOffset closeBtn.ImageRectSize = a.ImageRectSize end
+                        end
+                    end)
+                    -- Hue 条
+                    local hueY = 14 + Config.ColorPickerTitleH + Config.ColorPickerHueGap
+                    local hue = Instance.new("Frame")
+                    hue.Name = "CpHue"
+                    hue.Position = UDim2.new(0, pad, 0, hueY)
+                    hue.Size = UDim2.new(1, -pad * 2, 0, Config.ColorPickerHueH)
+                    hue.BackgroundColor3 = Color3.new(1, 1, 1)
+                    hue.BorderSizePixel = 0
+                    hue.ZIndex = z + 2
+                    hue.Active = true
+                    hue.Parent = card
+                    local hcorner = Instance.new("UICorner")
+                    hcorner.CornerRadius = UDim.new(0.5, 0)
+                    hcorner.Parent = hue
+                    local hg = Instance.new("UIGradient")
+                    hg.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+                        ColorSequenceKeypoint.new(0.167, Color3.fromRGB(255, 255, 0)),
+                        ColorSequenceKeypoint.new(0.333, Color3.fromRGB(0, 255, 0)),
+                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 255, 255)),
+                        ColorSequenceKeypoint.new(0.667, Color3.fromRGB(0, 0, 255)),
+                        ColorSequenceKeypoint.new(0.833, Color3.fromRGB(255, 0, 255)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)),
+                    })
+                    hg.Parent = hue
+                    local hueKnob = Instance.new("Frame")
+                    hueKnob.Name = "CpHueKnob"
+                    hueKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+                    hueKnob.Position = UDim2.new(0, 0, 0.5, 0)
+                    hueKnob.Size = UDim2.fromOffset(Config.ColorPickerKnobSize, Config.ColorPickerHueH + 6)
+                    hueKnob.BackgroundColor3 = Color3.new(1, 1, 1)
+                    hueKnob.BorderSizePixel = 0
+                    hueKnob.ZIndex = z + 3
+                    hueKnob.Parent = hue
+                    local hkc = Instance.new("UICorner")
+                    hkc.CornerRadius = UDim.new(0.5, 0)
+                    hkc.Parent = hueKnob
+                    local hks = Instance.new("UIStroke")
+                    hks.Color = Config.ColorPickerKnobStroke
+                    hks.Thickness = Config.ColorPickerKnobStrokeThickness
+                    hks.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    hks.Parent = hueKnob
+                    -- SV 大方块：底色=纯色相；上层白色横向渐变（饱和度）；再上层黑色纵向渐变（明度）
+                    local svY = hueY + Config.ColorPickerHueH + Config.ColorPickerSVGap
+                    local sv = Instance.new("Frame")
+                    sv.Name = "CpSV"
+                    sv.Position = UDim2.new(0, pad, 0, svY)
+                    sv.Size = UDim2.new(1, -pad * 2, 0, Config.ColorPickerSVH)
+                    sv.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+                    sv.BorderSizePixel = 0
+                    sv.ZIndex = z + 2
+                    sv.Active = true
+                    sv.Parent = card
+                    local svc = Instance.new("UICorner")
+                    svc.CornerRadius = UDim.new(0, Config.ColorPickerSwatchCorner)
+                    svc.Parent = sv
+                    local whiteOv = Instance.new("Frame")
+                    whiteOv.Name = "CpSatOv"
+                    whiteOv.Size = UDim2.new(1, 0, 1, 0)
+                    whiteOv.BackgroundColor3 = Color3.new(1, 1, 1)
+                    whiteOv.BorderSizePixel = 0
+                    whiteOv.ZIndex = z + 3
+                    whiteOv.Parent = sv
+                    local woc = Instance.new("UICorner")
+                    woc.CornerRadius = UDim.new(0, Config.ColorPickerSwatchCorner)
+                    woc.Parent = whiteOv
+                    local satGrad = Instance.new("UIGradient")
+                    satGrad.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.new(1, 1, 1))
+                    satGrad.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0),
+                        NumberSequenceKeypoint.new(1, 1),
+                    })
+                    satGrad.Parent = whiteOv
+                    local blackOv = Instance.new("Frame")
+                    blackOv.Name = "CpValOv"
+                    blackOv.Size = UDim2.new(1, 0, 1, 0)
+                    blackOv.BackgroundColor3 = Color3.new(0, 0, 0)
+                    blackOv.BorderSizePixel = 0
+                    blackOv.ZIndex = z + 4
+                    blackOv.Parent = sv
+                    local boc = Instance.new("UICorner")
+                    boc.CornerRadius = UDim.new(0, Config.ColorPickerSwatchCorner)
+                    boc.Parent = blackOv
+                    local valGrad = Instance.new("UIGradient")
+                    valGrad.Rotation = 90
+                    valGrad.Color = ColorSequence.new(Color3.new(0, 0, 0), Color3.new(0, 0, 0))
+                    valGrad.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1),
+                        NumberSequenceKeypoint.new(1, 0),
+                    })
+                    valGrad.Parent = blackOv
+                    local svKnob = Instance.new("Frame")
+                    svKnob.Name = "CpSVKnob"
+                    svKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+                    svKnob.Position = UDim2.new(0, 0, 0, 0)
+                    svKnob.Size = UDim2.fromOffset(Config.ColorPickerKnobSize, Config.ColorPickerKnobSize)
+                    svKnob.BackgroundColor3 = Color3.new(1, 1, 1)
+                    svKnob.BorderSizePixel = 0
+                    svKnob.ZIndex = z + 5
+                    svKnob.Parent = sv
+                    local skc = Instance.new("UICorner")
+                    skc.CornerRadius = UDim.new(0.5, 0)
+                    skc.Parent = svKnob
+                    local sks = Instance.new("UIStroke")
+                    sks.Color = Config.ColorPickerKnobStroke
+                    sks.Thickness = Config.ColorPickerKnobStrokeThickness
+                    sks.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    sks.Parent = svKnob
+                    -- 预览条
+                    local pvY = svY + Config.ColorPickerSVH + Config.ColorPickerSVGap
+                    local preview = Instance.new("Frame")
+                    preview.Name = "CpPreview"
+                    preview.Position = UDim2.new(0, pad, 0, pvY)
+                    preview.Size = UDim2.new(1, -pad * 2, 0, Config.ColorPickerPreviewH)
+                    preview.BackgroundColor3 = initialColor
+                    preview.BorderSizePixel = 0
+                    preview.ZIndex = z + 2
+                    preview.Parent = card
+                    local pvc = Instance.new("UICorner")
+                    pvc.CornerRadius = UDim.new(0, Config.ColorPickerSwatchCorner)
+                    pvc.Parent = preview
+                    -- 确认 / 取消
+                    local btnY = pvY + Config.ColorPickerPreviewH + Config.ColorPickerBtnGap
+                    local btnW = (Config.ColorPickerW - pad * 2 - Config.ColorPickerBtnGap) / 2
+                    local cancelB = Instance.new("TextButton")
+                    cancelB.Name = "CpCancel"
+                    cancelB.Position = UDim2.new(0, pad, 0, btnY)
+                    cancelB.Size = UDim2.fromOffset(btnW, Config.ColorPickerBtnH)
+                    cancelB.BackgroundColor3 = Config.ColorPickerCancelFill
+                    cancelB.Text = "取消"
+                    cancelB.TextColor3 = Config.ColorPickerBtnTextColor
+                    cancelB.TextSize = 14
+                    cancelB.Font = Enum.Font.GothamBold
+                    cancelB.AutoButtonColor = false
+                    cancelB.BorderSizePixel = 0
+                    cancelB.ZIndex = z + 2
+                    cancelB.Parent = card
+                    local cbc = Instance.new("UICorner")
+                    cbc.CornerRadius = UDim.new(0, Config.ColorPickerBtnCorner)
+                    cbc.Parent = cancelB
+                    local okB = Instance.new("TextButton")
+                    okB.Name = "CpConfirm"
+                    okB.Position = UDim2.new(1, -pad, 0, btnY)
+                    okB.AnchorPoint = Vector2.new(1, 0)
+                    okB.Size = UDim2.fromOffset(btnW, Config.ColorPickerBtnH)
+                    okB.BackgroundColor3 = Config.ColorPickerConfirmFill
+                    okB.Text = "确认"
+                    okB.TextColor3 = Config.ColorPickerBtnTextColor
+                    okB.TextSize = 14
+                    okB.Font = Enum.Font.GothamBold
+                    okB.AutoButtonColor = false
+                    okB.BorderSizePixel = 0
+                    okB.ZIndex = z + 2
+                    okB.Parent = card
+                    local obc = Instance.new("UICorner")
+                    obc.CornerRadius = UDim.new(0, Config.ColorPickerBtnCorner)
+                    obc.Parent = okB
+
+                    local currentH, currentS, currentV = rgbToHsv(initialColor.R, initialColor.G, initialColor.B)
+                    hueKnob.Position = UDim2.new(currentH, 0, 0.5, 0)
+                    svKnob.Position = UDim2.new(currentS, 0, 1 - currentV, 0)
+                    local function refreshSV()
+                        sv.BackgroundColor3 = hsvToRgb(currentH, 1, 1)
+                    end
+                    local function refreshPreview()
+                        preview.BackgroundColor3 = hsvToRgb(currentH, currentS, currentV)
+                    end
+                    refreshSV()
+                    refreshPreview()
+
+                    local hueDragging, svDragging = false, false
+                    local function updateHueFromInput(input)
+                        if hue.AbsoluteSize.X <= 0 then return end
+                        local relX = math.clamp(input.Position.X - hue.AbsolutePosition.X, 0, hue.AbsoluteSize.X)
+                        currentH = relX / hue.AbsoluteSize.X
+                        hueKnob.Position = UDim2.new(currentH, 0, 0.5, 0)
+                        refreshSV()
+                        refreshPreview()
+                    end
+                    local function updateSVFromInput(input)
+                        if sv.AbsoluteSize.X <= 0 or sv.AbsoluteSize.Y <= 0 then return end
+                        local relX = math.clamp(input.Position.X - sv.AbsolutePosition.X, 0, sv.AbsoluteSize.X)
+                        local relY = math.clamp(input.Position.Y - sv.AbsolutePosition.Y, 0, sv.AbsoluteSize.Y)
+                        currentS = relX / sv.AbsoluteSize.X
+                        currentV = 1 - relY / sv.AbsoluteSize.Y
+                        svKnob.Position = UDim2.new(currentS, 0, 1 - currentV, 0)
+                        refreshPreview()
+                    end
+                    hue.InputBegan:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            hueDragging = true
+                            updateHueFromInput(input)
+                        end
+                    end)
+                    sv.InputBegan:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            svDragging = true
+                            updateSVFromInput(input)
+                        end
+                    end)
+                    -- 全局拖拽连接：关闭时必须断开，否则残留连接继续改写已销毁的面板
+                    -- closed 必须声明在 conns 之前：Lua 局部变量仅在声明语句之后可见，
+                    -- 若晚于下面的闭包定义，闭包内引用会解析为 nil 全局、防护永远失效
+                    local closed = false
+                    local conns = {}
+                    conns[#conns + 1] = UserInputService.InputChanged:Connect(function(input)
+                        -- 面板被外部销毁（如窗口关闭）时自断，避免连接残留
+                        if closed or not overlay.Parent then hueDragging = false svDragging = false return end
+                        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                            if hueDragging then updateHueFromInput(input) end
+                            if svDragging then updateSVFromInput(input) end
+                        end
+                    end)
+                    conns[#conns + 1] = UserInputService.InputEnded:Connect(function(input)
+                        if closed or not overlay.Parent then hueDragging = false svDragging = false return end
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            hueDragging = false
+                            svDragging = false
+                        end
+                    end)
+                    local function closePicker(apply)
+                        if closed then return end
+                        closed = true
+                        for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+                        conns = {}
+                        colorPickerBusy = false
+                        if apply and onConfirm then onConfirm(preview.BackgroundColor3) end
+                        local fti = TweenInfo.new(Config.ColorPickerFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+                        TweenService:Create(overlay, fti, { BackgroundTransparency = 1 }):Play()
+                        for _, node in ipairs(card:GetDescendants()) do
+                            if node:IsA("TextLabel") or node:IsA("TextButton") then
+                                TweenService:Create(node, fti, { TextTransparency = 1 }):Play()
+                            elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
+                                TweenService:Create(node, fti, { ImageTransparency = 1 }):Play()
+                            elseif node:IsA("GuiObject") then
+                                TweenService:Create(node, fti, { BackgroundTransparency = 1 }):Play()
+                            end
+                        end
+                        TweenService:Create(card, fti, { BackgroundTransparency = 1 }):Play()
+                        task.delay(Config.ColorPickerFadeTime + 0.05, function()
+                            if overlay and overlay.Parent then overlay:Destroy() end
+                        end)
+                    end
+                    closeBtn.MouseButton1Click:Connect(function() closePicker(false) end)
+                    cancelB.MouseButton1Click:Connect(function() closePicker(false) end)
+                    okB.MouseButton1Click:Connect(function() closePicker(true) end)
+                    -- 点击面板外区域 = 取消（不应用）
+                    overlay.InputBegan:Connect(function(input)
+                        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+                        local pos = input.Position
+                        local cpos = card.AbsolutePosition
+                        local csz = card.AbsoluteSize
+                        if pos.X < cpos.X or pos.X > cpos.X + csz.X or pos.Y < cpos.Y or pos.Y > cpos.Y + csz.Y then
+                            closePicker(false)
+                        end
+                    end)
+                    -- 入场渐显
+                    TweenService:Create(overlay, TweenInfo.new(Config.ColorPickerFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                        BackgroundTransparency = Config.ColorPickerOverlayTransparency,
+                    }):Play()
+                end
+                local function makeColorPicker(cp, order)
+                    if win._autoLoadConfig and cp.ConfigKey and win._configFolder then
+                        local sv0 = loadConfigValue(win._configFolder, cp.ConfigKey)
+                        local c3 = toColor3(sv0)
+                        if c3 then cp.Color = c3 end
+                    end
+                    local row = Instance.new("TextButton")
+                    row.Name = "SubColorPicker"
+                    row.Size = UDim2.new(1, 0, 0, Config.ColorPickerRowHeight)
+                    row.BackgroundTransparency = 1
+                    row.Text = ""
+                    row.AutoButtonColor = false
+                    row.LayoutOrder = order
+                    row.ZIndex = 3
+                    local tlbl = Instance.new("TextLabel")
+                    tlbl.Name = "CpTitle"
+                    tlbl.BackgroundTransparency = 1
+                    tlbl.AnchorPoint = Vector2.new(0, 0.5)
+                    tlbl.Position = UDim2.new(0, 0, 0.5, 0)
+                    tlbl.Size = UDim2.new(1, -(Config.ColorPickerSwatchSize + Config.ColorPickerSwatchGap), 1, 0)
+                    tlbl.Text = cp.Title
+                    tlbl.TextColor3 = Config.ColorPickerTitleColor
+                    tlbl.TextSize = Config.ColorPickerTitleSize
+                    tlbl.Font = Enum.Font.GothamMedium
+                    tlbl.TextXAlignment = Enum.TextXAlignment.Left
+                    tlbl.TextYAlignment = Enum.TextYAlignment.Center
+                    tlbl.ZIndex = 3
+                    tlbl.Parent = row
+                    local sw = Instance.new("Frame")
+                    sw.Name = "CpSwatch"
+                    sw.AnchorPoint = Vector2.new(1, 0.5)
+                    sw.Position = UDim2.new(1, 0, 0.5, 0)
+                    sw.Size = UDim2.fromOffset(Config.ColorPickerSwatchSize, Config.ColorPickerSwatchSize)
+                    sw.BackgroundColor3 = cp.Color
+                    sw.BorderSizePixel = 0
+                    sw.ZIndex = 4
+                    sw.Parent = row
+                    local scc = Instance.new("UICorner")
+                    scc.CornerRadius = UDim.new(0, Config.ColorPickerSwatchCorner)
+                    scc.Parent = sw
+                    local scs = Instance.new("UIStroke")
+                    scs.Color = Config.ColorPickerSwatchStroke
+                    scs.Thickness = Config.ColorPickerSwatchStrokeThickness
+                    scs.Transparency = Config.ColorPickerSwatchStrokeTransparency
+                    scs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                    scs.Parent = sw
+                    cp._swatch = sw
+                    cp._titleLbl = tlbl
+                    row.MouseButton1Click:Connect(function()
+                        if shutdown or not expanded or colorPickerBusy then return end
+                        showColorPicker(cp, cp.Color, function(newColor)
+                            cp.Color = newColor
+                            if sw and sw.Parent then sw.BackgroundColor3 = newColor end
+                            if cp.ConfigKey then win._cfgSave(win, cp.ConfigKey, colorToTable(newColor)) end
+                            if typeof(cp.Callback) == "function" then
+                                local okC, errC = pcall(cp.Callback, newColor, cp)
+                                if not okC then reportError("AddColorPicker Callback 报错: " .. tostring(errC)) end
+                            end
+                        end)
+                    end)
+                    return row
+                end
                 for _, st in ipairs(tab._subtitles) do
                     local ordered = {}
                     local function collectSeq(arr, kind)
@@ -3129,6 +3618,7 @@ local closeBtn = nil
                     collectSeq(st._paragraphs, "paragraph")
                     collectSeq(st._sliders, "slider")
                     collectSeq(st._dropdowns, "dropdown")
+                    collectSeq(st._colorpickers, "colorpicker")
                     collectSeq(st._lines, "line")
                     table.sort(ordered, function(a, b)
                         if a.seq == b.seq then return a.kind < b.kind end
@@ -3153,6 +3643,8 @@ local closeBtn = nil
                             itemH[i] = Config.SliderRowHeight
                         elseif e.kind == "dropdown" then
                             itemH[i] = Config.DropdownRowHeight
+                        elseif e.kind == "colorpicker" then
+                            itemH[i] = Config.ColorPickerRowHeight
                         elseif e.kind == "line" then
                             itemH[i] = Config.LineRowHeight
                         else
@@ -3228,6 +3720,8 @@ local closeBtn = nil
                                 makeSlider(e.ctrl, i).Parent = body
                             elseif e.kind == "dropdown" then
                                 makeDropdown(e.ctrl, i).Parent = body
+                            elseif e.kind == "colorpicker" then
+                                makeColorPicker(e.ctrl, i).Parent = body
                             elseif e.kind == "line" then
                                 makeLine(e.ctrl, i).Parent = body
                             end
@@ -4290,6 +4784,15 @@ local function buildHeaderDecor()
             bl.Padding = UDim.new(0, Config.CloseDialogBtnGap)
             bl.Parent = bars
 
+            -- 对话框期间隐藏 fillFrame，避免与 dlg 黑色背景叠加且边缘超出银白边框；
+            -- 取消与确认两条路径都必须经 restoreDialogBg 恢复，否则面板背景永久消失
+            local function restoreDialogBg()
+                if fillFrame and fillFrame.Parent then
+                    chromeTween(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                        BackgroundTransparency = Config.IslandFinalTransparency,
+                    })
+                end
+            end
             local function closeListAndRestore()
                 closeDropdown(false)
                 if dlg and dlg.Parent then dlg:Destroy() end
@@ -4306,6 +4809,8 @@ local function buildHeaderDecor()
                 local pcTi = TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
                 if corner then TweenService:Create(corner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
                 if fillCorner then TweenService:Create(fillCorner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
+                -- 关键：取消路径同样要恢复被对话框隐藏的面板填充背景
+                restoreDialogBg()
             end
 
             local cancelB = makePill("取消", Config.CloseCancelColor)
@@ -4321,13 +4826,6 @@ local function buildHeaderDecor()
             dlg.Position = UDim2.new(0, dlgInset, 0, dlgInset)
             -- 对话框期间隐藏 fillFrame，避免与 dlg 黑色背景叠加且边缘超出银白边框
             if fillFrame and fillFrame.Parent then fillFrame.BackgroundTransparency = 1 end
-            local function restoreDialogBg()
-                if fillFrame and fillFrame.Parent then
-                    chromeTween(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                        BackgroundTransparency = Config.IslandFinalTransparency,
-                    })
-                end
-            end
             local function fadeOutDialog(onDone)
                 local fti = TweenInfo.new(Config.SwitchFadeOutTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
                 for _, node in ipairs(dlg:GetDescendants()) do
@@ -5388,14 +5886,14 @@ end
     end
 
     local gotoCtrlLabels = {
-        BtnText = true, TglText = true, ParaTitle = true, SliderTitle = true, DdTitle = true,
+        BtnText = true, TglText = true, ParaTitle = true, SliderTitle = true, DdTitle = true, CpTitle = true,
     }
 
     local function findControlLocation(FunctionName)
         for ti, tab in ipairs(win._tabs) do
             local subs = tab._subtitles or {}
             for _, st in ipairs(subs) do
-                local lists = { st._buttons, st._toggles, st._paragraphs, st._sliders, st._dropdowns }
+                local lists = { st._buttons, st._toggles, st._paragraphs, st._sliders, st._dropdowns, st._colorpickers }
                 for _, list in ipairs(lists) do
                     for _, ctrl in ipairs(list or {}) do
                         if ctrl.Title == FunctionName then return ti, st end
@@ -5981,6 +6479,7 @@ end
                 _paragraphs = {},
                 _sliders = {},
                 _dropdowns = {},
+                _colorpickers = {},
                 _lines = {},
             }
             st.AddButton = function(self3, bopts)
@@ -6314,6 +6813,68 @@ end
                 table.insert(self3._sliders, sl)
                 if win._rebuildTabs then win._rebuildTabs() end
                 return sl
+            end
+            st.AddColorPicker = function(self3, a, b, c, d)
+                local copts
+                if type(a) == "table" then
+                    copts = a
+                else
+                    copts = { Title = a, DefaultColor = b, Callback = c, ConfigKey = d }
+                end
+                copts = copts or {}
+                local okCp, emCp = pcall(function()
+                    if type(copts) ~= "table" then error("AddColorPicker 入参不是 table") end
+                    if copts.Title == nil or type(copts.Title) ~= "string" or #copts.Title == 0 then error("AddColorPicker Title 非法") end
+                    if copts.DefaultColor ~= nil and typeof(copts.DefaultColor) ~= "Color3" then error("AddColorPicker DefaultColor 非法") end
+                    if copts.Callback ~= nil and type(copts.Callback) ~= "function" then error("AddColorPicker Callback 非法") end
+                    if copts.ConfigKey ~= nil and (type(copts.ConfigKey) ~= "string" or #copts.ConfigKey == 0) then error("AddColorPicker ConfigKey 非法") end
+                end)
+                if not okCp then
+                    reportError("AddColorPicker 异常: " .. tostring(emCp))
+                    win:Error()
+                    return nil
+                end
+                if copts.ConfigKey ~= nil and not win._configFolder then
+                    reportError("AddColorPicker 异常: 设置了 ConfigKey 但未在 CreateWindow 设置 Folder")
+                    win:Error("缺少Folder Config保存失败")
+                    return nil
+                end
+                local cp = {
+                    Title = copts.Title,
+                    Color = copts.DefaultColor or Color3.fromRGB(255, 255, 255),
+                    Callback = copts.Callback,
+                    ConfigKey = copts.ConfigKey,
+                }
+                cp.GetColor = function(self4)
+                    return self4.Color
+                end
+                cp.SetColor = function(self4, c, noSave)
+                    if typeof(c) ~= "Color3" then return end
+                    self4.Color = c
+                    if self4._swatch and self4._swatch.Parent then self4._swatch.BackgroundColor3 = c end
+                    if self4.ConfigKey and not noSave then win._cfgSave(win, self4.ConfigKey, colorToTable(c)) end
+                    if typeof(self4.Callback) == "function" then
+                        local okCb, errCb = pcall(self4.Callback, c, self4)
+                        if not okCb then reportError("AddColorPicker Callback 报错: " .. tostring(errCb)) end
+                    end
+                end
+                cp.SetTitle = function(self4, v)
+                    self4.Title = (type(v) == "string") and v or tostring(v)
+                    if self4._titleLbl and self4._titleLbl.Parent then self4._titleLbl.Text = self4.Title end
+                end
+                cp.SetCallback = function(self4, fn)
+                    if type(fn) == "function" then self4.Callback = fn end
+                end
+                if cp.ConfigKey then
+                    cp._cfgGet = function(self4) return colorToTable(self4.Color) end
+                    cp._cfgSet = function(self4, v) self4:SetColor(toColor3(v), true) end
+                    win._cfgIndex[cp.ConfigKey] = cp
+                end
+                cp._seq = (self3._seq or 0) + 1
+                self3._seq = cp._seq
+                table.insert(self3._colorpickers, cp)
+                if win._rebuildTabs then win._rebuildTabs() end
+                return cp
             end
             st.AddDropdown = function(self3, a, b, c, d2, e)
                 local dopts
