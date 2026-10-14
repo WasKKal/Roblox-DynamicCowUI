@@ -367,6 +367,8 @@ local Config = {
     DropdownOptionHover = Color3.fromRGB(48, 48, 58),
     -- 选中指示器：银白静态渐变（不再用蓝色），并以独立 Frame 承载、缩小高度、加细边框
     DropdownOptionSelected = Color3.fromRGB(222, 230, 245),
+    -- 选中项文字在银白高亮上的颜色（渐变为深黑，保证对比与可读）
+    DropdownOptionSelText = Color3.fromRGB(18, 18, 24),
     DropdownOptionSelGradA = Color3.fromRGB(250, 252, 255),
     DropdownOptionSelGradB = Color3.fromRGB(196, 206, 226),
     DropdownOptionSelStroke = Color3.fromRGB(236, 242, 252),
@@ -2756,9 +2758,14 @@ local closeBtn = nil
                         if not d._menuScroll then return end
                         for _, ob in ipairs(d._menuScroll:GetChildren()) do
                             if ob:IsA("TextButton") and ob.Name == "DdOption" then
+                                local on = isSelected(ob:GetAttribute("OptName"))
                                 local hi = ob:FindFirstChild("DdSelHi")
-                                if hi then
-                                    hi.BackgroundTransparency = isSelected(ob:GetAttribute("OptName")) and 0 or 1
+                                if hi then hi.BackgroundTransparency = on and 0 or 1 end
+                                local tx = ob:FindFirstChild("DdOptText")
+                                if tx then
+                                    TweenService:Create(tx, TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                                        TextColor3 = on and Config.DropdownOptionSelText or Config.DropdownOptionTextColor,
+                                    }):Play()
                                 end
                             end
                         end
@@ -2855,9 +2862,18 @@ local closeBtn = nil
                             if animate then
                                 for _, ob in ipairs(mf:GetDescendants()) do
                                     if ob:IsA("TextButton") and ob.Name == "DdOption" then
-                                        TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+                                        local ti = TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In)
+                                        TweenService:Create(ob, ti, { BackgroundTransparency = 1 }):Play()
+                                        local tx = ob:FindFirstChild("DdOptText")
+                                        if tx then TweenService:Create(tx, ti, { TextTransparency = 1 }):Play() end
                                         local hi = ob:FindFirstChild("DdSelHi")
-                                        if hi then TweenService:Create(hi, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { BackgroundTransparency = 1 }):Play() end
+                                        if hi then
+                                            TweenService:Create(hi, ti, { BackgroundTransparency = 1 }):Play()
+                                            -- 指示器细边框 UIStroke 不随 Frame 背景透明淡出，必须单独渐隐，
+                                            -- 否则收起动画结束后边框会残留（此前“边框没有渐隐动画”的根因）
+                                            local hs = hi:FindFirstChildOfClass("UIStroke")
+                                            if hs then TweenService:Create(hs, ti, { Transparency = 1 }):Play() end
+                                        end
                                     end
                                 end
                                 TweenService:Create(mf, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { BackgroundTransparency = 1 }):Play()
@@ -2952,12 +2968,7 @@ local closeBtn = nil
                             ob.Size = UDim2.new(1, 0, 0, Config.DropdownOptionH)
                             ob.BackgroundColor3 = Config.DropdownMenuFill
                             ob.BackgroundTransparency = 1
-                            ob.TextTransparency = 1
-                            ob.Text = opt
-                            ob.TextColor3 = Config.DropdownOptionTextColor
-                            ob.TextSize = Config.DropdownOptionTextSize
-                            ob.Font = Enum.Font.Gotham
-                            ob.TextXAlignment = Enum.TextXAlignment.Center
+                            ob.Text = ""
                             ob.AutoButtonColor = false
                             ob.LayoutOrder = i
                             -- 子级 ZIndex 必须高于父级(mf=DropdownMenuZ)，否则条目被菜单背景蒙版覆盖
@@ -2971,8 +2982,7 @@ local closeBtn = nil
                             local hl = Instance.new("Frame")
                             hl.Name = "DdSelHi"
                             hl.BackgroundColor3 = Config.DropdownOptionSelected
-                            -- 半透明：银白渐变仅作底色提示，浅色条目文字可透出，不被遮挡
-                            hl.BackgroundTransparency = isSelected(opt) and 0.82 or 1
+                            hl.BackgroundTransparency = isSelected(opt) and 0 or 1
                             hl.Size = UDim2.new(1, -Config.DropdownOptionHiInset * 2, 0, Config.DropdownOptionHiH)
                             hl.Position = UDim2.new(0, Config.DropdownOptionHiInset, 0.5, 0)
                             hl.AnchorPoint = Vector2.new(0, 0.5)
@@ -2993,6 +3003,21 @@ local closeBtn = nil
                             hlStroke.Thickness = Config.DropdownOptionSelStrokeThickness
                             hlStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
                             hlStroke.Parent = hl
+                            -- 文字改由独立 TextLabel 承载：ZIndex 高于高亮层，选中高亮不再覆盖文字；
+                            -- 文字颜色在选中/取消时渐变切换（选中→黑，取消→常规浅色）
+                            local txt = Instance.new("TextLabel")
+                            txt.Name = "DdOptText"
+                            txt.BackgroundTransparency = 1
+                            txt.Size = UDim2.new(1, 0, 1, 0)
+                            txt.Text = opt
+                            txt.TextColor3 = isSelected(opt) and Config.DropdownOptionSelText or Config.DropdownOptionTextColor
+                            txt.TextSize = Config.DropdownOptionTextSize
+                            txt.Font = Enum.Font.Gotham
+                            txt.TextXAlignment = Enum.TextXAlignment.Center
+                            txt.TextYAlignment = Enum.TextYAlignment.Center
+                            txt.TextTransparency = 1
+                            txt.ZIndex = Config.DropdownMenuZ + 4
+                            txt.Parent = ob
                             ob.MouseButton1Click:Connect(function()
                                 applySelection(opt)
                             end)
@@ -3011,7 +3036,9 @@ local closeBtn = nil
                             if ob:IsA("TextButton") and ob.Name == "DdOption" then
                                 task.delay(Config.DropdownRevealTime + (i - 1) * Config.DropdownOptionStagger, function()
                                     if not menuOpen or not ob.Parent then return end
-                                    TweenService:Create(ob, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 0, TextTransparency = 0 }):Play()
+                                    TweenService:Create(ob, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 0 }):Play()
+                                    local tx = ob:FindFirstChild("DdOptText")
+                                    if tx then TweenService:Create(tx, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play() end
                                 end)
                             end
                         end
@@ -5691,6 +5718,8 @@ end
         gradient.Color = rainbowColors
 
         if switchingFrom ~= nil then
+            -- 切换入场淡入时长（此前 fi 未定义，导致 `fi * 0.6` 对 nil 做算术报错）
+            local fi = Config.FadeInTime
             local oldWin = loadedWindows[switchingFrom]
             if oldWin and type(oldWin) == "table" and oldWin._switchAway then
                 pcall(function() oldWin:_switchAway(Config.SwitchTitleMoveTime) end)
@@ -6248,6 +6277,8 @@ end
                                 local hi = ob:FindFirstChild("DdSelHi")
                                 if hi then
                                     hi.BackgroundTransparency = on and 0 or 1
+                                    local tx = ob:FindFirstChild("DdOptText")
+                                    if tx then tx.TextColor3 = on and Config.DropdownOptionSelText or Config.DropdownOptionTextColor end
                                 else
                                     ob.BackgroundColor3 = on and Config.DropdownOptionSelected or Config.DropdownMenuFill
                                 end
