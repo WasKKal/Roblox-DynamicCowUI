@@ -1,3 +1,5 @@
+local DynamicCowUIVersion = "1.0.0"
+
 local svc = {
     RunService = game:GetService("RunService"),
     TweenService = game:GetService("TweenService"),
@@ -53,7 +55,6 @@ local Config = {
     IslandSize = UDim2.new(0, 180, 0, 36),
     IslandPosition = UDim2.new(0.5, -90, 0, 10),
     IslandCornerRadius = UDim.new(0, 18),
-    -- 多脚本销毁后新灵动岛「从圆形展开为胶囊」入场动画
     CircleGrowTime = 0.5,
     CircleHoldTime = 0.22,
     TitleText = "Dynamic Cow",
@@ -336,8 +337,6 @@ local Config = {
     LineRowHeight = 8,
     LineThickness = 1,
     LineColor = Color3.fromRGB(88, 88, 98),
-    -- 默认分隔线内缩，使 AddLine() 默认线条与显式 Inset 线条长度一致，
-    -- 避免出现默认满宽线条「长短不一」的观感
     LineInset = 12,
     DropdownTitleSize = 14,
     DropdownTitleColor = Color3.new(1, 1, 1),
@@ -365,9 +364,7 @@ local Config = {
     DropdownOptionTextColor = Color3.fromRGB(230, 230, 235),
     DropdownOptionTextSize = 13,
     DropdownOptionHover = Color3.fromRGB(48, 48, 58),
-    -- 选中指示器：银白静态渐变（不再用蓝色），并以独立 Frame 承载、缩小高度、加细边框
     DropdownOptionSelected = Color3.fromRGB(222, 230, 245),
-    -- 选中项文字在银白高亮上的颜色（渐变为深黑，保证对比与可读）
     DropdownOptionSelText = Color3.fromRGB(18, 18, 24),
     DropdownOptionSelGradA = Color3.fromRGB(250, 252, 255),
     DropdownOptionSelGradB = Color3.fromRGB(196, 206, 226),
@@ -382,7 +379,6 @@ local Config = {
     DropdownMenuZ = 300,
     DropdownArrowSize = 12,
 
-    -- ===== AddColorPicker =====
     ColorPickerRowHeight = 30,
     ColorPickerTitleSize = 14,
     ColorPickerTitleColor = Color3.new(1, 1, 1),
@@ -392,7 +388,6 @@ local Config = {
     ColorPickerSwatchStrokeThickness = 1,
     ColorPickerSwatchStrokeTransparency = 0.25,
     ColorPickerSwatchGap = 12,
-    -- 选色面板（参考 DeltaUI ColorPick：Hue 条 + SV 大方块 + 预览 + 确认/取消）
     ColorPickerW = 300,
     ColorPickerH = 320,
     ColorPickerPad = 20,
@@ -425,6 +420,7 @@ local Config = {
 }
 
 local Library = {}
+Library.Version = DynamicCowUIVersion
 
 local function reportError(msg)
     msg = tostring(msg)
@@ -444,7 +440,6 @@ local function darkenColor(c, amt)
     return Color3.new(r, g, b)
 end
 
--- Color3 <-> {r,g,b}(0-255 整数) 序列化：供 AddColorPicker 的 ConfigKey 存取使用
 local function colorToTable(c)
     if typeof(c) ~= "Color3" then return nil end
     return {
@@ -1390,8 +1385,6 @@ title = Config.ErrorText
         end
     end
 
-    -- 渐绿动画代数：取消进行中的文字变化链，并立即恢复其残留的绿色字符，
-    -- 避免快速连续 ChangeText / 收起面板时标题字符常驻绿色无法恢复
     local textChangeGen = 0
     local textChangeRestore = {}
     local function cancelTextChangeAnim()
@@ -1420,7 +1413,6 @@ title = Config.ErrorText
 
     local function setIslandTextAnimated(newText, color)
         color = color or Config.TitleColor
-        -- 取消上一条未完成的渐绿链（恢复其残留绿色字符），防止链条交叉导致常驻绿色
         cancelTextChangeAnim()
         local myGen = textChangeGen
         local oldChars = currentIslandChars()
@@ -1466,7 +1458,6 @@ title = Config.ErrorText
                     TweenService:Create(lb, TweenInfo.new(restore, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextColor3 = target }):Play()
                 end
             end
-            -- 兜底：恢复补间结束后若字符仍停留绿色（补间被竞争取消），强制设回目标色
             task.delay(restore + 0.15, function()
                 if myGen ~= textChangeGen then return end
                 for i = p + 1, nn - s do
@@ -1493,8 +1484,6 @@ title = Config.ErrorText
     local toggleAnimBusy = false
     local toggleAnimGen = 0
 
-    -- 取消进行中的 toggle 状态显示动画：销毁容器、置忙标志，
-    -- 并递增代数使动画内所有已排期的 task.delay 回调失效（防止与展开面板打架）
     local function cancelToggleAnim()
         toggleAnimGen = toggleAnimGen + 1
         if toggleAnimContainer and toggleAnimContainer.Parent then toggleAnimContainer:Destroy() end
@@ -1535,7 +1524,6 @@ title = Config.ErrorText
         if borderSweepConn then
             pcall(function() borderSweepConn:Disconnect() end)
             borderSweepConn = nil
-            -- 扫光被中途取消：把边框复位到扫光结束态，避免残留白色描边或边框不可见
             if stroke then stroke.Transparency = 1 end
             if silverStroke then silverStroke.Transparency = Config.TargetTransparency end
             if gradient then gradient.Transparency = NumberSequence.new(0) end
@@ -1546,8 +1534,6 @@ title = Config.ErrorText
             pcall(function() tw:Cancel() end)
         end
         chromeTweens = {}
-        -- 扫光连接同属 chrome 动效：_switchAway/恢复路径取消 chrome 补间时，
-        -- 必须同时停掉扫光，否则其结束回调会把已被隐没的边框重新渐显
         cancelBorderSweep()
     end
     local function chromeTween(inst, ti, props)
@@ -1931,8 +1917,6 @@ title = Config.ErrorText
     end
 
     local errorSeqBusy = false
-    -- 爆炸/销毁序列中渐隐切换按钮：playErrorSequence 位于本作用域，
-    -- 经此 upvalue 桥接调用 runIslandEntrySetup 内对 switchBtn 的处理
     local fadeSwitchBtnForDestroy = nil
     local function playErrorSequence(customText)
         if errorSeqBusy then
@@ -1940,10 +1924,7 @@ title = Config.ErrorText
             return
         end
         errorSeqBusy = true
-        -- 停掉边框扫光：其结束回调会把已被爆炸序列渐隐的边框重新渐显，造成错乱
         cancelBorderSweep()
-        -- 若此时有展开的下拉菜单（ZIndex 300，能盖住整棵子树），先关闭，
-        -- 否则它挂在 screenGui 上会在爆炸销毁后残留
         if openDropdownClose then pcall(openDropdownClose) end
         errText = (type(customText) == "string" and #customText > 0) and customText or Config.ErrorText
         expanded = false
@@ -1958,7 +1939,6 @@ title = Config.ErrorText
         if titleIcon and titleIcon.Parent then
             TweenService:Create(titleIcon, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
         end
-        -- 切换按钮同样参与渐隐：否则爆炸动画期间它一直完整显示在面板右上角
         if fadeSwitchBtnForDestroy then fadeSwitchBtnForDestroy(fadeDur) end
         if brandLbl and brandLbl.Parent then brandLbl:Destroy() brandLbl = nil end
         if infoLabel and infoLabel.Parent then
@@ -2006,7 +1986,6 @@ title = Config.ErrorText
             task.delay(1.0, function()
                 alive = false
                 unregisterLoadedWindow(title, win)
-                -- 恰好有一个其它脚本仍在运行时：销毁后由它以「圆形→胶囊」动画接管灵动岛
                 local survivor = nil
                 local survivorCount = 0
                 for _, t in ipairs(loadedOrder) do
@@ -2029,8 +2008,6 @@ title = Config.ErrorText
     local runIslandEntrySetup = nil
     local buildSwitchButton = nil
     local showSwitchConfirm = nil
-    -- 长按回调深处会对 showCloseConfirm 赋值（构建关闭二次确认），
-    -- 此处必须声明 local，否则赋值会写到全局表、读取点恒为 nil
     local showCloseConfirm = nil
 
     local playSwitchSequenceRef = nil
@@ -2159,9 +2136,6 @@ title = Config.ErrorText
                 local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                 local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                -- 起始位置即目标垂直中心：提示动画只做宽度展开。
-                -- 此前起始位置为 cy - HintSlideInDistance（高 26px），
-                -- 真实环境中补间第一帧前会先渲染该位置，表现为灵动岛短暂向上偏移
                 edge.Position = UDim2.new(0.5, cx, 0, cy)
                 local txt = Config.HintText
                 local tsize = Config.HintTextSize
@@ -2287,7 +2261,6 @@ title = Config.ErrorText
 local closeBtn = nil
 
             local switchBtn = nil
-            -- 爆炸/销毁序列中渐隐切换按钮（由外层 playErrorSequence 经 upvalue 调用）
             fadeSwitchBtnForDestroy = function(dur)
                 if switchBtn and switchBtn.Parent then
                     local swb = switchBtn
@@ -2979,8 +2952,6 @@ local closeBtn = nil
                                         local hi = ob:FindFirstChild("DdSelHi")
                                         if hi then
                                             TweenService:Create(hi, ti, { BackgroundTransparency = 1 }):Play()
-                                            -- 指示器细边框 UIStroke 不随 Frame 背景透明淡出，必须单独渐隐，
-                                            -- 否则收起动画结束后边框会残留（此前“边框没有渐隐动画”的根因）
                                             local hs = hi:FindFirstChildOfClass("UIStroke")
                                             if hs then TweenService:Create(hs, ti, { Transparency = 1 }):Play() end
                                         end
@@ -3053,7 +3024,6 @@ local closeBtn = nil
                             sc.CanvasSize = UDim2.new(0, 0, 0, contentH)
                             sc.ScrollingDirection = Enum.ScrollingDirection.Y
                             sc.ScrollBarThickness = 3
-                            -- 子级 ZIndex 必须高于父级(mf=DropdownMenuZ)，否则会被菜单自身背景盖住
                             sc.ZIndex = Config.DropdownMenuZ + 1
                             sc.Parent = mf
                             container = sc
@@ -3081,14 +3051,12 @@ local closeBtn = nil
                             ob.Text = ""
                             ob.AutoButtonColor = false
                             ob.LayoutOrder = i
-                            -- 子级 ZIndex 必须高于父级(mf=DropdownMenuZ)，否则条目被菜单背景蒙版覆盖
                             ob.ZIndex = Config.DropdownMenuZ + 2
                             ob:SetAttribute("OptName", opt)
                             ob.Parent = container
                             local obCorner = Instance.new("UICorner")
                             obCorner.CornerRadius = UDim.new(0, 5)
                             obCorner.Parent = ob
-                            -- 选中指示器：独立 Frame，高度小于整行、上下留白缩小，银白静态渐变 + 细边框
                             local hl = Instance.new("Frame")
                             hl.Name = "DdSelHi"
                             hl.BackgroundColor3 = Config.DropdownOptionSelected
@@ -3113,8 +3081,6 @@ local closeBtn = nil
                             hlStroke.Thickness = Config.DropdownOptionSelStrokeThickness
                             hlStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
                             hlStroke.Parent = hl
-                            -- 文字改由独立 TextLabel 承载：ZIndex 高于高亮层，选中高亮不再覆盖文字；
-                            -- 文字颜色在选中/取消时渐变切换（选中→黑，取消→常规浅色）
                             local txt = Instance.new("TextLabel")
                             txt.Name = "DdOptText"
                             txt.BackgroundTransparency = 1
@@ -3181,7 +3147,6 @@ local closeBtn = nil
                     return frame
                 end
 
-                -- ===== AddColorPicker：行 + HSV 选色面板 =====
                 local function rgbToHsv(r, g, b)
                     local mx, mn = math.max(r, g, b), math.min(r, g, b)
                     local h, s, v
@@ -3215,9 +3180,6 @@ local closeBtn = nil
                     else r, g, b = v, p, q end
                     return Color3.new(r, g, b)
                 end
-                -- 选色面板：Hue 渐变条 + SV 大方块 + 预览 + 确认/取消。
-                -- 结构参考 DeltaUI 的 showColorPicker（HSV 换算 + 双区拖拽），
-                -- 视觉语言与本库的对话框/下拉菜单保持一致（深色卡 + 银白描边）。
                 local function showColorPicker(cp, initialColor, onConfirm)
                     if colorPickerBusy then return end
                     colorPickerBusy = true
@@ -3251,7 +3213,6 @@ local closeBtn = nil
                     cs.Thickness = Config.ColorPickerCardStrokeThickness
                     cs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
                     cs.Parent = card
-                    -- 标题
                     local title = Instance.new("TextLabel")
                     title.Name = "CpPanelTitle"
                     title.BackgroundTransparency = 1
@@ -3265,7 +3226,6 @@ local closeBtn = nil
                     title.TextYAlignment = Enum.TextYAlignment.Center
                     title.ZIndex = z + 2
                     title.Parent = card
-                    -- 关闭 X
                     local closeBtn = Instance.new("ImageButton")
                     closeBtn.Name = "CpPanelClose"
                     closeBtn.AnchorPoint = Vector2.new(1, 0)
@@ -3283,7 +3243,6 @@ local closeBtn = nil
                             if a.ImageRectOffset then closeBtn.ImageRectOffset = a.ImageRectOffset closeBtn.ImageRectSize = a.ImageRectSize end
                         end
                     end)
-                    -- Hue 条
                     local hueY = 14 + Config.ColorPickerTitleH + Config.ColorPickerHueGap
                     local hue = Instance.new("Frame")
                     hue.Name = "CpHue"
@@ -3325,7 +3284,6 @@ local closeBtn = nil
                     hks.Thickness = Config.ColorPickerKnobStrokeThickness
                     hks.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
                     hks.Parent = hueKnob
-                    -- SV 大方块：底色=纯色相；上层白色横向渐变（饱和度）；再上层黑色纵向渐变（明度）
                     local svY = hueY + Config.ColorPickerHueH + Config.ColorPickerSVGap
                     local sv = Instance.new("Frame")
                     sv.Name = "CpSV"
@@ -3391,7 +3349,6 @@ local closeBtn = nil
                     sks.Thickness = Config.ColorPickerKnobStrokeThickness
                     sks.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
                     sks.Parent = svKnob
-                    -- 预览条
                     local pvY = svY + Config.ColorPickerSVH + Config.ColorPickerSVGap
                     local preview = Instance.new("Frame")
                     preview.Name = "CpPreview"
@@ -3404,7 +3361,6 @@ local closeBtn = nil
                     local pvc = Instance.new("UICorner")
                     pvc.CornerRadius = UDim.new(0, Config.ColorPickerSwatchCorner)
                     pvc.Parent = preview
-                    -- 确认 / 取消
                     local btnY = pvY + Config.ColorPickerPreviewH + Config.ColorPickerBtnGap
                     local btnW = (Config.ColorPickerW - pad * 2 - Config.ColorPickerBtnGap) / 2
                     local cancelB = Instance.new("TextButton")
@@ -3483,13 +3439,9 @@ local closeBtn = nil
                             updateSVFromInput(input)
                         end
                     end)
-                    -- 全局拖拽连接：关闭时必须断开，否则残留连接继续改写已销毁的面板
-                    -- closed 必须声明在 conns 之前：Lua 局部变量仅在声明语句之后可见，
-                    -- 若晚于下面的闭包定义，闭包内引用会解析为 nil 全局、防护永远失效
                     local closed = false
                     local conns = {}
                     conns[#conns + 1] = UserInputService.InputChanged:Connect(function(input)
-                        -- 面板被外部销毁（如窗口关闭）时自断，避免连接残留
                         if closed or not overlay.Parent then hueDragging = false svDragging = false return end
                         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
                             if hueDragging then updateHueFromInput(input) end
@@ -3518,8 +3470,6 @@ local closeBtn = nil
                             elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
                                 TweenService:Create(node, fti, { ImageTransparency = 1 }):Play()
                             elseif node:IsA("UIStroke") then
-                                -- UIStroke 不是 GuiObject，上面的分支匹配不到；
-                                -- 漏掉它会导致卡片/knob 的白色描边瞬间消失、没有渐隐
                                 TweenService:Create(node, fti, { Transparency = 1 }):Play()
                             elseif node:IsA("GuiObject") then
                                 TweenService:Create(node, fti, { BackgroundTransparency = 1 }):Play()
@@ -3533,7 +3483,6 @@ local closeBtn = nil
                     closeBtn.MouseButton1Click:Connect(function() closePicker(false) end)
                     cancelB.MouseButton1Click:Connect(function() closePicker(false) end)
                     okB.MouseButton1Click:Connect(function() closePicker(true) end)
-                    -- 点击面板外区域 = 取消（不应用）
                     overlay.InputBegan:Connect(function(input)
                         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
                         local pos = input.Position
@@ -3543,8 +3492,6 @@ local closeBtn = nil
                             closePicker(false)
                         end
                     end)
-                    -- 入场渐显：与退场对称，卡片整体（含 UIStroke 描边）从透明态渐入。
-                    -- 先记录各节点目标值 → 全部置为透明态 → 同帧补间回目标值，无闪烁
                     local ftiIn = TweenInfo.new(Config.ColorPickerFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
                     local enterTargets = {}
                     for _, node in ipairs(card:GetDescendants()) do
@@ -3652,9 +3599,6 @@ local closeBtn = nil
                         if a.seq == b.seq then return a.kind < b.kind end
                         return a.seq < b.seq
                     end)
-                    -- 段落测量宽度：优先使用 buildTabUI 创建容器时算好的 tabContentW，
-                    -- 避免新建实例当帧 AbsoluteSize 未布局完成（真实环境为 0）导致
-                    -- Info 按极窄宽度测量、高度算错而向下偏移；兜底路径与旧版一致
                     local paraW
                     if tabContentW then
                         paraW = math.max(60, tabContentW
@@ -3917,8 +3861,6 @@ local closeBtn = nil
 
             local function collapsePanel(skipToggleAnim)
                 if not expanded then return end
-                -- 收起时若有残留的关闭/切换对话框（如对话框展开中被外部收起），
-                -- 一并销毁，避免其挂在 contentRoot 上随后被 destroyTabUI 孤立
                 if closeDialog and closeDialog.Parent then closeDialog:Destroy() end
                 closeDialog = nil
                 titleGen = titleGen + 1
@@ -3929,9 +3871,6 @@ local closeBtn = nil
                 if ll then ll.HorizontalAlignment = Enum.HorizontalAlignment.Center end
                 local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                 local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
-                -- 统一为中心锚点语义后再补间：进入收起时 edge 可能正处于中心锚点语义
-                -- （toggle/图文胖岛恢复中、拖拽后），若直接把左上语义的 IslandPosition
-                -- 当作补间目标，锚点与目标语义错配会让整个收起动画向左上偏移
                 local sw0 = screenGui.AbsoluteSize.X
                 local sh0 = screenGui.AbsoluteSize.Y
                 local es0 = edge.Size
@@ -3977,8 +3916,6 @@ local closeBtn = nil
                 win._rebuildTabs = nil
                 expanded = false
 
-                -- 收起态应保持真实脚本标题（白色），不要回退到绿色默认占位 "DynamicCow"
-                -- （绿色 DynamicCow 仅用于初始/错误占位，其余状态均以真实标题显示）
                 setIslandText(islandTextOverride or title, Config.TitleColor)
                 interacting = false
 
@@ -3993,8 +3930,6 @@ local closeBtn = nil
                             waited = waited + 0.02
                         end
                         if not alive or shutdown then lastToggleInfo = nil return end
-                        -- 收起完成后若用户已重新展开面板，则放弃 toggle 状态动画，
-                        -- 避免其把展开中的面板拽成 toggle 胖岛造成错位
                         if expanded then lastToggleInfo = nil return end
                         playToggleStateAnimation()
                     end)
@@ -4043,9 +3978,6 @@ local closeBtn = nil
                                 tabSeparator = sep
                                 if suppressHeaderEntrance then sep.BackgroundTransparency = 1 end
                                 local contentX = titlePad + listW + Config.TabAreaGap
-                                -- 内容区宽度按布局算式推导，不依赖 AbsoluteSize：
-                                -- 真实环境中新建实例当帧 AbsoluteSize 尚未布局完成（为 0），
-                                -- 会使段落 Info 按极窄宽度测量导致向下偏移
                                 local edgeW = screenGui.AbsoluteSize.X
                                 local layM = (lastPanelLayout and lastPanelLayout.m) or Config.PanelMargin
                                 tabContentW = math.max(60, (edgeW - layM * 2) - (contentX + titlePad))
@@ -4236,9 +4168,6 @@ local closeBtn = nil
                                         end)
                                     end
                                 end
-                                -- 构建后若尚未选中任何页且存在选项卡，自动选中第一页：
-                                -- 避免切换脚本（自动展开）后停在「请先选中一个页面」空状态，
-                                -- 与 loader 淡出过程重叠显示
                                 if win._activeTab == 0 and #win._tabs > 0 then
                                     win._activeTab = 1
                                     updateTabsHighlight()
@@ -4812,8 +4741,6 @@ local function buildHeaderDecor()
             bl.Padding = UDim.new(0, Config.CloseDialogBtnGap)
             bl.Parent = bars
 
-            -- 对话框期间隐藏 fillFrame，避免与 dlg 黑色背景叠加且边缘超出银白边框；
-            -- 取消与确认两条路径都必须经 restoreDialogBg 恢复，否则面板背景永久消失
             local function restoreDialogBg()
                 if fillFrame and fillFrame.Parent then
                     chromeTween(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
@@ -4833,11 +4760,9 @@ local function buildHeaderDecor()
                 if lastPanelLayout then buildTabUI(lastPanelLayout) end
                 animateEdge(UDim2.new(0, sw - lastPanelLayout.m * 2, 0, sh - lastPanelLayout.top - lastPanelLayout.m),
                     UDim2.new(0, lastPanelLayout.m, 0, lastPanelLayout.top), Config.PanelExpandTime)
-                -- 回到面板态：圆角同步恢复为灵动岛圆角
                 local pcTi = TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
                 if corner then TweenService:Create(corner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
                 if fillCorner then TweenService:Create(fillCorner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
-                -- 关键：取消路径同样要恢复被对话框隐藏的面板填充背景
                 restoreDialogBg()
             end
 
@@ -4852,7 +4777,6 @@ local function buildHeaderDecor()
             local dlgInset = Config.BorderThickness
             dlg.Size = UDim2.new(1, -dlgInset * 2, 1, -dlgInset * 2)
             dlg.Position = UDim2.new(0, dlgInset, 0, dlgInset)
-            -- 对话框期间隐藏 fillFrame，避免与 dlg 黑色背景叠加且边缘超出银白边框
             if fillFrame and fillFrame.Parent then fillFrame.BackgroundTransparency = 1 end
             local function fadeOutDialog(onDone)
                 local fti = TweenInfo.new(Config.SwitchFadeOutTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
@@ -4880,13 +4804,8 @@ local function buildHeaderDecor()
                 local top2 = Config.IslandPosition.Y.Offset + Config.PanelDrop
                 cancelEdgeTweens()
                 edge.AnchorPoint = Vector2.new(0, 0)
-                -- 注意：edge 此时仍是「对话框」尺寸，切勿在此把 Position 设为 IslandPosition
-                -- （那是灵动岛居中位置）。否则全尺寸面板会以岛位置为左上角、瞬间向右下偏移，
-                -- 再由 animateEdge 滑回正确位置，表现为「窗口向右上角偏移」。
-                -- 直接由 animateEdge 从对话框态平滑放大回面板态即可。
                 animateEdge(UDim2.new(0, sw2 - m2 * 2, 0, sh2 - top2 - m2), UDim2.new(0, m2, 0, top2), Config.PanelExpandTime)
                 lastPanelLayout = { titlePad = Config.HeaderPad, blockH = (lastPanelLayout and lastPanelLayout.blockH) or 0, m = m2, top = top2, sh = sh2 }
-                -- 对话框展开回面板态：圆角恢复为灵动岛圆角
                 local pcTi = TweenInfo.new(Config.PanelExpandTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
                 if corner then TweenService:Create(corner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
                 if fillCorner then TweenService:Create(fillCorner, pcTi, { CornerRadius = Config.IslandCornerRadius }):Play() end
@@ -4914,10 +4833,8 @@ local function buildHeaderDecor()
                 if closeDialog ~= dlg then return end
                 closeDialog = nil
                 switchToTarget = selected
-                -- ① 封盘：置 busy 防止展开期交互；同时隐藏切换按钮
                 if switchBtn then switchBtn.Active = false end
 
-                -- ② 对话框（下拉/标题/按钮）同步渐隐，同时边框展开回面板态
                 expanded = true
                 titleGen = titleGen + 1
                 islandScale.Scale = 1
@@ -4925,15 +4842,11 @@ local function buildHeaderDecor()
                 expandEdgeBackToPanel()
                 task.delay(Config.PanelExpandTime, function() winOpen = true end)
 
-                -- ③ 渐隐完成 → 保持内容隐藏（suppressHeaderEntrance），交棒给 playSwitchSequence
-                --    playSwitchSequence 内部：建 loader → 播 loader → playPanelContentEntrance
-                --    （其内部 buildTabUI/buildHeaderDecor/buildCloseButton/buildSwitchButton + 揭开入场）
                 fadeOutDialog(function()
                     if not alive or shutdown then return end
                     suppressHeaderEntrance = true
                     restoreDialogBg()
                     if playSwitchSequenceRef then playSwitchSequenceRef(Config.SwitchConfirmLoadingText) end
-                    -- ④ loader + 入场动画结束后，若目标窗口存在则交棒切换
                     local seqTotal = Config.SwitchFadeOutTime + Config.SwitchHoldTime + Config.SwitchLoaderFadeTime
                     task.delay(seqTotal + 0.05, function()
                         local t = switchToTarget
@@ -4951,8 +4864,6 @@ local function buildHeaderDecor()
             closeDialog = dlg
             animateEdge(UDim2.new(0, Config.SwitchDialogW, 0, Config.SwitchDialogH),
                 UDim2.new(0, (sw - Config.SwitchDialogW) / 2, 0, (sh - Config.SwitchDialogH) / 2), 0.35)
-            -- 对话框态：边框圆角与填充圆角同步到对话框圆角，
-            -- 避免 dlg 黑色圆角超出方形银白边框（问题：黑背景边缘越过银白边框）
             local dcTi = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
             if corner then TweenService:Create(corner, dcTi, { CornerRadius = Config.CloseDialogCorner }):Play() end
             if fillCorner then TweenService:Create(fillCorner, dcTi, { CornerRadius = Config.CloseDialogCorner }):Play() end
@@ -4997,9 +4908,6 @@ local function buildHeaderDecor()
                 local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                 local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
 
-                -- 切换/自动展开加载期间（suppressHeaderEntrance 为真）不应因图文动画
-                -- 额外收起面板：否则再执行新脚本时，刚展开的面板会被 ShowNotify/
-                -- 入场提示动画里的 collapsePanel 再次收起，表现为「额外的面板收起」
                 if wasExpanded and not suppressHeaderEntrance then
                     collapsePanel(true)
                     task.wait(Config.PanelExpandTime * 0.5)
@@ -5464,7 +5372,6 @@ if hintActive then clearHint(true) end
                     if toggleAnimBusy then cancelToggleAnim() end
                             if actionBusy and actionEnd then actionEnd(true) end
                             if iconTextBusy then clearIconTextHc(true) end
-                            -- 复位内容层透明度：抑制路径切回后 contentRoot 可能仍为全透明
                             if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
                             expanded = true
                             titleGen = titleGen + 1
@@ -5554,8 +5461,6 @@ if hintActive then clearHint(true) end
                             if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
                 if titleIcon then titleIcon:Destroy() titleIcon = nil end
                             if infoLabel then infoLabel:Destroy() infoLabel = nil end
-                            -- 切换按钮与内容层同步渐隐：长按销毁走爆炸序列，
-                            -- 此前 switchBtn 无人处理会残留整个爆炸动画
                             if fadeSwitchBtnForDestroy then fadeSwitchBtnForDestroy(0.35) end
                             if contentRoot and contentRoot.Parent then
                                 TweenService:Create(contentRoot, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { GroupTransparency = 1 }):Play()
@@ -5660,7 +5565,6 @@ showCloseConfirm = function()
                                 animateEdge(UDim2.new(0, sw - m * 2, 0, sh - top - m), UDim2.new(0, m, 0, top), Config.PanelExpandTime)
                             end)
                             local okBtn = makePill("确认", Config.CloseConfirmColor)
-                            -- 与切换脚本对话框一致：银白静态渐变（上白下银灰），深色文字
                             okBtn.BackgroundColor3 = Color3.new(1, 1, 1)
                             okBtn.TextColor3 = Color3.fromRGB(30, 30, 38)
                             local okGrad = Instance.new("UIGradient")
@@ -5687,9 +5591,6 @@ showCloseConfirm = function()
 
 local windowActionUntil = 0
 
--- 补齐面板布局缓存：从未展开过的窗口 lastPanelLayout / win._titleY 等均为 nil，
--- 直接走 restorePanelRef 会导致 buildTabUI 被跳过（空面板）、标题坐标退化为 0
--- （标题飞向左上角）。此处按与 doExpandPanel 相同的算法重算并缓存。
 local function ensurePanelLayout()
     if lastPanelLayout then return true end
     if not alive or shutdown then return false end
@@ -5730,8 +5631,6 @@ local function doExpandPanel()
 
     cancelEdgeTweens()
     resetIslandDrag()
-    -- 复位内容层透明度：此前的 _switchAway / 抑制路径可能把 contentRoot 整体隐没，
-    -- 若不复位，后续普通展开后面板内容不可见（仅剩标题/边框/背景）
     if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
     edge.AnchorPoint = Vector2.new(0.5, 0.5)
     edge.Position = islandRest
@@ -5742,8 +5641,6 @@ local function doExpandPanel()
     local myTitleGen = titleGen
     islandScale.Scale = 1
 
-    -- 兜底恢复面板填充背景，避免此前 _switchAway 等把 fillFrame 设为全透明后，
-    -- 切换/展开时背景不显示（切换过程背景消失）
     if fillFrame and fillFrame.Parent then
         fillFrame.BackgroundTransparency = Config.IslandFinalTransparency
     end
@@ -5825,10 +5722,6 @@ local function doExpandPanel()
     win._rebuildTabs = function() buildTabUI(lastPanelLayout) end
     buildHeaderDecor()
     buildTabUI(lastPanelLayout)
-        -- 切换/加载脚本路径（suppressHeaderEntrance 为真）下，doExpandPanel 由
-        -- expandForSwitchRef 调用：buildTabUI/buildCloseButton/buildSwitchButton 已构建，
-        -- 但整个内容层应在「加载动画」播放期间保持隐藏（含 Tab 列表与关闭/切换按钮），
-        -- 待 playPanelContentEntrance 揭开，避免自动展开动画期间控件提前透出
         if suppressHeaderEntrance and contentRoot and contentRoot.Parent then
             contentRoot.GroupTransparency = 1
         end
@@ -6068,8 +5961,6 @@ end
 local function makeSwitchLoader(text)
        local box = Instance.new("Frame")
         box.Name = "SwitchLoaderBox"
-        -- 覆盖整个内容区的不透明深色遮罩：避免切换时旧控件从透明背景透出，
-        -- 让 loader 表现为干净的加载态而非叠在旧控件之上
         box.BackgroundColor3 = Color3.new(0, 0, 0)
         box.BackgroundTransparency = 0
         box.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -6077,7 +5968,6 @@ local function makeSwitchLoader(text)
         box.Position = UDim2.new(0.5, 0, 0.5, 0)
         box.ZIndex = 75
         box.Parent = contentRoot
-        -- 蒙版需与面板同圆角，否则黑底矩形会露出面板圆角之外
         local boxCorner = Instance.new("UICorner")
         boxCorner.CornerRadius = UDim.new(0, Config.SwitchLoaderCorner)
         boxCorner.Parent = box
@@ -6214,8 +6104,6 @@ if not expanded or myGen ~= titleGen then return end
               + (lastPanelLayout and lastPanelLayout.titlePad or 0)
      + (lastPanelLayout and lastPanelLayout.blockH or 0))
      - Config.InfoBoxHeight - Config.InfoRise)
-    -- 关键：显式设置入场起点（右侧偏移 + 全透明），
-    -- 否则切换后 infoLabel 会卡在重建时的初始位置，表现为文字右偏移
     infoLabel.TextTransparency = 1
     infoLabel.Position = UDim2.new(0, ix + 40, 0, iy)
     TweenService:Create(infoLabel, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
@@ -6245,8 +6133,6 @@ if not expanded or myGen ~= titleGen then return end
 
       local box, ic, lbl, spin = makeSwitchLoader(loadingText or Config.SwitchLoadingText)
       box.Parent = contentRoot
-        -- 揭开内容层：含蒙版本身；蒙版会覆盖面板全部 UI，避免 suppress 路径下
-        -- 此前被隐藏的控件在蒙版就位前提前透出
         if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
         ic.Rotation = 0
             TweenService:Create(ic, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Rotation = 360 }):Play()
@@ -6264,8 +6150,6 @@ if not expanded or myGen ~= titleGen then return end
           return
    end
 
-      -- 在 loader 仍不透明时，先把新内容 build + 揭开到 loader 之下，
-      -- 这样 loader 淡出时背后已是完整新界面，避免「加载结束空一帧 / 旧 UI 闪现」
       playPanelContentEntrance()
 
       if ic then TweenService:Create(ic, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play() end
@@ -6310,8 +6194,6 @@ if box then TweenService:Create(box, TweenInfo.new(Config.SwitchLoaderFadeTime, 
         if not alive or shutdown or not expanded then return end
         if closeDialog and closeDialog.Parent then closeDialog:Destroy() end
         closeDialog = nil
-        -- 从未展开过的窗口：先补齐布局缓存与标题坐标，否则后续
-        -- playPanelContentEntrance 会跳过重建（空面板）且标题退到左上角
         if not lastPanelLayout then ensurePanelLayout() end
         if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
         titleGen = titleGen + 1
@@ -6323,25 +6205,19 @@ if box then TweenService:Create(box, TweenInfo.new(Config.SwitchLoaderFadeTime, 
         local top2 = Config.IslandPosition.Y.Offset + Config.PanelDrop
         cancelEdgeTweens()
         cancelChromeTweens()
-        -- 切回时边框/背景瞬间置位（不再从全透明补间），消除「切换完成瞬间边框/背景丢失」
         if fillFrame and fillFrame.Parent then
             fillFrame.BackgroundTransparency = Config.IslandFinalTransparency
         end
         if silverStroke then
             silverStroke.Transparency = Config.TargetTransparency
         end
-        -- 确保白色扫光边框回到隐藏态：扫光结束本应自动复位，此处兜底，
-        -- 避免切换/恢复后残留白色描边或边框整体不可见（切换过程边框消失）
         if stroke then stroke.Transparency = 1 end
         edge.AnchorPoint = Vector2.new(0, 0)
         edge.Position = UDim2.new(0, m2, 0, top2)
         edge.Size = UDim2.new(0, sw2 - m2 * 2, 0, sh2 - top2 - m2)
-        -- 切回时把标题重设为真实脚本标题，避免停留在默认折叠态「DynamicCow」绿色文案
         setIslandText(title, Config.TitleColor)
         setHeaderVisible(true)
         winOpen = true
-        -- 由 playPanelContentEntrance 统一负责重建面板 + 播放标题/Info 左移渐显入场动画，
-        -- 避免 Info 卡在重建后的初始位置（表现为文字右偏移）
         playPanelContentEntrance()
     end
 
@@ -6353,14 +6229,11 @@ end
         gradient.Color = rainbowColors
 
         if switchingFrom ~= nil then
-            -- 切换入场淡入时长（此前 fi 未定义，导致 `fi * 0.6` 对 nil 做算术报错）
             local fi = Config.FadeInTime
             local oldWin = loadedWindows[switchingFrom]
             if oldWin and type(oldWin) == "table" and oldWin._switchAway then
                 pcall(function() oldWin:_switchAway(Config.SwitchTitleMoveTime) end)
             end
-            -- 切换进入时边框/背景瞬间置位（不再从全透明补间），避免切换过程中
-            -- 出现「一瞬间边框/背景丢失」的空帧；补间起点为全透明会造成开头不可见
             if fillFrame and fillFrame.Parent then
                 fillFrame.BackgroundTransparency = Config.IslandFinalTransparency
             end
@@ -7136,8 +7009,6 @@ win._closeNow = function(self)
         end
     end
 
-    -- 多脚本销毁动画：另一脚本销毁后，本窗口从被隐藏状态恢复，
-    -- 新灵动岛从原位置渐显，同时由「圆形」展开为「胶囊」
     win._restoreFromDestroy = function(self)
         if not alive or shutdown then return false end
         switchDormant = false
@@ -7150,7 +7021,6 @@ win._closeNow = function(self)
         local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
         local h = Config.IslandSize.Y.Offset
 
-        -- 起始：圆形（宽=高，圆角=半径），位于灵动岛中心，完全透明
         local circleD = h
         edge.AnchorPoint = Vector2.new(0.5, 0.5)
         edge.Size = UDim2.new(0, circleD, 0, circleD)
@@ -7167,18 +7037,15 @@ win._closeNow = function(self)
         local ti = TweenInfo.new(growT, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
         local tiSine = TweenInfo.new(growT, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
 
-        -- 记录：由圆形展开为胶囊的尺寸目标（宽=岛宽，高=岛高）
         local circleTarget = UDim2.new(0, Config.IslandSize.X.Offset, 0, Config.IslandSize.Y.Offset)
         local circlePos = UDim2.new(0, Config.IslandPosition.X.Offset, 0, Config.IslandPosition.Y.Offset)
 
-        -- 渐显填充与银白边框
         TweenService:Create(fillFrame, tiSine, { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
         TweenService:Create(silverStroke, tiSine, { Transparency = Config.TargetTransparency }):Play()
         TweenService:Create(contentRoot, tiSine, { GroupTransparency = 0 }):Play()
 
         task.delay(Config.CircleHoldTime, function()
             if not alive then return end
-            -- 圆形 → 胶囊：宽度展开 + 圆角回到灵动岛圆角
             edge.AnchorPoint = Vector2.new(0, 0)
             TweenService:Create(edge, ti, {
                 Size = circleTarget,
@@ -7188,7 +7055,6 @@ win._closeNow = function(self)
             TweenService:Create(fillCorner, ti, { CornerRadius = Config.IslandCornerRadius }):Play()
         end)
 
-        -- 入场完成后重建文字与可选面板
         task.delay(Config.CircleHoldTime + growT, function()
             if not alive then return end
             if islandTextContainer and islandTextContainer.Parent then
@@ -7217,12 +7083,7 @@ win._closeNow = function(self)
         edge.Active = true
         if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
         if stroke then stroke.Transparency = 1 end
-        -- 切换脚本始终以展开模式恢复：无论 ready 与否（首个脚本 / 未走完入场流程的窗口
-        -- ready 恒为 false），都直接展开并重建内容，避免切回时面板卡在收起态
-        -- （表现为全部元素消失、标题飞向左上角灵动岛位置）
         expanded = true
-        -- 布局补齐由 restorePanelRef 内部完成（ensurePanelLayout 在其作用域内可见）；
-        -- 此处若直接调用会因跨出 runIslandEntrySetup 作用域而解析为 nil 全局
         if restorePanelRef then pcall(restorePanelRef) end
         return true
     end
