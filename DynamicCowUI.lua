@@ -1468,11 +1468,25 @@ title = Config.ErrorText
     end
 
     local chromeTweens = {}
+    local borderSweepConn = nil
+    local function cancelBorderSweep()
+        if borderSweepConn then
+            pcall(function() borderSweepConn:Disconnect() end)
+            borderSweepConn = nil
+            -- 扫光被中途取消：把边框复位到扫光结束态，避免残留白色描边或边框不可见
+            if stroke then stroke.Transparency = 1 end
+            if silverStroke then silverStroke.Transparency = Config.TargetTransparency end
+            if gradient then gradient.Transparency = NumberSequence.new(0) end
+        end
+    end
     local function cancelChromeTweens()
         for _, tw in ipairs(chromeTweens) do
             pcall(function() tw:Cancel() end)
         end
         chromeTweens = {}
+        -- 扫光连接同属 chrome 动效：_switchAway/恢复路径取消 chrome 补间时，
+        -- 必须同时停掉扫光，否则其结束回调会把已被隐没的边框重新渐显
+        cancelBorderSweep()
     end
     local function chromeTween(inst, ti, props)
         if not inst then return nil end
@@ -1550,6 +1564,7 @@ title = Config.ErrorText
 
     local function playBorderSweep()
         if not alive then return end
+        cancelBorderSweep()
         if gradient then
             gradient.Color = rainbowColors
             gradient.Rotation = 90
@@ -1561,7 +1576,10 @@ title = Config.ErrorText
         local t0 = os.clock()
         local conn
         conn = RunService.Heartbeat:Connect(function()
-            if not alive then if conn then conn:Disconnect() end return end
+            if borderSweepConn ~= conn or not alive then
+                if conn then conn:Disconnect() end
+                return
+            end
             local e = math.clamp((os.clock() - t0) / dur, 0, 1)
             if gradient then
                 local a = math.min(e, 0.995)
@@ -1575,6 +1593,7 @@ title = Config.ErrorText
             end
             if e >= 1 then
                 if conn then conn:Disconnect() end
+                if borderSweepConn == conn then borderSweepConn = nil end
                 local fi = Config.BorderSweepFade
                 TweenService:Create(stroke, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = 1 }):Play()
                 TweenService:Create(silverStroke, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Transparency = Config.TargetTransparency }):Play()
@@ -1583,6 +1602,7 @@ title = Config.ErrorText
                 end)
             end
         end)
+        borderSweepConn = conn
     end
 
     local function explode()
@@ -1849,12 +1869,20 @@ title = Config.ErrorText
     end
 
     local errorSeqBusy = false
+    -- 爆炸/销毁序列中渐隐切换按钮：playErrorSequence 位于本作用域，
+    -- 经此 upvalue 桥接调用 runIslandEntrySetup 内对 switchBtn 的处理
+    local fadeSwitchBtnForDestroy = nil
     local function playErrorSequence(customText)
         if errorSeqBusy then
             errText = Config.MultiErrorText
             return
         end
         errorSeqBusy = true
+        -- 停掉边框扫光：其结束回调会把已被爆炸序列渐隐的边框重新渐显，造成错乱
+        cancelBorderSweep()
+        -- 若此时有展开的下拉菜单（ZIndex 300，能盖住整棵子树），先关闭，
+        -- 否则它挂在 screenGui 上会在爆炸销毁后残留
+        if openDropdownClose then pcall(openDropdownClose) end
         errText = (type(customText) == "string" and #customText > 0) and customText or Config.ErrorText
         expanded = false
         winOpen = false
@@ -1868,6 +1896,8 @@ title = Config.ErrorText
         if titleIcon and titleIcon.Parent then
             TweenService:Create(titleIcon, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
         end
+        -- 切换按钮同样参与渐隐：否则爆炸动画期间它一直完整显示在面板右上角
+        if fadeSwitchBtnForDestroy then fadeSwitchBtnForDestroy(fadeDur) end
         if brandLbl and brandLbl.Parent then brandLbl:Destroy() brandLbl = nil end
         if infoLabel and infoLabel.Parent then
             TweenService:Create(infoLabel, TweenInfo.new(fadeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play()
@@ -1937,6 +1967,9 @@ title = Config.ErrorText
     local runIslandEntrySetup = nil
     local buildSwitchButton = nil
     local showSwitchConfirm = nil
+    -- 长按回调深处会对 showCloseConfirm 赋值（构建关闭二次确认），
+    -- 此处必须声明 local，否则赋值会写到全局表、读取点恒为 nil
+    local showCloseConfirm = nil
 
     local playSwitchSequenceRef = nil
     local switchToTarget = nil
@@ -2064,7 +2097,10 @@ title = Config.ErrorText
                 local cx = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
                 local cy = Config.IslandPosition.Y.Offset + Config.IslandSize.Y.Offset / 2
                 edge.AnchorPoint = Vector2.new(0.5, 0.5)
-                edge.Position = UDim2.new(0.5, cx, 0, cy - Config.HintSlideInDistance)
+                -- 起始位置即目标垂直中心：提示动画只做宽度展开。
+                -- 此前起始位置为 cy - HintSlideInDistance（高 26px），
+                -- 真实环境中补间第一帧前会先渲染该位置，表现为灵动岛短暂向上偏移
+                edge.Position = UDim2.new(0.5, cx, 0, cy)
                 local txt = Config.HintText
                 local tsize = Config.HintTextSize
                 local tw = measureTextWidth(txt, tsize) + Config.HintExtendPad
@@ -2189,6 +2225,16 @@ title = Config.ErrorText
 local closeBtn = nil
 
             local switchBtn = nil
+            -- 爆炸/销毁序列中渐隐切换按钮（由外层 playErrorSequence 经 upvalue 调用）
+            fadeSwitchBtnForDestroy = function(dur)
+                if switchBtn and switchBtn.Parent then
+                    local swb = switchBtn
+                    switchBtn = nil
+                    TweenService:Create(swb, TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play()
+                    swb.Active = false
+                    task.delay(dur + 0.05, function() if swb and swb.Parent then swb:Destroy() end end)
+                end
+            end
 
             local closeDialog = nil
             local tabListContainer = nil
@@ -2444,8 +2490,9 @@ local closeBtn = nil
                     hl.Padding = UDim.new(0, Config.ParagraphIconGap)
                     hl.Parent = frame
                     local hasIco = (p.Icon ~= nil and p.Icon ~= "")
+                    local ic = nil
                     if hasIco then
-                        local ic = Instance.new("ImageLabel")
+                        ic = Instance.new("ImageLabel")
                         ic.Name = "ParaIcon"
                         ic.Size = UDim2.fromOffset(Config.ParagraphIconSize, Config.ParagraphIconSize)
                         ic.BackgroundTransparency = 1
@@ -3348,6 +3395,10 @@ local closeBtn = nil
 
             local function collapsePanel(skipToggleAnim)
                 if not expanded then return end
+                -- 收起时若有残留的关闭/切换对话框（如对话框展开中被外部收起），
+                -- 一并销毁，避免其挂在 contentRoot 上随后被 destroyTabUI 孤立
+                if closeDialog and closeDialog.Parent then closeDialog:Destroy() end
+                closeDialog = nil
                 titleGen = titleGen + 1
                 cancelTitleTweens()
                 suppressHeaderEntrance = false
@@ -3742,6 +3793,7 @@ local closeBtn = nil
                         btn.ScaleType = Enum.ScaleType.Fit
                         btn.ImageColor3 = Color3.new(1, 1, 1)
                         btn.ImageTransparency = 1
+                        btn.ZIndex = 3
                         btn.Parent = contentRoot
                         TweenService:Create(btn, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
                         local closeHold = nil
@@ -4886,6 +4938,8 @@ if hintActive then clearHint(true) end
                     if toggleAnimBusy then cancelToggleAnim() end
                             if actionBusy and actionEnd then actionEnd(true) end
                             if iconTextBusy then clearIconTextHc(true) end
+                            -- 复位内容层透明度：抑制路径切回后 contentRoot 可能仍为全透明
+                            if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
                             expanded = true
                             titleGen = titleGen + 1
                             local myTitleGen = titleGen
@@ -4969,10 +5023,17 @@ if hintActive then clearHint(true) end
 
                         local function runCloseSequence()
                             shutdown = true
+                            cancelBorderSweep()
                             if closeBtn then closeBtn:Destroy() closeBtn = nil end
                             if loaderSpinTween then pcall(function() loaderSpinTween:Cancel() end) loaderSpinTween = nil end
                 if titleIcon then titleIcon:Destroy() titleIcon = nil end
                             if infoLabel then infoLabel:Destroy() infoLabel = nil end
+                            -- 切换按钮与内容层同步渐隐：长按销毁走爆炸序列，
+                            -- 此前 switchBtn 无人处理会残留整个爆炸动画
+                            if fadeSwitchBtnForDestroy then fadeSwitchBtnForDestroy(0.35) end
+                            if contentRoot and contentRoot.Parent then
+                                TweenService:Create(contentRoot, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { GroupTransparency = 1 }):Play()
+                            end
                             clearBrand()
                             destroyTabUI()
                             local cx2 = Config.IslandPosition.X.Offset + Config.IslandSize.X.Offset / 2
@@ -5090,6 +5151,37 @@ showCloseConfirm = function()
 
 local windowActionUntil = 0
 
+-- 补齐面板布局缓存：从未展开过的窗口 lastPanelLayout / win._titleY 等均为 nil，
+-- 直接走 restorePanelRef 会导致 buildTabUI 被跳过（空面板）、标题坐标退化为 0
+-- （标题飞向左上角）。此处按与 doExpandPanel 相同的算法重算并缓存。
+local function ensurePanelLayout()
+    if lastPanelLayout then return true end
+    if not alive or shutdown then return false end
+    if not (islandTextContainer and islandTextContainer.Parent) then return false end
+    local sw = screenGui.AbsoluteSize.X
+    local sh = screenGui.AbsoluteSize.Y
+    local m = Config.PanelMargin
+    local top = Config.IslandPosition.Y.Offset + Config.PanelDrop
+    local titlePad = Config.HeaderPad
+    local iconS = Config.TitleIconSize
+    local iconGap = Config.TitleIconGap
+    local titleH = islandTextContainer.AbsoluteSize.Y
+    local infoH = Config.InfoBoxHeight
+    local vGap = Config.InfoTopGap
+    local blockH = (info ~= "") and (titleH + vGap + infoH) or titleH
+    local blockTop = top + titlePad
+    local iconLeft = m + titlePad + Config.TitleIconNudgeX
+    local contentLeftX = iconLeft + iconS + iconGap
+    local titleTargetY = blockTop + titleH / 2 + Config.TitleDrop
+    local infoTop = blockTop + titleH + vGap - Config.InfoRise
+    win._infoY = infoTop
+    win._titleLeftX = contentLeftX
+    win._titleY = titleTargetY
+    lastPanelLayout = { titlePad = titlePad, blockH = blockH, m = m, top = top, sh = sh }
+    win._rebuildTabs = function() buildTabUI(lastPanelLayout) end
+    return true
+end
+
 local function doExpandPanel()
     if not alive or shutdown or switchDormant or not ready then return false end
     if expanded then return false end
@@ -5102,6 +5194,9 @@ local function doExpandPanel()
 
     cancelEdgeTweens()
     resetIslandDrag()
+    -- 复位内容层透明度：此前的 _switchAway / 抑制路径可能把 contentRoot 整体隐没，
+    -- 若不复位，后续普通展开后面板内容不可见（仅剩标题/边框/背景）
+    if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
     edge.AnchorPoint = Vector2.new(0.5, 0.5)
     edge.Position = islandRest
     edge.Size = Config.IslandSize
@@ -5679,6 +5774,10 @@ if box then TweenService:Create(box, TweenInfo.new(Config.SwitchLoaderFadeTime, 
         if not alive or shutdown or not expanded then return end
         if closeDialog and closeDialog.Parent then closeDialog:Destroy() end
         closeDialog = nil
+        -- 从未展开过的窗口：先补齐布局缓存与标题坐标，否则后续
+        -- playPanelContentEntrance 会跳过重建（空面板）且标题退到左上角
+        if not lastPanelLayout then ensurePanelLayout() end
+        if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
         titleGen = titleGen + 1
         suppressHeaderEntrance = false
         islandScale.Scale = 1
@@ -6401,7 +6500,7 @@ win._closeNow = function(self)
         local d = (type(dur) == "number" and dur > 0) and dur or Config.SwitchTitleMoveTime
         local ti = TweenInfo.new(d, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
         if contentRoot and contentRoot.Parent then
-            TweenService:Create(contentRoot, ti, { GroupTransparency = 1 }):Play()
+            chromeTween(contentRoot, ti, { GroupTransparency = 1 })
         end
         if islandTextContainer and islandTextContainer.Parent then
             for _, cf in ipairs(islandTextContainer:GetChildren()) do
@@ -6523,6 +6622,8 @@ win._closeNow = function(self)
         -- ready 恒为 false），都直接展开并重建内容，避免切回时面板卡在收起态
         -- （表现为全部元素消失、标题飞向左上角灵动岛位置）
         expanded = true
+        -- 布局补齐由 restorePanelRef 内部完成（ensurePanelLayout 在其作用域内可见）；
+        -- 此处若直接调用会因跨出 runIslandEntrySetup 作用域而解析为 nil 全局
         if restorePanelRef then pcall(restorePanelRef) end
         return true
     end
