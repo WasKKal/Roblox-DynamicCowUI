@@ -328,6 +328,7 @@ local Config = {
     SliderTrackTransparency = 0.35,
     SliderTrackCorner = UDim.new(0, 8),
     SliderFillColor = Color3.fromRGB(120, 160, 255),
+    SliderFillDarken = 0.28,
 
     SliderThumbColor = Color3.fromRGB(245, 245, 248),
     SliderThumbSize = 16,
@@ -2692,6 +2693,13 @@ local closeBtn = nil
                     local fillCorner = Instance.new("UICorner")
                     fillCorner.CornerRadius = Config.SliderTrackCorner
                     fillCorner.Parent = fill
+                    local fillBaseColor = sl.FillColor or Config.SliderFillColor
+                    local fillGrad = Instance.new("UIGradient")
+                    fillGrad.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, fillBaseColor),
+                        ColorSequenceKeypoint.new(1, darkenColor(fillBaseColor, Config.SliderFillDarken)),
+                    })
+                    fillGrad.Parent = fill
                     fill.Parent = track
                     local function clampFrac(f)
                         if f < 0 then f = 0 elseif f > 1 then f = 1 end
@@ -2755,6 +2763,7 @@ local closeBtn = nil
                     sl._frame = frame
                     sl._track = track
                     sl._fill = fill
+                    sl._fillGrad = fillGrad
                     sl._titleLbl = titleLbl
                     sl._valueLbl = valueLbl
                     sl._refresh(false)
@@ -6689,6 +6698,12 @@ end
                     if typeof(v) == "Color3" then
                         self4.FillColor = v
                         if self4._fill and self4._fill.Parent then self4._fill.BackgroundColor3 = v end
+                        if self4._fillGrad and self4._fillGrad.Parent then
+                            self4._fillGrad.Color = ColorSequence.new({
+                                ColorSequenceKeypoint.new(0, v),
+                                ColorSequenceKeypoint.new(1, darkenColor(v, Config.SliderFillDarken)),
+                            })
+                        end
                     end
                 end
                 sl.SetDegree = function(self4, v)
