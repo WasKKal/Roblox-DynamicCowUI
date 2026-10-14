@@ -265,6 +265,8 @@ local Config = {
 
     SwitchLoaderFadeTime = 0.3,
 
+    SwitchLoaderCorner = 16,
+
     SwitchLoadingText = "正在切换脚本",
 
  SwitchConfirmLoadingText = "正在载入脚本…",
@@ -369,7 +371,7 @@ local Config = {
     DropdownOptionSelGradB = Color3.fromRGB(196, 206, 226),
     DropdownOptionSelStroke = Color3.fromRGB(236, 242, 252),
     DropdownOptionSelStrokeThickness = 1,
-    DropdownOptionHiH = 18,
+    DropdownOptionHiH = 22,
     DropdownOptionHiInset = 6,
     DropdownRevealTime = 0.22,
     DropdownOptionStagger = 0.05,
@@ -2835,8 +2837,9 @@ local closeBtn = nil
                     label.ZIndex = 4
                     label.Parent = capsule
 
-                    local menuOpen = false
-                    local menuFrame = nil
+                        local menuOpen = false
+                        local menuFrame = nil
+                        local menuStroke = nil
                     local outsideConn = nil
 
                     local function closeMenu(animate)
@@ -2858,6 +2861,7 @@ local closeBtn = nil
                                     end
                                 end
                                 TweenService:Create(mf, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { BackgroundTransparency = 1 }):Play()
+                                if menuStroke then TweenService:Create(menuStroke, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { Transparency = 1 }):Play() end
                                 task.delay(Config.DropdownCollapseTime + 0.05, function()
                                     if mf and mf.Parent then mf:Destroy() end
                                 end)
@@ -2911,6 +2915,7 @@ local closeBtn = nil
                         mstroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
                         mstroke.Parent = mf
                         menuFrame = mf
+                        menuStroke = mstroke
 
                         local container
                         if needScroll then
@@ -2966,7 +2971,8 @@ local closeBtn = nil
                             local hl = Instance.new("Frame")
                             hl.Name = "DdSelHi"
                             hl.BackgroundColor3 = Config.DropdownOptionSelected
-                            hl.BackgroundTransparency = isSelected(opt) and 0 or 1
+                            -- 半透明：银白渐变仅作底色提示，浅色条目文字可透出，不被遮挡
+                            hl.BackgroundTransparency = isSelected(opt) and 0.82 or 1
                             hl.Size = UDim2.new(1, -Config.DropdownOptionHiInset * 2, 0, Config.DropdownOptionHiH)
                             hl.Position = UDim2.new(0, Config.DropdownOptionHiInset, 0.5, 0)
                             hl.AnchorPoint = Vector2.new(0, 0.5)
@@ -4269,7 +4275,10 @@ local function buildHeaderDecor()
                 local top2 = Config.IslandPosition.Y.Offset + Config.PanelDrop
                 cancelEdgeTweens()
                 edge.AnchorPoint = Vector2.new(0, 0)
-                edge.Position = Config.IslandPosition
+                -- 注意：edge 此时仍是「对话框」尺寸，切勿在此把 Position 设为 IslandPosition
+                -- （那是灵动岛居中位置）。否则全尺寸面板会以岛位置为左上角、瞬间向右下偏移，
+                -- 再由 animateEdge 滑回正确位置，表现为「窗口向右上角偏移」。
+                -- 直接由 animateEdge 从对话框态平滑放大回面板态即可。
                 animateEdge(UDim2.new(0, sw2 - m2 * 2, 0, sh2 - top2 - m2), UDim2.new(0, m2, 0, top2), Config.PanelExpandTime)
                 lastPanelLayout = { titlePad = Config.HeaderPad, blockH = (lastPanelLayout and lastPanelLayout.blockH) or 0, m = m2, top = top2, sh = sh2 }
                 -- 对话框展开回面板态：圆角恢复为灵动岛圆角
@@ -5410,6 +5419,10 @@ local function makeSwitchLoader(text)
         box.Position = UDim2.new(0.5, 0, 0.5, 0)
         box.ZIndex = 75
         box.Parent = contentRoot
+        -- 蒙版需与面板同圆角，否则黑底矩形会露出面板圆角之外
+        local boxCorner = Instance.new("UICorner")
+        boxCorner.CornerRadius = UDim.new(0, Config.SwitchLoaderCorner)
+        boxCorner.Parent = box
 
     local ic = Instance.new("ImageLabel")
         ic.Name = "SwitchLoaderIcon"
@@ -5590,6 +5603,10 @@ if not expanded or myGen ~= titleGen then return end
           return
    end
 
+      -- 在 loader 仍不透明时，先把新内容 build + 揭开到 loader 之下，
+      -- 这样 loader 淡出时背后已是完整新界面，避免「加载结束空一帧 / 旧 UI 闪现」
+      playPanelContentEntrance()
+
       if ic then TweenService:Create(ic, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play() end
 if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
 if box then TweenService:Create(box, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play() end
@@ -5606,8 +5623,6 @@ if box then TweenService:Create(box, TweenInfo.new(Config.SwitchLoaderFadeTime, 
             end
             return
         end
-
-          playPanelContentEntrance()
          end)
        end)
         end)
