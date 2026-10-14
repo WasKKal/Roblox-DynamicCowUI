@@ -6898,11 +6898,35 @@ end
         if #name == 0 then name = "Config" end
         return name
     end
-    win.MakeConfig = function(self, name)
+    win.MakeConfig = function(self, name, kv)
+        if type(name) == "table" and kv == nil then
+            kv = name
+            name = nil
+        end
+        if name ~= nil and type(name) ~= "string" then
+            reportError("MakeConfig 第一参数需为配置名字符串，或直接传 { ConfigKey = 值 } 表")
+            return false
+        end
+        if kv ~= nil and type(kv) ~= "table" then
+            reportError("MakeConfig 第二参数需为 { ConfigKey = 值 } 表")
+            return false
+        end
         name = normCfgName(name)
         if not self._configFolder or #name == 0 then
             reportError("MakeConfig 需要先设置 CreateWindow 的 Folder 并传入有效名称")
             return false
+        end
+        if kv then
+            local data = loadConfigFile(self._configFolder, name)
+            local changed = false
+            for key, value in pairs(kv) do
+                if type(key) == "string" and #key > 0 then
+                    data[key] = value
+                    changed = true
+                end
+            end
+            if not changed then return true end
+            return writeConfigFile(self._configFolder, name, data)
         end
         local data = {}
         for key, ctrl in pairs(self._cfgIndex) do
