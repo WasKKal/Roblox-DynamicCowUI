@@ -227,6 +227,7 @@ local Config = {
     ToggleWidth = 46,
     ToggleHeight = 26,
     TogglePad = 3,
+    ToggleRowHeight = 30,
     ToggleIconRatio = 0.6,
     ToggleTrackColor = Color3.fromRGB(72, 72, 84),
     ToggleThumbColor = Color3.new(1, 1, 1),
@@ -310,7 +311,7 @@ local Config = {
     ParagraphBackPad = 8,
     ParagraphDarken = 0.1,
     ParagraphTitleDrop = 8,
-    SliderRowHeight = 34,
+    SliderRowHeight = 30,
     SliderTitleSize = 14,
     SliderTitleColor = Color3.new(1, 1, 1),
     SliderTitlePadX = 10,
@@ -328,9 +329,9 @@ local Config = {
     SliderThumbColor = Color3.fromRGB(245, 245, 248),
     SliderThumbSize = 16,
     SliderAnimTime = 0.3,
-    DropdownRowHeight = 36,
+    DropdownRowHeight = 32,
 
-    LineRowHeight = 14,
+    LineRowHeight = 8,
     LineThickness = 1,
     LineColor = Color3.fromRGB(88, 88, 98),
     -- 默认分隔线内缩，使 AddLine() 默认线条与显式 Inset 线条长度一致，
@@ -362,7 +363,14 @@ local Config = {
     DropdownOptionTextColor = Color3.fromRGB(230, 230, 235),
     DropdownOptionTextSize = 13,
     DropdownOptionHover = Color3.fromRGB(48, 48, 58),
-    DropdownOptionSelected = Color3.fromRGB(60, 100, 175),
+    -- 选中指示器：银白静态渐变（不再用蓝色），并以独立 Frame 承载、缩小高度、加细边框
+    DropdownOptionSelected = Color3.fromRGB(222, 230, 245),
+    DropdownOptionSelGradA = Color3.fromRGB(250, 252, 255),
+    DropdownOptionSelGradB = Color3.fromRGB(196, 206, 226),
+    DropdownOptionSelStroke = Color3.fromRGB(236, 242, 252),
+    DropdownOptionSelStrokeThickness = 1,
+    DropdownOptionHiH = 18,
+    DropdownOptionHiInset = 6,
     DropdownRevealTime = 0.22,
     DropdownOptionStagger = 0.05,
     DropdownCollapseTime = 0.2,
@@ -2299,7 +2307,7 @@ local closeBtn = nil
                     end
                     local row = Instance.new("TextButton")
                     row.Name = "SubToggle"
-                    row.Size = UDim2.new(1, 0, 0, Config.ButtonHeight)
+                    row.Size = UDim2.new(1, 0, 0, Config.ToggleRowHeight)
                     row.BackgroundTransparency = 1
                     row.Text = ""
                     row.AutoButtonColor = false
@@ -2746,7 +2754,10 @@ local closeBtn = nil
                         if not d._menuScroll then return end
                         for _, ob in ipairs(d._menuScroll:GetChildren()) do
                             if ob:IsA("TextButton") and ob.Name == "DdOption" then
-                                ob.BackgroundColor3 = isSelected(ob:GetAttribute("OptName")) and Config.DropdownOptionSelected or Config.DropdownMenuFill
+                                local hi = ob:FindFirstChild("DdSelHi")
+                                if hi then
+                                    hi.BackgroundTransparency = isSelected(ob:GetAttribute("OptName")) and 0 or 1
+                                end
                             end
                         end
                     end
@@ -2842,6 +2853,8 @@ local closeBtn = nil
                                 for _, ob in ipairs(mf:GetDescendants()) do
                                     if ob:IsA("TextButton") and ob.Name == "DdOption" then
                                         TweenService:Create(ob, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+                                        local hi = ob:FindFirstChild("DdSelHi")
+                                        if hi then TweenService:Create(hi, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { BackgroundTransparency = 1 }):Play() end
                                     end
                                 end
                                 TweenService:Create(mf, TweenInfo.new(Config.DropdownCollapseTime, Enum.EasingStyle.Quart, Enum.EasingDirection.In), { BackgroundTransparency = 1 }):Play()
@@ -2932,14 +2945,14 @@ local closeBtn = nil
                             local ob = Instance.new("TextButton")
                             ob.Name = "DdOption"
                             ob.Size = UDim2.new(1, 0, 0, Config.DropdownOptionH)
-                            ob.BackgroundColor3 = isSelected(opt) and Config.DropdownOptionSelected or Config.DropdownMenuFill
+                            ob.BackgroundColor3 = Config.DropdownMenuFill
                             ob.BackgroundTransparency = 1
                             ob.TextTransparency = 1
                             ob.Text = opt
                             ob.TextColor3 = Config.DropdownOptionTextColor
                             ob.TextSize = Config.DropdownOptionTextSize
                             ob.Font = Enum.Font.Gotham
-                            ob.TextXAlignment = Enum.TextXAlignment.Left
+                            ob.TextXAlignment = Enum.TextXAlignment.Center
                             ob.AutoButtonColor = false
                             ob.LayoutOrder = i
                             -- 子级 ZIndex 必须高于父级(mf=DropdownMenuZ)，否则条目被菜单背景蒙版覆盖
@@ -2949,14 +2962,39 @@ local closeBtn = nil
                             local obCorner = Instance.new("UICorner")
                             obCorner.CornerRadius = UDim.new(0, 5)
                             obCorner.Parent = ob
+                            -- 选中指示器：独立 Frame，高度小于整行、上下留白缩小，银白静态渐变 + 细边框
+                            local hl = Instance.new("Frame")
+                            hl.Name = "DdSelHi"
+                            hl.BackgroundColor3 = Config.DropdownOptionSelected
+                            hl.BackgroundTransparency = isSelected(opt) and 0 or 1
+                            hl.Size = UDim2.new(1, -Config.DropdownOptionHiInset * 2, 0, Config.DropdownOptionHiH)
+                            hl.Position = UDim2.new(0, Config.DropdownOptionHiInset, 0.5, 0)
+                            hl.AnchorPoint = Vector2.new(0, 0.5)
+                            hl.ZIndex = Config.DropdownMenuZ + 3
+                            hl.Parent = ob
+                            local hlCorner = Instance.new("UICorner")
+                            hlCorner.CornerRadius = UDim.new(0, 6)
+                            hlCorner.Parent = hl
+                            local hlGrad = Instance.new("UIGradient")
+                            hlGrad.Color = ColorSequence.new({
+                                ColorSequenceKeypoint.new(0, Config.DropdownOptionSelGradA),
+                                ColorSequenceKeypoint.new(1, Config.DropdownOptionSelGradB),
+                            })
+                            hlGrad.Rotation = 90
+                            hlGrad.Parent = hl
+                            local hlStroke = Instance.new("UIStroke")
+                            hlStroke.Color = Config.DropdownOptionSelStroke
+                            hlStroke.Thickness = Config.DropdownOptionSelStrokeThickness
+                            hlStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                            hlStroke.Parent = hl
                             ob.MouseButton1Click:Connect(function()
                                 applySelection(opt)
                             end)
                             ob.MouseEnter:Connect(function()
-                                if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownOptionHover }):Play() end
+                                TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownOptionHover }):Play()
                             end)
                             ob.MouseLeave:Connect(function()
-                                if not isSelected(opt) then TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownMenuFill }):Play() end
+                                TweenService:Create(ob, TweenInfo.new(0.1), { BackgroundColor3 = Config.DropdownMenuFill }):Play()
                             end)
                         end
                         d._closeMenu = closeMenu
@@ -6189,7 +6227,12 @@ end
                                 else
                                     on = (self4.Selected == ob:GetAttribute("OptName"))
                                 end
-                                ob.BackgroundColor3 = on and Config.DropdownOptionSelected or Config.DropdownMenuFill
+                                local hi = ob:FindFirstChild("DdSelHi")
+                                if hi then
+                                    hi.BackgroundTransparency = on and 0 or 1
+                                else
+                                    ob.BackgroundColor3 = on and Config.DropdownOptionSelected or Config.DropdownMenuFill
+                                end
                             end
                         end
                     end
