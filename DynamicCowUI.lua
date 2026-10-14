@@ -5168,11 +5168,11 @@ local function doExpandPanel()
     buildHeaderDecor()
     buildTabUI(lastPanelLayout)
         -- 切换/加载脚本路径（suppressHeaderEntrance 为真）下，doExpandPanel 由
-        -- expandForSwitchRef 调用：buildTabUI 已自动选中首页，但内容应在「加载动画」
-        -- 播放期间保持隐藏，待 playPanelContentEntrance 揭开，避免加载动画与面板内
-        -- 全部 UI 元素同时出现
-        if suppressHeaderEntrance and tabContentContainer and tabContentContainer.Parent then
-            tabContentContainer.GroupTransparency = 1
+        -- expandForSwitchRef 调用：buildTabUI/buildCloseButton/buildSwitchButton 已构建，
+        -- 但整个内容层应在「加载动画」播放期间保持隐藏（含 Tab 列表与关闭/切换按钮），
+        -- 待 playPanelContentEntrance 揭开，避免自动展开动画期间控件提前透出
+        if suppressHeaderEntrance and contentRoot and contentRoot.Parent then
+            contentRoot.GroupTransparency = 1
         end
     buildCloseButton(function() if showCloseConfirm then showCloseConfirm() end end)
     if buildSwitchButton then buildSwitchButton() end
@@ -5587,6 +5587,9 @@ if not expanded or myGen ~= titleGen then return end
 
       local box, ic, lbl, spin = makeSwitchLoader(loadingText or Config.SwitchLoadingText)
       box.Parent = contentRoot
+        -- 揭开内容层：含蒙版本身；蒙版会覆盖面板全部 UI，避免 suppress 路径下
+        -- 此前被隐藏的控件在蒙版就位前提前透出
+        if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
         ic.Rotation = 0
             TweenService:Create(ic, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { Rotation = 360 }):Play()
 
@@ -5658,14 +5661,13 @@ if box then TweenService:Create(box, TweenInfo.new(Config.SwitchLoaderFadeTime, 
         local top2 = Config.IslandPosition.Y.Offset + Config.PanelDrop
         cancelEdgeTweens()
         cancelChromeTweens()
+        -- 切回时边框/背景瞬间置位（不再从全透明补间），消除「切换完成瞬间边框/背景丢失」
         if fillFrame and fillFrame.Parent then
-            chromeTween(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                BackgroundTransparency = Config.IslandFinalTransparency,
-            })
+            fillFrame.BackgroundTransparency = Config.IslandFinalTransparency
         end
-        chromeTween(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-            Transparency = Config.TargetTransparency,
-        })
+        if silverStroke then
+            silverStroke.Transparency = Config.TargetTransparency
+        end
         -- 确保白色扫光边框回到隐藏态：扫光结束本应自动复位，此处兜底，
         -- 避免切换/恢复后残留白色描边或边框整体不可见（切换过程边框消失）
         if stroke then stroke.Transparency = 1 end
@@ -5693,13 +5695,14 @@ end
             if oldWin and type(oldWin) == "table" and oldWin._switchAway then
                 pcall(function() oldWin:_switchAway(Config.SwitchTitleMoveTime) end)
             end
-            local fi = Config.FadeInTime
-            TweenService:Create(fillFrame, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                BackgroundTransparency = Config.IslandFinalTransparency,
-            }):Play()
-            TweenService:Create(silverStroke, TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                Transparency = Config.TargetTransparency,
-            }):Play()
+            -- 切换进入时边框/背景瞬间置位（不再从全透明补间），避免切换过程中
+            -- 出现「一瞬间边框/背景丢失」的空帧；补间起点为全透明会造成开头不可见
+            if fillFrame and fillFrame.Parent then
+                fillFrame.BackgroundTransparency = Config.IslandFinalTransparency
+            end
+            if silverStroke then
+                silverStroke.Transparency = Config.TargetTransparency
+            end
             local function startSwitchEntry()
                 if not alive or switchDormant then return end
                 if not runIslandEntrySetup then return end
@@ -6478,38 +6481,18 @@ win._closeNow = function(self)
     win._switchBack = function(self)
         if not alive or shutdown or not switchDormant then return false end
         local d = Config.SwitchTitleMoveTime
-        if not ready then
-            fadeOutOtherWindows(d)
-            cancelChromeTweens()
-            switchDormant = false
-            if screenGui then screenGui.Enabled = true end
-            edge.Active = true
-            if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
-            if stroke then stroke.Transparency = 1 end
-            if fillFrame and fillFrame.Parent then
-                chromeTween(fillFrame, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                    BackgroundTransparency = Config.IslandFinalTransparency,
-                })
-            end
-            chromeTween(silverStroke, TweenInfo.new(Config.FadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                Transparency = Config.TargetTransparency,
-            })
-            return true
-        end
         fadeOutOtherWindows(d)
-        task.delay(d + 0.05, function()
-            if not alive or shutdown or not switchDormant then return end
-            cancelChromeTweens()
-            switchDormant = false
-            if screenGui then screenGui.Enabled = true end
-            edge.Active = true
-            if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
-            -- 切换脚本直接以展开模式恢复：移除「先收起为灵动岛、再展开」的中间态，
-            -- 避免切换完成瞬间面板回退为收起态（此时边框与背景都会消失）
-            expanded = true
-            if restorePanelRef then pcall(restorePanelRef) end
-            return
-        end)
+        cancelChromeTweens()
+        switchDormant = false
+        if screenGui then screenGui.Enabled = true end
+        edge.Active = true
+        if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
+        if stroke then stroke.Transparency = 1 end
+        -- 切换脚本始终以展开模式恢复：无论 ready 与否（首个脚本 / 未走完入场流程的窗口
+        -- ready 恒为 false），都直接展开并重建内容，避免切回时面板卡在收起态
+        -- （表现为全部元素消失、标题飞向左上角灵动岛位置）
+        expanded = true
+        if restorePanelRef then pcall(restorePanelRef) end
         return true
     end
 
