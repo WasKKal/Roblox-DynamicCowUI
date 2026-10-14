@@ -91,6 +91,7 @@ sub:AddSlider({
     MinValue = 0,
     MaxValue = 100,
     Default = 50,
+    FillColor = Color3.fromRGB(255, 140, 90), -- 自定义填充色，填充条越靠右自动越深
     ConfigKey = "Speed",
 })
 
@@ -268,6 +269,8 @@ Config.LongPressThreshold -- 长按阈值
 Config.DefaultTitleIcon  -- 默认标题图标
 Config.TitleLoaderIcon   -- 加载中旋转图标
 Config.TitleIconFailIcon -- 图标加载失败兜底
+Config.SliderFillColor   -- Slider 填充色（未传 FillColor 时使用）
+Config.SliderFillDarken  -- Slider 填充右侧渐深幅度（按通道递减，0~1，默认 0.28）
 
 -- 多脚本切换（检测到其它已加载 UI 时的接管动画）
 Config.SwitchTitleMoveTime     -- 中心标题 上移+缩小+渐隐 时长
