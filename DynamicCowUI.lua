@@ -5363,9 +5363,12 @@ end
 local function makeSwitchLoader(text)
        local box = Instance.new("Frame")
         box.Name = "SwitchLoaderBox"
-        box.BackgroundTransparency = 1
+        -- 覆盖整个内容区的不透明深色遮罩：避免切换时旧控件从透明背景透出，
+        -- 让 loader 表现为干净的加载态而非叠在旧控件之上
+        box.BackgroundColor3 = Color3.new(0, 0, 0)
+        box.BackgroundTransparency = 0
         box.AnchorPoint = Vector2.new(0.5, 0.5)
-        box.Size = UDim2.fromOffset(240, 120)
+        box.Size = UDim2.new(1, 0, 1, 0)
         box.Position = UDim2.new(0.5, 0, 0.5, 0)
         box.ZIndex = 75
         box.Parent = contentRoot
@@ -5551,6 +5554,7 @@ if not expanded or myGen ~= titleGen then return end
 
       if ic then TweenService:Create(ic, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { ImageTransparency = 1 }):Play() end
 if lbl then TweenService:Create(lbl, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { TextTransparency = 1 }):Play() end
+if box then TweenService:Create(box, TweenInfo.new(Config.SwitchLoaderFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play() end
                 if spin then task.delay(Config.SwitchLoaderFadeTime, function() pcall(function() spin:Cancel() end) end) end
             task.delay(Config.SwitchLoaderFadeTime, function()
    if not alive or shutdown then return end
@@ -6442,34 +6446,11 @@ win._closeNow = function(self)
             if screenGui then screenGui.Enabled = true end
             edge.Active = true
             if contentRoot and contentRoot.Parent then contentRoot.GroupTransparency = 0 end
-            if expanded then
-                if restorePanelRef then pcall(restorePanelRef) end
-                return
-            end
-            local fi = Config.FadeInTime
-            local ti = TweenInfo.new(fi, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-            if islandTextContainer and islandTextContainer.Parent then
-                for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                    if lb then lb.TextTransparency = 1 end
-                end
-            end
-            if fillFrame and fillFrame.Parent then fillFrame.BackgroundTransparency = 1 end
-            if silverStroke then silverStroke.Transparency = 1 end
-            if fillFrame and fillFrame.Parent then
-                TweenService:Create(fillFrame, ti, { BackgroundTransparency = Config.IslandFinalTransparency }):Play()
-            end
-            TweenService:Create(silverStroke, ti, { Transparency = Config.TargetTransparency }):Play()
-            if islandTextContainer and islandTextContainer.Parent then
-                for _, cf in ipairs(islandTextContainer:GetChildren()) do
-                    local lb = cf:FindFirstChildOfClass("TextLabel")
-                    if lb then TweenService:Create(lb, ti, { TextTransparency = 0 }):Play() end
-                end
-            end
-            task.delay(fi, function()
-                if not alive or shutdown or switchDormant then return end
-                if expandPanelRef then expandPanelRef() end
-            end)
+            -- 切换脚本直接以展开模式恢复：移除「先收起为灵动岛、再展开」的中间态，
+            -- 避免切换完成瞬间面板回退为收起态（此时边框与背景都会消失）
+            expanded = true
+            if restorePanelRef then pcall(restorePanelRef) end
+            return
         end)
         return true
     end
