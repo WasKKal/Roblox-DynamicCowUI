@@ -5660,6 +5660,16 @@ showCloseConfirm = function()
                                 animateEdge(UDim2.new(0, sw - m * 2, 0, sh - top - m), UDim2.new(0, m, 0, top), Config.PanelExpandTime)
                             end)
                             local okBtn = makePill("确认", Config.CloseConfirmColor)
+                            -- 与切换脚本对话框一致：银白静态渐变（上白下银灰），深色文字
+                            okBtn.BackgroundColor3 = Color3.new(1, 1, 1)
+                            okBtn.TextColor3 = Color3.fromRGB(30, 30, 38)
+                            local okGrad = Instance.new("UIGradient")
+                            okGrad.Rotation = 90
+                            okGrad.Color = ColorSequence.new({
+                                ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+                                ColorSequenceKeypoint.new(1, Color3.fromRGB(176, 176, 192)),
+                            })
+                            okGrad.Parent = okBtn
                             okBtn.LayoutOrder = 2
                             okBtn.Parent = bars
                             okBtn.MouseButton1Click:Connect(function()
