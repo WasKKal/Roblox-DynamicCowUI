@@ -3517,6 +3517,10 @@ local closeBtn = nil
                                 TweenService:Create(node, fti, { TextTransparency = 1 }):Play()
                             elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
                                 TweenService:Create(node, fti, { ImageTransparency = 1 }):Play()
+                            elseif node:IsA("UIStroke") then
+                                -- UIStroke 不是 GuiObject，上面的分支匹配不到；
+                                -- 漏掉它会导致卡片/knob 的白色描边瞬间消失、没有渐隐
+                                TweenService:Create(node, fti, { Transparency = 1 }):Play()
                             elseif node:IsA("GuiObject") then
                                 TweenService:Create(node, fti, { BackgroundTransparency = 1 }):Play()
                             end
@@ -3539,10 +3543,34 @@ local closeBtn = nil
                             closePicker(false)
                         end
                     end)
-                    -- 入场渐显
-                    TweenService:Create(overlay, TweenInfo.new(Config.ColorPickerFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                    -- 入场渐显：与退场对称，卡片整体（含 UIStroke 描边）从透明态渐入。
+                    -- 先记录各节点目标值 → 全部置为透明态 → 同帧补间回目标值，无闪烁
+                    local ftiIn = TweenInfo.new(Config.ColorPickerFadeTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+                    local enterTargets = {}
+                    for _, node in ipairs(card:GetDescendants()) do
+                        if node:IsA("TextLabel") or node:IsA("TextButton") then
+                            enterTargets[#enterTargets + 1] = { node = node, prop = "TextTransparency", val = node.TextTransparency or 0 }
+                            node.TextTransparency = 1
+                        elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
+                            enterTargets[#enterTargets + 1] = { node = node, prop = "ImageTransparency", val = node.ImageTransparency or 0 }
+                            node.ImageTransparency = 1
+                        elseif node:IsA("UIStroke") then
+                            enterTargets[#enterTargets + 1] = { node = node, prop = "Transparency", val = node.Transparency or 0 }
+                            node.Transparency = 1
+                        elseif node:IsA("GuiObject") then
+                            enterTargets[#enterTargets + 1] = { node = node, prop = "BackgroundTransparency", val = node.BackgroundTransparency or 0 }
+                            node.BackgroundTransparency = 1
+                        end
+                    end
+                    local cardBgTarget = card.BackgroundTransparency
+                    card.BackgroundTransparency = 1
+                    for _, t in ipairs(enterTargets) do
+                        TweenService:Create(t.node, ftiIn, { [t.prop] = t.val }):Play()
+                    end
+                    TweenService:Create(overlay, ftiIn, {
                         BackgroundTransparency = Config.ColorPickerOverlayTransparency,
                     }):Play()
+                    TweenService:Create(card, ftiIn, { BackgroundTransparency = cardBgTarget }):Play()
                 end
                 local function makeColorPicker(cp, order)
                     if win._autoLoadConfig and cp.ConfigKey and win._configFolder then
