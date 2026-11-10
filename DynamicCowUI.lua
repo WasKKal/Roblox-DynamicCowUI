@@ -1,4 +1,4 @@
-local DynamicCowUIVersion = "1.0.0"
+local DynamicCowUIVersion = "1.0.1"
 
 local svc = {
     RunService = game:GetService("RunService"),
@@ -587,6 +587,12 @@ local function _dcGetSharedHolder()
 end
 local _dcSharedHolder = _dcGetSharedHolder()
 if type(_dcSharedHolder) ~= "table" then _dcSharedHolder = _G end
+-- 重复加载保护：模块已初始化过则直接复用同一 Library 实例。
+-- 否则脚本被重复执行时会再次跑完整模块（重新下载 Lucide、重建演示窗口/全局连接），
+-- 叠加出多套界面。早期返回可避免这类重复初始化。
+if type(_dcSharedHolder.__DynamicCowUILibrary) == "table" then
+    return _dcSharedHolder.__DynamicCowUILibrary
+end
 if type(_dcSharedHolder.__DynamicCowUILoaded) ~= "table" then
     _dcSharedHolder.__DynamicCowUILoaded = { windows = {}, order = {} }
 end
@@ -754,11 +760,16 @@ title = Config.ErrorText
                     return existing
                 end
             end
-            reportError("检测到 Title「" .. tostring(title) .. "」的界面已加载，本次不再重复创建")
-            if type(existing) == "table" and existing.GetWindowAction then
-                pcall(function() existing:_flashLoadedHint() end)
-            end
-            return existing
+            -- 重复加载（同名界面已存在且非休眠态）：先销毁旧实例再重建一个干净的窗口，
+            -- 避免示例脚本重复执行时在同一界面上叠加重复的选项/功能控件（按钮、开关、滑块等）。
+            -- 这里不再直接 return 已存在的窗口——直接复用会导致调用方的 setup 代码
+            -- 把控件再次追加到旧窗口上，从而出现“选项/功能越来越多”的现象。
+            pcall(function()
+                if type(existing) == "table" and existing._closeNow then
+                    existing:_closeNow()
+                end
+            end)
+            -- 注意：不返回，继续向下创建全新窗口（已将旧实例关闭并解除注册）。
         end
     end
 
@@ -7417,5 +7428,8 @@ function Library.GetLoadedTitles()
     end
     return out
 end
+
+-- 供重复加载时早期返回复用，避免重复初始化模块
+_dcSharedHolder.__DynamicCowUILibrary = Library
 
 return Library

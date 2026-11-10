@@ -1,5 +1,5 @@
 ￼-- 请跳转110行 这里是本地缓存UI库与版本更新的代码区域
--- 此版本仍为 Preview(1.0.0)
+-- 此版本仍为 Preview(1.0.1)
 -- 有任何问题 请加QQ群反馈 938419587
 
 local CacheDir = "DynamicCowUI/Cache"
